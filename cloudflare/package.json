@@ -1,0 +1,29 @@
+{
+  "name": "kissmet-hostel-cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --env local",
+    "dev:remote": "wrangler dev --env staging",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy --env production",
+    "db:migrations:list": "wrangler d1 migrations list DB --local --env local",
+    "db:migrations:apply:local": "wrangler d1 migrations apply DB --local --env local",
+    "db:migrations:apply:staging": "wrangler d1 migrations apply DB --remote --env staging",
+    "db:migrations:apply:production": "wrangler d1 migrations apply DB --remote --env production",
+    "db:seed:local": "wrangler d1 execute DB --local --env local --file ./seeds/development.sql",
+    "db:verify:local": "wrangler d1 execute DB --local --env local --file ./tests/schema-verification.sql",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "hono": "^4.6.20"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250129.0",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.11",
+    "wrangler": "^3.107.3"
+  }
+}

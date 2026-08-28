@@ -1,0 +1,83 @@
+name = "kissmet-hostel-api"
+main = "src/index.ts"
+compatibility_date = "2026-08-27"
+workers_dev = true
+
+[vars]
+APP_NAME = "Kissmet Hostel Portal API"
+APP_ENV = "local"
+APP_VERSION = "0.1.0"
+PUBLIC_BASE_URL = "http://localhost:8787"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kissmet-hostel-local"
+database_id = "local-kissmet-hostel-db"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "DOCUMENTS"
+bucket_name = "kissmet-hostel-local-documents"
+
+[env.local]
+name = "kissmet-hostel-api-local"
+workers_dev = true
+
+[env.local.vars]
+APP_NAME = "Kissmet Hostel Portal API"
+APP_ENV = "local"
+APP_VERSION = "0.1.0"
+PUBLIC_BASE_URL = "http://localhost:8787"
+
+[[env.local.d1_databases]]
+binding = "DB"
+database_name = "kissmet-hostel-local"
+database_id = "local-kissmet-hostel-db"
+migrations_dir = "migrations"
+
+[[env.local.r2_buckets]]
+binding = "DOCUMENTS"
+bucket_name = "kissmet-hostel-local-documents"
+
+[env.staging]
+name = "kissmet-hostel-api-staging"
+workers_dev = true
+
+[env.staging.vars]
+APP_NAME = "Kissmet Hostel Portal API"
+APP_ENV = "staging"
+APP_VERSION = "0.1.0"
+PUBLIC_BASE_URL = "https://staging-api.kissmetgroup.org"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "kissmet-hostel-staging"
+database_id = "replace-with-staging-d1-database-id"
+migrations_dir = "migrations"
+
+[[env.staging.r2_buckets]]
+binding = "DOCUMENTS"
+bucket_name = "kissmet-hostel-staging-documents"
+
+[env.production]
+name = "kissmet-hostel-api-production"
+workers_dev = false
+routes = [
+  { pattern = "api.kissmetgroup.org/*", zone_name = "kissmetgroup.org" }
+]
+
+[env.production.vars]
+APP_NAME = "Kissmet Hostel Portal API"
+APP_ENV = "production"
+APP_VERSION = "0.1.0"
+PUBLIC_BASE_URL = "https://api.kissmetgroup.org"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "kissmet-hostel-production"
+database_id = "replace-with-production-d1-database-id"
+migrations_dir = "migrations"
+
+[[env.production.r2_buckets]]
+binding = "DOCUMENTS"
+bucket_name = "kissmet-hostel-production-documents"
