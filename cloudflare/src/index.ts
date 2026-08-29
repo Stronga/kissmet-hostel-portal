@@ -5,8 +5,11 @@ import { authRoutes } from "./routes/auth.routes";
 import { adminRoutes } from "./routes/admin.routes";
 import { publicRoutes } from "./routes/public.routes";
 import { residentRoutes } from "./routes/resident.routes";
+import { corsMiddleware } from "./middleware/cors.middleware";
 
 const app = new Hono<{ Bindings: Env }>();
+
+app.use("*", corsMiddleware);
 
 app.get("/", (c) => {
   return c.json({

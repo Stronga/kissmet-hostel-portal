@@ -7,4 +7,5 @@ export interface Env {
   APP_ENV: AppEnv;
   APP_VERSION: string;
   PUBLIC_BASE_URL: string;
+  ADMIN_ALLOWED_ORIGINS?: string;
 }

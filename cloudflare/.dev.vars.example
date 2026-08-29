@@ -1,3 +1,4 @@
 # Local-only secrets belong in .dev.vars and should not be committed.
 # This foundation does not require secrets yet.
 APP_ENV=local
+ADMIN_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
