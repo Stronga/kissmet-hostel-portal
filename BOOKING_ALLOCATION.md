@@ -38,6 +38,10 @@ Server-side middleware enforces `application:*`, `booking:*`, and `allocation:*`
 
 ## Application Lifecycle
 
+Application creation allocates `application_number` on the backend from `application_number_sequence`.
+Callers provide `residentId`, `academicSessionId`, and optional notes only.
+The generated format is `KSM-APP-0001`, `KSM-APP-0002`, and so on.
+
 Allowed transitions:
 
 - `draft -> submitted`

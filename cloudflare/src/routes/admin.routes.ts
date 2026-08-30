@@ -203,7 +203,6 @@ routes.post("/applications", requirePermission("application:write"), async (c) =
     return c.json(ok(await service(c).createApplication(c.get("authUser"), {
       residentId: intField(input, "residentId")!,
       academicSessionId: intField(input, "academicSessionId")!,
-      applicationNumber: stringField(input, "applicationNumber")!,
       notes: stringField(input, "notes", false, 2000)
     })), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }

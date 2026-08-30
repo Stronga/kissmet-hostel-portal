@@ -28,6 +28,7 @@ build/
 .parcel-cache/
 .turbo/
 coverage/
+*.tsbuildinfo
 
 # Python generated files
 __pycache__/

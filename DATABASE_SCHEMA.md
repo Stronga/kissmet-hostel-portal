@@ -150,6 +150,7 @@ Stores resident application records for a session.
 - Status values: `draft`, `submitted`, `under_review`, `approved`, `rejected`, `cancelled`, `archived`.
 - Unique constraints: `application_number`.
 - Application numbers use the format `KSM-APP-0001`, `KSM-APP-0002`, and so on. They are allocated from `application_number_sequence`, not derived from the D1 integer primary key.
+- Application creation services allocate `application_number` internally. Frontend callers and API clients must not provide or choose the application number.
 - Active application rule: partial unique index prevents multiple active application records for the same resident/session while allowing rejected, cancelled, and archived history.
 - Approval rule: approving an application must not automatically allocate a bed. Approval only means the applicant is eligible to proceed to booking/placement. Bed allocation remains a separate explicit staff action.
 
@@ -185,6 +186,8 @@ Stores the next numeric value used to allocate Kissmet application numbers.
 
 - Single-row table: `id = 1`.
 - Default format: `KSM-APP-` plus a zero-padded sequence number with at least four digits.
+- The service layer allocates an application number with a compare-and-swap update on `next_value`, then inserts it into `applications.application_number`.
+- `applications.application_number` remains unique, so D1 rejects any unexpected collision instead of silently duplicating application numbers.
 
 ### `allocations`
 

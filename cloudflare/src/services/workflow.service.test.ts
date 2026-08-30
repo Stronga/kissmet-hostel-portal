@@ -23,6 +23,7 @@ class WorkflowRepo {
     room_rates: [{ id: 1, room_id: 1, academic_session_id: 1, amount_minor: 250000, currency: "GHS", status: "active" }]
   };
   audits: string[] = [];
+  appSeq = 1;
   bookingSeq = 1;
   paymentSeq = 1;
   receiptSeq = 1;
@@ -62,6 +63,7 @@ class WorkflowRepo {
     return null;
   }
   async allocateBookingNumber() { return `KSM-BKG-${String(this.bookingSeq++).padStart(4, "0")}`; }
+  async allocateApplicationNumber() { return `KSM-APP-${String(this.appSeq++).padStart(4, "0")}`; }
   async allocatePaymentReference() { return `KSM-PAY-${String(this.paymentSeq++).padStart(4, "0")}`; }
   async allocateReceiptNumber() { return `KSM-RCP-${String(this.receiptSeq++).padStart(4, "0")}`; }
   async allocateResidentCode() { return "KSM-RES-0001"; }
@@ -137,7 +139,7 @@ function service(repo = new WorkflowRepo()) {
 }
 
 async function approvedBooking(svc: AdminService, repo: WorkflowRepo, residentId = 1) {
-  await svc.createApplication(manager, { residentId, academicSessionId: 1, applicationNumber: `APP-${residentId}-${repo.rows.applications.length + 1}` });
+  await svc.createApplication(manager, { residentId, academicSessionId: 1 });
   const appId = Number(repo.rows.applications.at(-1)!.id);
   await svc.updateApplicationStatus(manager, appId, "submitted");
   await svc.updateApplicationStatus(manager, appId, "under_review");
@@ -149,7 +151,7 @@ async function approvedBooking(svc: AdminService, repo: WorkflowRepo, residentId
 describe("phase 5 workflows", () => {
   it("creates, submits, reviews, approves, rejects, and blocks invalid application transitions", async () => {
     const { svc, repo } = service();
-    const app = await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-1" }) as Record<string, unknown>;
+    const app = await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 }) as Record<string, unknown>;
     await svc.updateApplicationStatus(manager, Number(app.id), "submitted");
     await svc.updateApplicationStatus(manager, Number(app.id), "under_review", "Looks complete");
     await svc.updateApplicationStatus(manager, Number(app.id), "approved");
@@ -159,13 +161,24 @@ describe("phase 5 workflows", () => {
 
   it("prevents duplicate active applications for the same resident and session", async () => {
     const { svc } = service();
-    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-1" });
-    await expect(svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-2" })).rejects.toThrow("UNIQUE");
+    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
+    await expect(svc.createApplication(manager, { residentId: 1, academicSessionId: 1 })).rejects.toThrow("UNIQUE");
+  });
+
+  it("generates Kissmet application numbers internally", async () => {
+    const { svc, repo } = service();
+    const first = await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 }) as Record<string, unknown>;
+    repo.rows.applications[0].status = "archived";
+    const second = await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 }) as Record<string, unknown>;
+    expect(first.application_number).toBe("KSM-APP-0001");
+    expect(second.application_number).toBe("KSM-APP-0002");
+    expect(first.application_number).toMatch(/^KSM-APP-\d{4}$/);
+    expect(first.application_number).not.toBe(second.application_number);
   });
 
   it("creates bookings from approved applications with generated unique numbers and historical prices", async () => {
     const { svc, repo } = service();
-    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-1" });
+    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
     await expect(svc.createBooking(manager, { applicationId: 1, roomId: 1 })).rejects.toThrow("Only approved");
     await svc.updateApplicationStatus(manager, 1, "submitted");
     await svc.updateApplicationStatus(manager, 1, "under_review");
@@ -176,7 +189,7 @@ describe("phase 5 workflows", () => {
     expect(booking.total_amount_minor).toBe(250000);
     await expect(svc.createBooking(manager, { applicationId: 1, roomId: 1 })).rejects.toThrow("Duplicate active booking");
     repo.rows.bookings[0].status = "cancelled";
-    await svc.createApplication(manager, { residentId: 2, academicSessionId: 1, applicationNumber: "APP-2" });
+    await svc.createApplication(manager, { residentId: 2, academicSessionId: 1 });
     await svc.updateApplicationStatus(manager, 2, "submitted");
     await svc.updateApplicationStatus(manager, 2, "under_review");
     await svc.updateApplicationStatus(manager, 2, "approved");
@@ -188,7 +201,7 @@ describe("phase 5 workflows", () => {
   it("requires an active room rate for booking price capture", async () => {
     const { svc, repo } = service();
     repo.rows.room_rates = [];
-    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-1" });
+    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
     await svc.updateApplicationStatus(manager, 1, "submitted");
     await svc.updateApplicationStatus(manager, 1, "under_review");
     await svc.updateApplicationStatus(manager, 1, "approved");
@@ -197,7 +210,7 @@ describe("phase 5 workflows", () => {
 
   it("lists availability and enforces allocation constraints", async () => {
     const { svc, repo } = service();
-    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-1" });
+    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
     await svc.updateApplicationStatus(manager, 1, "submitted");
     await svc.updateApplicationStatus(manager, 1, "under_review");
     await svc.updateApplicationStatus(manager, 1, "approved");
@@ -215,7 +228,7 @@ describe("phase 5 workflows", () => {
 
   it("rejects inactive beds and gender-policy mismatches", async () => {
     const { svc, repo } = service();
-    await svc.createApplication(manager, { residentId: 2, academicSessionId: 1, applicationNumber: "APP-1" });
+    await svc.createApplication(manager, { residentId: 2, academicSessionId: 1 });
     await svc.updateApplicationStatus(manager, 1, "submitted");
     await svc.updateApplicationStatus(manager, 1, "under_review");
     await svc.updateApplicationStatus(manager, 1, "approved");
@@ -228,7 +241,7 @@ describe("phase 5 workflows", () => {
 
   it("transfers residents while preserving allocation history", async () => {
     const { svc, repo } = service();
-    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-1" });
+    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
     await svc.updateApplicationStatus(manager, 1, "submitted");
     await svc.updateApplicationStatus(manager, 1, "under_review");
     await svc.updateApplicationStatus(manager, 1, "approved");
@@ -244,7 +257,7 @@ describe("phase 5 workflows", () => {
 
   it("allows allocation to the room used for booking price capture", async () => {
     const { svc, repo } = service();
-    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-1" });
+    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
     await svc.updateApplicationStatus(manager, 1, "submitted");
     await svc.updateApplicationStatus(manager, 1, "under_review");
     await svc.updateApplicationStatus(manager, 1, "approved");
@@ -258,7 +271,7 @@ describe("phase 5 workflows", () => {
   it("rejects allocation to a differently priced room than the booking financial basis", async () => {
     const { svc, repo } = service();
     repo.rows.room_rates.push({ id: 2, room_id: 3, academic_session_id: 1, amount_minor: 300000, currency: "GHS", status: "active" });
-    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-1" });
+    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
     await svc.updateApplicationStatus(manager, 1, "submitted");
     await svc.updateApplicationStatus(manager, 1, "under_review");
     await svc.updateApplicationStatus(manager, 1, "approved");
@@ -271,7 +284,7 @@ describe("phase 5 workflows", () => {
   it("allows allocation to a different room only when active rate and currency match", async () => {
     const { svc, repo } = service();
     repo.rows.room_rates.push({ id: 2, room_id: 3, academic_session_id: 1, amount_minor: 250000, currency: "GHS", status: "active" });
-    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-1" });
+    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
     await svc.updateApplicationStatus(manager, 1, "submitted");
     await svc.updateApplicationStatus(manager, 1, "under_review");
     await svc.updateApplicationStatus(manager, 1, "approved");
@@ -285,7 +298,7 @@ describe("phase 5 workflows", () => {
   it("rejects cross-room transfer when the destination room rate differs", async () => {
     const { svc, repo } = service();
     repo.rows.room_rates.push({ id: 2, room_id: 3, academic_session_id: 1, amount_minor: 300000, currency: "GHS", status: "active" });
-    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-1" });
+    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
     await svc.updateApplicationStatus(manager, 1, "submitted");
     await svc.updateApplicationStatus(manager, 1, "under_review");
     await svc.updateApplicationStatus(manager, 1, "approved");
@@ -300,7 +313,7 @@ describe("phase 5 workflows", () => {
   it("allows same-priced cross-room transfer as interchangeable financial basis", async () => {
     const { svc, repo } = service();
     repo.rows.room_rates.push({ id: 2, room_id: 3, academic_session_id: 1, amount_minor: 250000, currency: "GHS", status: "active" });
-    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-1" });
+    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
     await svc.updateApplicationStatus(manager, 1, "submitted");
     await svc.updateApplicationStatus(manager, 1, "under_review");
     await svc.updateApplicationStatus(manager, 1, "approved");
@@ -314,7 +327,7 @@ describe("phase 5 workflows", () => {
 
   it("allows normal allocation only for confirmed bookings", async () => {
     const { svc, repo } = service();
-    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: "APP-1" });
+    await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
     await svc.updateApplicationStatus(manager, 1, "submitted");
     await svc.updateApplicationStatus(manager, 1, "under_review");
     await svc.updateApplicationStatus(manager, 1, "approved");
@@ -328,7 +341,7 @@ describe("phase 5 workflows", () => {
   it("rejects new active allocations for cancelled, expired, and completed bookings", async () => {
     for (const status of ["cancelled", "expired", "completed"]) {
       const { svc, repo } = service();
-      await svc.createApplication(manager, { residentId: 1, academicSessionId: 1, applicationNumber: `APP-${status}` });
+      await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
       await svc.updateApplicationStatus(manager, 1, "submitted");
       await svc.updateApplicationStatus(manager, 1, "under_review");
       await svc.updateApplicationStatus(manager, 1, "approved");

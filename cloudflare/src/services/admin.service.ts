@@ -114,16 +114,26 @@ export class AdminService {
     throw new Error("Unable to create resident with unique resident code");
   }
 
-  async createApplication(actor: AuthUser, data: { residentId: number; academicSessionId: number; applicationNumber: string; notes?: string | null }) {
-    const res = await this.repo.run(
-      "INSERT INTO applications (resident_id, academic_session_id, application_number, status, decision_notes) VALUES (?, ?, ?, 'draft', ?)",
-      data.residentId,
-      data.academicSessionId,
-      data.applicationNumber,
-      data.notes ?? null
-    );
-    await this.repo.audit(actor.id, actor.staffId, "admin.application.create", "application", res.meta.last_row_id);
-    return this.get("applications", Number(res.meta.last_row_id));
+  async createApplication(actor: AuthUser, data: { residentId: number; academicSessionId: number; notes?: string | null }) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const applicationNumber = await this.repo.allocateApplicationNumber();
+      try {
+        const res = await this.repo.run(
+          "INSERT INTO applications (resident_id, academic_session_id, application_number, status, decision_notes) VALUES (?, ?, ?, 'draft', ?)",
+          data.residentId,
+          data.academicSessionId,
+          applicationNumber,
+          data.notes ?? null
+        );
+        await this.repo.audit(actor.id, actor.staffId, "admin.application.create", "application", res.meta.last_row_id, { applicationNumber });
+        return this.get("applications", Number(res.meta.last_row_id));
+      } catch (error) {
+        if (String((error as Error).message).includes("application_number") && attempt < 2) continue;
+        throw error;
+      }
+    }
+
+    throw new Error("Unable to create application with unique application number");
   }
 
   async updateApplicationStatus(actor: AuthUser, id: number, status: ApplicationStatus, notes?: string | null) {

@@ -71,10 +71,103 @@ export interface ApplicationBookingReport {
   confirmed_bookings?: number;
 }
 
+export type ApplicationStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "cancelled" | "archived";
+
+export interface AcademicSession {
+  id: number;
+  code: string;
+  name: string;
+  starts_on?: string | null;
+  ends_on?: string | null;
+  status: string;
+}
+
+export interface Application {
+  id: number;
+  resident_id: number;
+  academic_session_id: number;
+  application_number: string;
+  status: ApplicationStatus;
+  submitted_at?: string | null;
+  reviewed_by_staff_id?: number | null;
+  reviewed_at?: string | null;
+  decision_notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface IdentityDocument {
+  id: number;
+  resident_id: number;
+  document_type: "student_card" | "ghana_card" | "profile_photo" | "application_support" | "payment_slip" | "receipt_pdf" | "other";
+  status: string;
+  original_filename?: string | null;
+  content_type?: string | null;
+  size_bytes?: number | null;
+  created_at?: string;
+}
+
 export interface MaintenanceReport {
   open?: number;
   assigned?: number;
   in_progress?: number;
   resolved?: number;
   urgent?: number;
+}
+
+export interface Pagination {
+  limit: number;
+  offset: number;
+}
+
+export interface ListEnvelope<T> {
+  ok: true;
+  data: T[];
+  pagination: Pagination;
+}
+
+export interface DataEnvelope<T> {
+  ok: true;
+  data: T;
+}
+
+export interface Institution {
+  id: number;
+  code: string;
+  name: string;
+  status: string;
+}
+
+export interface Resident {
+  id: number;
+  user_id: number;
+  institution_id: number | null;
+  resident_code: string;
+  student_id: string | null;
+  first_name: string;
+  middle_name?: string | null;
+  last_name: string;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  guardian_name?: string | null;
+  guardian_phone?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  address?: string | null;
+  status: "prospect" | "applicant" | "resident" | "past_resident" | "suspended" | "archived";
+  phone_verified_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateResidentInput {
+  email?: string | null;
+  phone?: string | null;
+  displayName: string;
+  institutionId: number;
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  gender?: string | null;
+  status?: string;
 }

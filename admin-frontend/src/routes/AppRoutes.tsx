@@ -1,8 +1,10 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
+import { ApplicationsPage } from "../pages/Applications/ApplicationsPage";
 import { DashboardPage } from "../pages/Dashboard/DashboardPage";
 import { LoginPage } from "../pages/Login/LoginPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
+import { ResidentsPage } from "../pages/Residents/ResidentsPage";
 import { ProtectedRoute } from "./ProtectedRoute";
 
 export function AppRoutes() {
@@ -13,8 +15,8 @@ export function AppRoutes() {
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/residents" element={<PlaceholderPage title="Residents" />} />
-          <Route path="/applications" element={<PlaceholderPage title="Applications" />} />
+          <Route path="/residents" element={<ResidentsPage />} />
+          <Route path="/applications" element={<ApplicationsPage />} />
           <Route path="/bookings" element={<PlaceholderPage title="Bookings" />} />
           <Route path="/rooms" element={<PlaceholderPage title="Rooms & Beds" />} />
           <Route path="/allocations" element={<PlaceholderPage title="Allocations" />} />
