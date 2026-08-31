@@ -207,6 +207,27 @@ export interface BookingPaymentSummary {
   paymentAttentionRequired: boolean;
 }
 
+export type PaymentStatus = "pending" | "submitted" | "verified" | "rejected" | "refunded" | "cancelled" | "archived";
+export type PaymentMethod = "cash" | "bank_transfer" | "mobile_money" | "card" | "other";
+
+export interface Payment {
+  id: number;
+  booking_id: number | null;
+  resident_id: number;
+  payment_reference: string;
+  status: PaymentStatus;
+  amount_minor: number;
+  currency: string;
+  method: PaymentMethod;
+  paid_at?: string | null;
+  submitted_at?: string | null;
+  verified_by_staff_id?: number | null;
+  verified_at?: string | null;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface MaintenanceReport {
   open?: number;
   assigned?: number;
