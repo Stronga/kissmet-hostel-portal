@@ -5,6 +5,7 @@ import { ApplicationsPage } from "../pages/Applications/ApplicationsPage";
 import { BookingsPage } from "../pages/Bookings/BookingsPage";
 import { DashboardPage } from "../pages/Dashboard/DashboardPage";
 import { LoginPage } from "../pages/Login/LoginPage";
+import { MaintenancePage } from "../pages/Maintenance/MaintenancePage";
 import { PaymentsPage } from "../pages/Payments/PaymentsPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
 import { ReceiptsPage } from "../pages/Receipts/ReceiptsPage";
@@ -27,7 +28,7 @@ export function AppRoutes() {
           <Route path="/allocations" element={<AllocationsPage />} />
           <Route path="/payments" element={<PaymentsPage />} />
           <Route path="/receipts" element={<ReceiptsPage />} />
-          <Route path="/maintenance" element={<PlaceholderPage title="Maintenance" />} />
+          <Route path="/maintenance" element={<MaintenancePage />} />
           <Route path="/announcements" element={<PlaceholderPage title="Announcements" />} />
           <Route path="/reports" element={<PlaceholderPage title="Reports" />} />
           <Route path="/staff" element={<PlaceholderPage title="Staff" />} />

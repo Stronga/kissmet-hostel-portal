@@ -263,7 +263,44 @@ export interface MaintenanceReport {
   assigned?: number;
   in_progress?: number;
   resolved?: number;
+  closed?: number;
   urgent?: number;
+}
+
+export type MaintenanceStatus = "open" | "assigned" | "in_progress" | "resolved" | "closed" | "cancelled" | "archived";
+export type MaintenancePriority = "low" | "normal" | "high" | "urgent";
+export type MaintenanceCategory = "plumbing" | "electrical" | "furniture" | "cleaning" | "security" | "other";
+
+export interface MaintenanceRequest {
+  id: number;
+  request_number: string;
+  resident_id?: number | null;
+  room_id?: number | null;
+  bed_id?: number | null;
+  category: MaintenanceCategory;
+  priority: MaintenancePriority;
+  status: MaintenanceStatus;
+  title: string;
+  description?: string | null;
+  assigned_to_staff_id?: number | null;
+  opened_at?: string | null;
+  assigned_at?: string | null;
+  started_at?: string | null;
+  resolved_at?: string | null;
+  closed_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Staff {
+  id: number;
+  user_id: number;
+  role_id: number;
+  staff_code: string;
+  job_title?: string | null;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Pagination {
