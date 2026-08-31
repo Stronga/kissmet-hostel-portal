@@ -145,6 +145,15 @@ Supported roles:
 
 Authorization is enforced server-side by middleware and is not dependent on frontend visibility.
 
+Announcement permissions added after Phase 10I:
+
+- `announcement:read`: list/view admin announcements.
+- `announcement:write`: create/edit/archive announcement records.
+- `announcement:publish`: publish/expire announcements.
+- `announcement:external_delivery`: publish announcements that include explicit SMS or email channels.
+
+`super_admin` has all permissions. `manager` has the announcement write/publish/external-delivery permissions. `reception` has announcement read access only.
+
 ## Security Decisions
 
 - Plaintext passwords are never stored.

@@ -1,6 +1,7 @@
 import { hashPassword, randomToken } from "../auth/crypto";
 import type { AuthUser } from "../auth/context";
 import { AdminRepository } from "../repositories/admin.repository";
+import { MockAnnouncementDeliveryProvider, type AnnouncementDeliveryProvider, type ExternalAnnouncementChannel } from "./announcement-delivery.service";
 
 type ApplicationStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "cancelled" | "archived";
 type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "archived";
@@ -8,12 +9,19 @@ type AllocationStatus = "active" | "ended" | "cancelled" | "transferred" | "arch
 type PaymentStatus = "pending" | "submitted" | "verified" | "rejected" | "refunded" | "cancelled" | "archived";
 type MaintenanceStatus = "open" | "assigned" | "in_progress" | "resolved" | "closed" | "cancelled" | "archived";
 type AnnouncementStatus = "draft" | "published" | "expired" | "archived";
+type AnnouncementAudience = "all" | "residents" | "staff";
+type AnnouncementSeverity = "normal" | "important" | "high_alert";
+type AnnouncementChannel = "resident_portal" | "staff_portal" | "public_website" | "sms" | "email";
 const unavailableInventoryStatuses = new Set(["maintenance", "inactive", "archived"]);
 const occupiedBedStatusMessage = "This bed is currently occupied. Transfer or end the active allocation before taking the bed out of service.";
 const occupiedRoomStatusMessage = "This room currently has active allocations. Transfer or end the active allocations before taking the room out of service.";
+const announcementAudiences = new Set(["all", "residents", "staff"]);
+const announcementSeverities = new Set(["normal", "important", "high_alert"]);
+const announcementChannels = new Set(["resident_portal", "staff_portal", "public_website", "sms", "email"]);
+const externalAnnouncementChannels = new Set(["sms", "email"]);
 
 export class AdminService {
-  constructor(private readonly repo: AdminRepository, private readonly documents?: R2Bucket) {}
+  constructor(private readonly repo: AdminRepository, private readonly documents?: R2Bucket, private readonly announcementDelivery: AnnouncementDeliveryProvider = new MockAnnouncementDeliveryProvider()) {}
 
   list(table: string, limit: number, offset: number, search?: string) {
     return this.repo.list(table, limit, offset, search);
@@ -552,16 +560,72 @@ export class AdminService {
     return this.get("maintenance_requests", id);
   }
 
-  async createAnnouncement(actor: AuthUser, data: { title: string; body: string; audience?: string; publishedAt?: string | null; expiresAt?: string | null }) {
-    const res = await this.repo.run("INSERT INTO announcements (title, body, audience, status, published_at, expires_at) VALUES (?, ?, ?, 'draft', ?, ?)", data.title, data.body, data.audience ?? "all", data.publishedAt ?? null, data.expiresAt ?? null);
-    await this.repo.audit(actor.id, actor.staffId, "admin.announcement.created", "announcement", res.meta.last_row_id);
-    return this.get("announcements", Number(res.meta.last_row_id));
+  async listAnnouncements(limit: number, offset: number, search?: string) {
+    const rows = await this.repo.all<Record<string, unknown>>(
+      `SELECT * FROM announcements
+       ${search ? "WHERE title LIKE ? OR audience LIKE ? OR status LIKE ? OR severity LIKE ?" : ""}
+       ORDER BY id DESC LIMIT ? OFFSET ?`,
+      ...(search ? [`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`] : []),
+      limit,
+      offset
+    );
+    return { results: await Promise.all((rows.results ?? []).map((row) => this.decorateAnnouncement(row))) };
   }
 
-  async updateAnnouncement(actor: AuthUser, id: number, data: { title?: string | null; body?: string | null; audience?: string | null; expiresAt?: string | null }) {
-    await this.repo.run("UPDATE announcements SET title = COALESCE(?, title), body = COALESCE(?, body), audience = COALESCE(?, audience), expires_at = COALESCE(?, expires_at), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", data.title ?? null, data.body ?? null, data.audience ?? null, data.expiresAt ?? null, id);
+  async announcement(id: number) {
+    const row = await this.get("announcements", id) as Record<string, unknown> | null;
+    if (!row) throw new Error("Announcement not found");
+    return this.decorateAnnouncement(row);
+  }
+
+  async createAnnouncement(actor: AuthUser, data: { title: string; body: string; audience?: string; severity?: string; channels?: string[]; startsAt?: string | null; expiresAt?: string | null }) {
+    const audience = this.assertAnnouncementValue(data.audience ?? "all", announcementAudiences, "Invalid announcement audience") as AnnouncementAudience;
+    const severity = this.assertAnnouncementValue(data.severity ?? "normal", announcementSeverities, "Invalid announcement severity") as AnnouncementSeverity;
+    const channels = this.normalizeAnnouncementChannels(data.channels, audience);
+    const res = await this.repo.run(
+      "INSERT INTO announcements (title, body, audience, severity, status, starts_at, expires_at, created_by_staff_id) VALUES (?, ?, ?, ?, 'draft', ?, ?, ?)",
+      data.title,
+      data.body,
+      audience,
+      severity,
+      data.startsAt ?? null,
+      data.expiresAt ?? null,
+      actor.staffId
+    );
+    const id = Number(res.meta.last_row_id);
+    await this.replaceAnnouncementChannels(id, channels);
+    await this.repo.audit(actor.id, actor.staffId, "admin.announcement.created", "announcement", id, { severity, audience, channels });
+    return this.announcement(id);
+  }
+
+  async updateAnnouncement(actor: AuthUser, id: number, data: { title?: string | null; body?: string | null; audience?: string | null; severity?: string | null; channels?: string[] | null; startsAt?: string | null; expiresAt?: string | null }) {
+    const ann = await this.get("announcements", id) as Record<string, unknown> | null;
+    if (!ann) throw new Error("Announcement not found");
+    const audience = data.audience ? this.assertAnnouncementValue(data.audience, announcementAudiences, "Invalid announcement audience") as AnnouncementAudience : ann.audience as AnnouncementAudience;
+    const severity = data.severity ? this.assertAnnouncementValue(data.severity, announcementSeverities, "Invalid announcement severity") as AnnouncementSeverity : ann.severity as AnnouncementSeverity;
+    await this.repo.run(
+      "UPDATE announcements SET title = COALESCE(?, title), body = COALESCE(?, body), audience = ?, severity = ?, starts_at = COALESCE(?, starts_at), expires_at = COALESCE(?, expires_at), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+      data.title ?? null,
+      data.body ?? null,
+      audience,
+      severity,
+      data.startsAt ?? null,
+      data.expiresAt ?? null,
+      id
+    );
+    if (data.channels) await this.replaceAnnouncementChannels(id, this.normalizeAnnouncementChannels(data.channels, audience));
     await this.repo.audit(actor.id, actor.staffId, "admin.announcement.updated", "announcement", id);
-    return this.get("announcements", id);
+    return this.announcement(id);
+  }
+
+  async publishAnnouncement(actor: AuthUser, id: number, options: { confirmHighAlert?: boolean; idempotencyKey?: string } = {}) {
+    const ann = await this.announcement(id) as Record<string, unknown> & { channels: AnnouncementChannel[] };
+    if (ann.status !== "draft") throw new Error("Invalid workflow transition");
+    if (ann.severity === "high_alert" && !options.confirmHighAlert) throw new Error("High alert publication requires confirmation");
+    await this.repo.run("UPDATE announcements SET status = 'published', published_by_staff_id = ?, published_at = COALESCE(published_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", actor.staffId, id);
+    await this.deliverAnnouncement(ann, options.idempotencyKey ?? `publish-${id}`);
+    await this.repo.audit(actor.id, actor.staffId, "admin.announcement.published", "announcement", id, { channels: ann.channels, severity: ann.severity });
+    return this.announcement(id);
   }
 
   async updateAnnouncementStatus(actor: AuthUser, id: number, status: AnnouncementStatus) {
@@ -569,9 +633,33 @@ export class AdminService {
     if (!ann) throw new Error("Announcement not found");
     const allowed: Record<AnnouncementStatus, AnnouncementStatus[]> = { draft: ["published", "archived"], published: ["expired", "archived"], expired: ["archived"], archived: [] };
     if (!allowed[ann.status as AnnouncementStatus]?.includes(status)) throw new Error("Invalid workflow transition");
-    await this.repo.run("UPDATE announcements SET status = ?, published_at = CASE WHEN ? = 'published' THEN COALESCE(published_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ELSE published_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", status, status, id);
+    if (status === "published") return this.publishAnnouncement(actor, id, { confirmHighAlert: ann.severity !== "high_alert" });
+    await this.repo.run("UPDATE announcements SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", status, id);
     await this.repo.audit(actor.id, actor.staffId, `admin.announcement.${status}`, "announcement", id);
-    return this.get("announcements", id);
+    return this.announcement(id);
+  }
+
+  announcementReport() {
+    return this.repo.first<Record<string, unknown>>(`
+      SELECT
+        (SELECT COUNT(*) FROM announcements WHERE status = 'published' AND (starts_at IS NULL OR starts_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))) AS published,
+        (SELECT COUNT(*) FROM announcements WHERE status = 'draft') AS drafts,
+        (SELECT COUNT(*) FROM announcements WHERE severity = 'high_alert' AND status IN ('draft', 'published')) AS high_alerts,
+        (SELECT COUNT(*) FROM announcements WHERE status = 'published' AND expires_at IS NOT NULL AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AND expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+7 days')) AS expiring_soon
+    `);
+  }
+
+  publicAnnouncements() {
+    return this.repo.all(`
+      SELECT a.id, a.title, a.body, a.severity, a.audience, a.published_at, a.starts_at, a.expires_at
+      FROM announcements a
+      JOIN announcement_channels c ON c.announcement_id = a.id AND c.channel = 'public_website' AND c.status = 'enabled'
+      WHERE a.status = 'published'
+        AND (a.starts_at IS NULL OR a.starts_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        AND (a.expires_at IS NULL OR a.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      ORDER BY CASE a.severity WHEN 'high_alert' THEN 3 WHEN 'important' THEN 2 ELSE 1 END DESC, COALESCE(a.starts_at, a.published_at, a.created_at) DESC
+      LIMIT 25
+    `);
   }
 
   operationalOverview() {
@@ -707,5 +795,93 @@ export class AdminService {
     const res = await this.repo.run("INSERT INTO staff (user_id, role_id, staff_code, job_title, status) VALUES (?, ?, ?, ?, 'active')", user.meta.last_row_id, data.roleId, data.staffCode, data.jobTitle ?? null);
     await this.repo.audit(actor.id, actor.staffId, "admin.staff.create", "staff", res.meta.last_row_id);
     return { staff: await this.get("staff", Number(res.meta.last_row_id)), initialPassword: password };
+  }
+
+  private assertAnnouncementValue(value: string, allowed: Set<string>, message: string) {
+    if (!allowed.has(value)) throw new Error(message);
+    return value;
+  }
+
+  private normalizeAnnouncementChannels(channels: string[] | undefined | null, audience: AnnouncementAudience) {
+    const fallback = audience === "staff" ? ["staff_portal"] : audience === "residents" ? ["resident_portal"] : ["resident_portal", "staff_portal"];
+    const unique = Array.from(new Set((channels?.length ? channels : fallback).map((channel) => String(channel))));
+    for (const channel of unique) this.assertAnnouncementValue(channel, announcementChannels, "Invalid announcement channel");
+    return unique as AnnouncementChannel[];
+  }
+
+  private async replaceAnnouncementChannels(id: number, channels: AnnouncementChannel[]) {
+    await this.repo.run("DELETE FROM announcement_channels WHERE announcement_id = ?", id);
+    for (const channel of channels) {
+      await this.repo.run("INSERT INTO announcement_channels (announcement_id, channel, status) VALUES (?, ?, 'enabled')", id, channel);
+    }
+  }
+
+  private async decorateAnnouncement(row: Record<string, unknown>) {
+    const channels = await this.repo.all<{ channel: AnnouncementChannel }>("SELECT channel FROM announcement_channels WHERE announcement_id = ? AND status = 'enabled' ORDER BY channel", row.id);
+    const delivery = await this.repo.all<Record<string, unknown>>("SELECT channel, status, COUNT(*) AS count FROM announcement_delivery_attempts WHERE announcement_id = ? GROUP BY channel, status", row.id);
+    return {
+      ...row,
+      severity: row.severity ?? "normal",
+      channels: (channels.results ?? []).map((item) => item.channel),
+      recipient_counts: await this.announcementRecipientCounts(row.audience as AnnouncementAudience),
+      delivery_summary: delivery.results ?? []
+    };
+  }
+
+  private async announcementRecipientCounts(audience: AnnouncementAudience) {
+    const includeResidents = audience === "all" || audience === "residents";
+    const includeStaff = audience === "all" || audience === "staff";
+    const residentSms = includeResidents ? await this.repo.first<{ count: number }>("SELECT COUNT(*) AS count FROM users u JOIN residents r ON r.user_id = u.id WHERE u.status = 'active' AND u.phone IS NOT NULL AND r.status <> 'archived'") : { count: 0 };
+    const staffSms = includeStaff ? await this.repo.first<{ count: number }>("SELECT COUNT(*) AS count FROM users u JOIN staff s ON s.user_id = u.id WHERE u.status = 'active' AND u.phone IS NOT NULL AND s.status = 'active'") : { count: 0 };
+    const residentEmail = includeResidents ? await this.repo.first<{ count: number }>("SELECT COUNT(*) AS count FROM users u JOIN residents r ON r.user_id = u.id WHERE u.status = 'active' AND u.email IS NOT NULL AND r.status <> 'archived'") : { count: 0 };
+    const staffEmail = includeStaff ? await this.repo.first<{ count: number }>("SELECT COUNT(*) AS count FROM users u JOIN staff s ON s.user_id = u.id WHERE u.status = 'active' AND u.email IS NOT NULL AND s.status = 'active'") : { count: 0 };
+    return {
+      sms: Number(residentSms?.count ?? 0) + Number(staffSms?.count ?? 0),
+      email: Number(residentEmail?.count ?? 0) + Number(staffEmail?.count ?? 0)
+    };
+  }
+
+  private async announcementRecipients(audience: AnnouncementAudience, channel: ExternalAnnouncementChannel) {
+    const contactColumn = channel === "sms" ? "phone" : "email";
+    const residents = audience === "staff" ? { results: [] } : await this.repo.all<{ id: number; kind: "resident" }>(
+      `SELECT u.id, 'resident' AS kind FROM users u JOIN residents r ON r.user_id = u.id WHERE u.status = 'active' AND u.${contactColumn} IS NOT NULL AND r.status <> 'archived'`
+    );
+    const staff = audience === "residents" ? { results: [] } : await this.repo.all<{ id: number; kind: "staff" }>(
+      `SELECT u.id, 'staff' AS kind FROM users u JOIN staff s ON s.user_id = u.id WHERE u.status = 'active' AND u.${contactColumn} IS NOT NULL AND s.status = 'active'`
+    );
+    return [...(residents.results ?? []), ...(staff.results ?? [])];
+  }
+
+  private async deliverAnnouncement(announcement: Record<string, unknown> & { channels: AnnouncementChannel[] }, idempotencyKey: string) {
+    const external = announcement.channels.filter((channel) => externalAnnouncementChannels.has(channel)) as ExternalAnnouncementChannel[];
+    for (const channel of external) {
+      const recipients = await this.announcementRecipients(announcement.audience as AnnouncementAudience, channel);
+      for (const recipient of recipients) {
+        const result = await this.announcementDelivery.send({
+          announcementId: Number(announcement.id),
+          channel,
+          recipientUserId: recipient.id,
+          recipientKind: recipient.kind,
+          title: String(announcement.title),
+          body: String(announcement.body)
+        });
+        try {
+          await this.repo.run(
+            "INSERT INTO announcement_delivery_attempts (announcement_id, channel, recipient_kind, recipient_user_id, status, provider_message_id, provider_status, failure_reason, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            announcement.id,
+            channel,
+            recipient.kind,
+            recipient.id,
+            result.status,
+            result.providerMessageId ?? null,
+            result.providerStatus ?? null,
+            result.failureReason ?? null,
+            idempotencyKey
+          );
+        } catch (error) {
+          if (!String((error as Error).message).includes("UNIQUE")) throw error;
+        }
+      }
+    }
   }
 }

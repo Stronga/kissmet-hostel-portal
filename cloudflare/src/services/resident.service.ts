@@ -213,12 +213,12 @@ export class ResidentService {
 
   announcements(actor: AuthUser) {
     if (!actor.residentId) throw new Error("Resident session required");
-    return this.repo.all("SELECT id, title, body, audience, published_at, expires_at FROM announcements WHERE status = 'published' AND audience IN ('all', 'residents') AND (published_at IS NULL OR published_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ORDER BY published_at DESC, id DESC");
+    return this.repo.all("SELECT a.id, a.title, a.body, a.audience, a.severity, a.published_at, a.starts_at, a.expires_at FROM announcements a JOIN announcement_channels c ON c.announcement_id = a.id AND c.channel = 'resident_portal' AND c.status = 'enabled' WHERE a.status = 'published' AND a.audience IN ('all', 'residents') AND (a.starts_at IS NULL OR a.starts_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) AND (a.expires_at IS NULL OR a.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ORDER BY COALESCE(a.starts_at, a.published_at, a.created_at) DESC, a.id DESC");
   }
 
   async announcement(actor: AuthUser, id: number) {
     if (!actor.residentId) throw new Error("Resident session required");
-    const row = await this.repo.first("SELECT id, title, body, audience, published_at, expires_at FROM announcements WHERE id = ? AND status = 'published' AND audience IN ('all', 'residents') AND (published_at IS NULL OR published_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))", id);
+    const row = await this.repo.first("SELECT a.id, a.title, a.body, a.audience, a.severity, a.published_at, a.starts_at, a.expires_at FROM announcements a JOIN announcement_channels c ON c.announcement_id = a.id AND c.channel = 'resident_portal' AND c.status = 'enabled' WHERE a.id = ? AND a.status = 'published' AND a.audience IN ('all', 'residents') AND (a.starts_at IS NULL OR a.starts_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) AND (a.expires_at IS NULL OR a.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))", id);
     if (!row) throw new Error("Announcement not found");
     return row;
   }

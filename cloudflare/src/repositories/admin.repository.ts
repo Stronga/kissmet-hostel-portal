@@ -18,7 +18,7 @@ export class AdminRepository {
       payments: ["payment_reference", "status"],
       receipts: ["receipt_number", "status"],
       maintenance_requests: ["request_number", "title", "status"],
-      announcements: ["title", "audience", "status"],
+      announcements: ["title", "audience", "status", "severity"],
       audit_logs: ["action", "entity_type"]
     };
     const cols = allowed[table];

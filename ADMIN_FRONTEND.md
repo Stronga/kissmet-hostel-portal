@@ -97,10 +97,10 @@ Implemented routes:
 - `/payments`
 - `/receipts`
 - `/maintenance`
+- `/announcements`
 
 Prepared placeholder routes:
 
-- `/announcements`
 - `/reports`
 - `/staff`
 - `/audit-logs`
@@ -729,6 +729,70 @@ Known backend/API limitations:
 - Maintenance requests do not currently store academic session, allocation ID, resolution text, cancellation reason, closed reason, or separate work-note fields.
 - The backend service transition map allows `closed -> archived` and `cancelled -> archived`, but the admin routes do not expose an archive endpoint yet.
 
+## Announcements
+
+The Announcements interface uses the current backend APIs:
+
+- `GET /admin/announcements`
+- `POST /admin/announcements`
+- `GET /admin/announcements/:id`
+- `PATCH /admin/announcements/:id`
+- `POST /admin/announcements/:id/publish`
+- `POST /admin/announcements/:id/expire`
+- `POST /admin/announcements/:id/archive`
+- `GET /admin/dashboard/announcements`
+- `GET /public/announcements`
+
+Implemented functionality:
+
+- `/announcements` admin route
+- dashboard summary cards for published, draft, high-alert, and expiring-soon announcements
+- server-side search by backend-supported fields: title, audience, status, and severity
+- current-page status and severity filters
+- paginated announcements table with title, severity, audience, channels, status, publish window, and view action
+- detail dialog with message body, lifecycle dates, channels, aggregate SMS/email recipient counts, and action controls
+- create/edit draft workflow for roles with `announcement:write`
+- publish workflow for roles with `announcement:publish`
+- explicit high-alert confirmation before publishing high-alert records
+- archive and expire actions using backend lifecycle endpoints
+- external SMS/email channel check based on `announcement:external_delivery`
+- loading, empty, no-results, API-error, validation-error, and publish-confirmation states
+
+Announcement model:
+
+- Lifecycle status remains `draft`, `published`, `expired`, and `archived`.
+- Severity is separate from lifecycle and supports `normal`, `important`, and `high_alert`.
+- Audience remains `all`, `residents`, and `staff`.
+- Channels are normalized backend records, not comma-separated strings.
+- Supported channels are Resident Portal, Staff/Admin Portal, Public Website, SMS, and Email.
+
+Broadcast boundary:
+
+- Announcements are broadcast/public notices, not private direct messages.
+- The frontend never accepts or submits arbitrary recipient lists.
+- Recipient information is shown only as aggregate SMS/email counts returned by the backend.
+- SMS and email are opt-in channels. Selecting `high_alert` does not automatically select SMS or email.
+- The current backend uses mock SMS/email delivery providers and logs external delivery attempts server-side without live provider credentials.
+
+Public visibility:
+
+- `GET /public/announcements` exposes only current, published records with the `public_website` channel enabled.
+- Draft, archived, expired, future-scheduled, internal-only, contact, audit, and delivery-attempt data are not exposed through the public endpoint.
+
+RBAC behavior:
+
+- `super_admin`: full access.
+- `manager`: announcement read/write/publish plus external-delivery permission in the current backend/frontend permission map.
+- `reception`: announcement read only.
+- `accounts` and `maintenance`: no announcement management access in the current backend/frontend permission map.
+- Backend authorization remains authoritative.
+
+Known backend/API limitations:
+
+- `GET /admin/announcements` returns announcement records with channel arrays and aggregate delivery data, but does not include author/publisher staff display names yet.
+- Status and severity filters are current-page/frontend filters unless backend list filtering is expanded later.
+- External SMS/email delivery is mocked only. Ghana SMS/email provider credentials and delivery webhooks are intentionally not implemented in this phase.
+
 ## Design System
 
 Design tokens are defined as CSS variables in `src/styles/index.css` and mapped into Tailwind:
@@ -856,6 +920,10 @@ Frontend tests cover:
 - maintenance RBAC action visibility
 - maintenance API error state
 - human-readable maintenance dates
+- announcements list rendering
+- announcement draft creation without frontend-generated recipients
+- high-alert publish confirmation
+- announcement RBAC visibility
 - money parser validation
 - currency formatting
 - status formatting
@@ -865,10 +933,12 @@ Latest validation:
 
 ```text
 admin-frontend: npm.cmd run typecheck passed
-admin-frontend: npm.cmd test passed, 13 files / 94 tests
+admin-frontend: npm.cmd test passed, 14 files / 98 tests
 admin-frontend: npm.cmd run build passed
 cloudflare: npm.cmd run typecheck passed
-cloudflare: npm.cmd test passed, 5 files / 71 tests
+cloudflare: npm.cmd test passed, 5 files / 72 tests
+cloudflare: npm.cmd run db:migrations:apply:local passed for 0009_announcements_alerts.sql
+cloudflare: npm.cmd run db:verify:local passed
 ```
 
 ## Running Locally

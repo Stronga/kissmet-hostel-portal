@@ -20,6 +20,7 @@ cloudflare/migrations/0005_payments_receipts_foundation.sql
 cloudflare/migrations/0006_resident_onboarding.sql
 cloudflare/migrations/0007_operations_reporting.sql
 cloudflare/migrations/0008_booking_priced_room.sql
+cloudflare/migrations/0009_announcements_alerts.sql
 ```
 
 Development seed data is:
@@ -288,13 +289,42 @@ Stores the next numeric value used to allocate Kissmet maintenance request numbe
 
 ### `announcements`
 
-Stores operational announcements.
+Stores broadcast announcements and alerts.
 
-- Relationships: `published_by_staff_id -> staff.id`.
+- Relationships: `published_by_staff_id -> staff.id`, `created_by_staff_id -> staff.id`.
 - Audience values: `all`, `residents`, `staff`.
+- Severity values: `normal`, `important`, `high_alert`.
 - Status values: `draft`, `published`, `expired`, `archived`.
+- Scheduling fields: `starts_at`, `published_at`, `expires_at`.
 - Valid workflow transitions are `draft -> published/archived`, `published -> expired/archived`, and `expired -> archived`.
-- Resident portal visibility is restricted to `audience IN ('all', 'residents')`, `status = 'published'`, and non-expired announcements.
+- Severity is independent from lifecycle. A `high_alert` may still be a draft, published, expired, or archived record.
+- `high_alert` does not imply SMS or email delivery. SMS and email are selected explicitly through `announcement_channels`.
+- Resident portal visibility is restricted to `audience IN ('all', 'residents')`, `status = 'published'`, current scheduling, and an enabled `resident_portal` channel.
+- Public website visibility is restricted to `status = 'published'`, current scheduling, and an enabled `public_website` channel. The public endpoint returns an allowlisted announcement shape only.
+- Historical announcement records are preserved through lifecycle status changes, not deletion.
+
+### `announcement_channels`
+
+Stores normalized delivery/display channels for announcements. Channels are not stored as comma-separated text.
+
+- Relationships: `announcement_channels.announcement_id -> announcements.id`.
+- Channel values: `resident_portal`, `staff_portal`, `public_website`, `sms`, `email`.
+- Status values: `enabled`, `disabled`.
+- Unique constraints: `(announcement_id, channel)`.
+- SMS and email are external delivery channels. Portal and public website channels control visibility only.
+
+### `announcement_delivery_attempts`
+
+Stores external SMS/email delivery attempt records.
+
+- Relationships: `announcement_delivery_attempts.announcement_id -> announcements.id`, `recipient_user_id -> users.id`.
+- Channel values: `sms`, `email`.
+- Recipient kind values: `resident`, `staff`.
+- Status values: `sent`, `failed`.
+- Important fields: `provider_message_id`, `provider_status`, `failure_reason`, `idempotency_key`, `attempted_at`.
+- Unique constraints: `(announcement_id, channel, recipient_user_id, idempotency_key)` protects against duplicate sends for repeated publish attempts.
+- Provider failure is logged here and does not delete, archive, or otherwise mutate the announcement.
+- Contact lists are not exposed through admin or public announcement responses; services may expose aggregate recipient counts.
 
 ### `otp_codes`
 
@@ -341,6 +371,9 @@ Stores append-only operational audit events.
 - `idx_allocations_one_active_bed`: prevents more than one active allocation per bed.
 - `idx_allocations_one_active_resident_session`: prevents more than one active allocation per resident/session.
 - `idx_room_rates_one_active_per_room_session`: prevents more than one active room rate per room/session.
+- `idx_announcements_status_severity` and `idx_announcements_current`: support admin/public announcement filtering by lifecycle, severity, and current scheduling.
+- `idx_announcement_channels_lookup`: supports portal/public channel visibility checks.
+- `idx_announcement_delivery_announcement`: supports external delivery summaries by announcement/channel/status.
 - Lookup indexes cover status, session, room/bed, resident/payment, OTP rate limiting, sessions, and audit queries.
 
 ## Verification

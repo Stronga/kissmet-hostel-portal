@@ -292,6 +292,37 @@ export interface MaintenanceRequest {
   updated_at?: string;
 }
 
+export type AnnouncementStatus = "draft" | "published" | "expired" | "archived";
+export type AnnouncementSeverity = "normal" | "important" | "high_alert";
+export type AnnouncementAudience = "all" | "residents" | "staff";
+export type AnnouncementChannel = "resident_portal" | "staff_portal" | "public_website" | "sms" | "email";
+
+export interface Announcement {
+  id: number;
+  title: string;
+  body: string;
+  audience: AnnouncementAudience;
+  severity: AnnouncementSeverity;
+  status: AnnouncementStatus;
+  channels: AnnouncementChannel[];
+  starts_at?: string | null;
+  published_at?: string | null;
+  expires_at?: string | null;
+  created_by_staff_id?: number | null;
+  published_by_staff_id?: number | null;
+  recipient_counts?: { sms: number; email: number };
+  delivery_summary?: Array<{ channel: string; status: string; count: number }>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AnnouncementReport {
+  published?: number;
+  drafts?: number;
+  high_alerts?: number;
+  expiring_soon?: number;
+}
+
 export interface Staff {
   id: number;
   user_id: number;

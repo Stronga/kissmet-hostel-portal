@@ -12,6 +12,8 @@ class OpsRepo {
     maintenance_requests: [],
     staff: [{ id: 1, status: "active", role_code: "maintenance" }],
     announcements: [],
+    announcement_channels: [],
+    announcement_delivery_attempts: [],
     audit_logs: [],
     beds: [{ id: 1, room_id: 1, status: "available" }, { id: 2, room_id: 1, status: "available" }, { id: 3, room_id: 2, status: "maintenance" }],
     rooms: [{ id: 1, room_code: "R1", capacity: 2, gender_policy: "female", status: "available" }, { id: 2, room_code: "R2", capacity: 1, gender_policy: "any", status: "available" }],
@@ -28,6 +30,9 @@ class OpsRepo {
   async list(table: string) { return { results: this.rows[table] ?? [] }; }
   async all<T>(sql: string, ...binds: unknown[]) {
     if (sql.includes("FROM audit_logs")) return { results: this.rows.audit_logs as T[] };
+    if (sql.includes("FROM announcement_channels")) return { results: this.rows.announcement_channels.filter((r) => r.announcement_id === binds[0]).map((r) => ({ channel: r.channel })) as T[] };
+    if (sql.includes("FROM announcement_delivery_attempts")) return { results: this.rows.announcement_delivery_attempts.filter((r) => r.announcement_id === binds[0]) as T[] };
+    if (sql.includes("FROM users u JOIN")) return { results: [{ id: 10, kind: sql.includes("'resident'") ? "resident" : "staff" }] as T[] };
     if (sql.includes("FROM rooms r")) {
       return { results: this.rows.rooms.map((room) => ({ room_code: room.room_code, configured_capacity: room.capacity, active_bed_count: this.rows.beds.filter((b) => b.room_id === room.id && b.status === "available").length, occupied_bed_count: this.rows.allocations.filter((a) => a.status === "active" && a.academic_session_id === binds[0]).length, gender_policy: room.gender_policy, room_status: room.status, active_rate_minor: this.rows.room_rates.find((r) => r.room_id === room.id)?.amount_minor })) as T[] };
     }
@@ -35,6 +40,8 @@ class OpsRepo {
   }
   async first<T>(sql: string): Promise<T | null> {
     if (sql.includes("FROM staff")) return this.rows.staff[0] as T;
+    if (sql.includes("COUNT(*) AS count FROM users")) return { count: 1 } as T;
+    if (sql.includes("SELECT") && sql.includes("published") && sql.includes("FROM announcements")) return { published: 1, drafts: 1, high_alerts: 1, expiring_soon: 0 } as T;
     if (sql.includes("total_usable_beds")) return { total_usable_beds: 2, occupied_beds: 1, available_beds: 1 } as T;
     if (sql.includes("expected_booking_revenue")) return { expected_booking_revenue: 500000, verified_payments: 350000, outstanding_booking_balances: 150000, refunded_totals: 50000, fully_paid_bookings: 1, partially_paid_bookings: 1, unpaid_bookings: 0, bookings_requiring_payment_attention: 1 } as T;
     if (sql.includes("draft_applications")) return { submitted_applications: 1, approved_applications: 1, pending_bookings: 1, confirmed_bookings: 1 } as T;
@@ -55,13 +62,26 @@ class OpsRepo {
     }
     if (sql.startsWith("INSERT INTO announcements")) {
       const id = this.rows.announcements.length + 1;
-      this.rows.announcements.push({ id, title: binds[0], body: binds[1], audience: binds[2], status: "draft" });
+      this.rows.announcements.push({ id, title: binds[0], body: binds[1], audience: binds[2], severity: binds[3], status: "draft" });
       return { meta: { last_row_id: id, changes: 1 } };
+    }
+    if (sql.startsWith("DELETE FROM announcement_channels")) {
+      this.rows.announcement_channels = this.rows.announcement_channels.filter((r) => r.announcement_id !== binds[0]);
+    }
+    if (sql.startsWith("INSERT INTO announcement_channels")) {
+      this.rows.announcement_channels.push({ id: this.rows.announcement_channels.length + 1, announcement_id: binds[0], channel: binds[1], status: "enabled" });
+    }
+    if (sql.startsWith("INSERT INTO announcement_delivery_attempts")) {
+      this.rows.announcement_delivery_attempts.push({ id: this.rows.announcement_delivery_attempts.length + 1, announcement_id: binds[0], channel: binds[1], recipient_kind: binds[2], recipient_user_id: binds[3], status: binds[4], idempotency_key: binds[8] });
     }
     if (sql.startsWith("UPDATE announcements")) {
       const id = Number(binds.at(-1));
       const row = this.rows.announcements.find((r) => r.id === id);
-      if (row) row.status = sql.includes("status = ?") ? binds[0] : row.status;
+      if (row) {
+        if (sql.includes("status = 'published'")) row.status = "published";
+        else if (sql.includes("status = ?")) row.status = binds[0];
+        if (sql.includes("title = COALESCE")) row.title = binds[0] ?? row.title;
+      }
     }
     return { meta: { last_row_id: 1, changes: 1 } };
   }
@@ -106,6 +126,16 @@ describe("operations and reporting", () => {
     await expect(svc.updateAnnouncementStatus(manager, 1, "draft" as never)).rejects.toThrow("Invalid workflow transition");
     expect(repo.rows.announcements[0].status).toBe("published");
     expect(repo.audits).toContain("admin.announcement.published");
+  });
+
+  it("requires confirmation for high alerts and logs explicit external delivery attempts", async () => {
+    const { svc, repo } = service();
+    await svc.createAnnouncement(manager, { title: "Urgent", body: "Move now", audience: "all", severity: "high_alert", channels: ["staff_portal", "sms"] });
+    await expect(svc.publishAnnouncement(manager, 1)).rejects.toThrow("High alert publication requires confirmation");
+    await svc.publishAnnouncement(manager, 1, { confirmHighAlert: true, idempotencyKey: "test-alert" });
+    expect(repo.rows.announcements[0].status).toBe("published");
+    expect(repo.rows.announcement_channels.map((row) => row.channel)).toContain("sms");
+    expect(repo.rows.announcement_delivery_attempts.length).toBeGreaterThan(0);
   });
 
   it("returns occupancy financial application booking and maintenance reports", async () => {

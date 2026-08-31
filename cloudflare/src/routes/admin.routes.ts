@@ -61,6 +61,7 @@ routes.get("/dashboard/applications", requirePermission("application:read"), asy
   return c.json(ok(await service(c).applicationBookingReport(id ? Number(id) : null)));
 });
 routes.get("/dashboard/maintenance", requirePermission("maintenance:read"), async (c) => c.json(ok(await service(c).maintenanceReport())));
+routes.get("/dashboard/announcements", requirePermission("announcement:read"), async (c) => c.json(ok(await service(c).announcementReport())));
 
 routes.post("/academic-sessions", requirePermission("admin:write"), async (c) => {
   try {
@@ -393,7 +394,7 @@ routes.post("/maintenance/:id/cancel", requirePermission("maintenance:update"), 
 
 routes.get("/announcements", requirePermission("announcement:read"), async (c) => {
   const p = pagination(new URL(c.req.url));
-  const result = await service(c).list("announcements", p.limit, p.offset, new URL(c.req.url).searchParams.get("search") ?? undefined);
+  const result = await service(c).listAnnouncements(p.limit, p.offset, new URL(c.req.url).searchParams.get("search") ?? undefined);
   return c.json(listOk((result.results ?? []) as unknown[], p));
 });
 routes.post("/announcements", requirePermission("announcement:write"), async (c) => {
@@ -403,18 +404,30 @@ routes.post("/announcements", requirePermission("announcement:write"), async (c)
       title: stringField(input, "title")!,
       body: stringField(input, "body", true, 5000)!,
       audience: stringField(input, "audience", false) ?? undefined,
-      publishedAt: stringField(input, "publishedAt", false, 64),
+      severity: stringField(input, "severity", false) ?? undefined,
+      channels: Array.isArray(input.channels) ? input.channels.map(String) : undefined,
+      startsAt: stringField(input, "startsAt", false, 64),
       expiresAt: stringField(input, "expiresAt", false, 64)
     })), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
-routes.get("/announcements/:id", requirePermission("announcement:read"), async (c) => c.json(ok(await service(c).get("announcements", Number(c.req.param("id"))))));
+routes.get("/announcements/:id", requirePermission("announcement:read"), async (c) => c.json(ok(await service(c).announcement(Number(c.req.param("id"))))));
 routes.patch("/announcements/:id", requirePermission("announcement:write"), async (c) => {
-  try { const input = await body(c); return c.json(ok(await service(c).updateAnnouncement(c.get("authUser"), Number(c.req.param("id")), { title: stringField(input, "title", false), body: stringField(input, "body", false, 5000), audience: stringField(input, "audience", false), expiresAt: stringField(input, "expiresAt", false, 64) }))); }
+  try { const input = await body(c); return c.json(ok(await service(c).updateAnnouncement(c.get("authUser"), Number(c.req.param("id")), { title: stringField(input, "title", false), body: stringField(input, "body", false, 5000), audience: stringField(input, "audience", false), severity: stringField(input, "severity", false), channels: Array.isArray(input.channels) ? input.channels.map(String) : undefined, startsAt: stringField(input, "startsAt", false, 64), expiresAt: stringField(input, "expiresAt", false, 64) }))); }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
-routes.post("/announcements/:id/publish", requirePermission("announcement:write"), async (c) => {
-  try { return c.json(ok(await service(c).updateAnnouncementStatus(c.get("authUser"), Number(c.req.param("id")), "published"))); }
+routes.post("/announcements/:id/publish", requirePermission("announcement:publish"), async (c) => {
+  try {
+    const input = await body(c);
+    const ann = await service(c).announcement(Number(c.req.param("id"))) as Record<string, unknown> & { channels?: string[] };
+    const hasExternal = (ann.channels ?? []).some((channel) => channel === "sms" || channel === "email");
+    if (hasExternal && !hasPermission(c.get("authUser").role, "announcement:external_delivery")) return c.json(error("Forbidden", "forbidden"), 403);
+    return c.json(ok(await service(c).publishAnnouncement(c.get("authUser"), Number(c.req.param("id")), { confirmHighAlert: Boolean(input.confirmHighAlert), idempotencyKey: stringField(input, "idempotencyKey", false, 128) ?? undefined })));
+  }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.post("/announcements/:id/expire", requirePermission("announcement:publish"), async (c) => {
+  try { return c.json(ok(await service(c).updateAnnouncementStatus(c.get("authUser"), Number(c.req.param("id")), "expired"))); }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/announcements/:id/archive", requirePermission("announcement:write"), async (c) => {
