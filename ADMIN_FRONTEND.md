@@ -601,8 +601,8 @@ Void behavior:
 Print/view behavior:
 
 - The backend currently exposes structured receipt data, not a PDF or HTML render endpoint.
-- The frontend provides a browser-printable receipt using actual receipt, payment, booking, and resident data only.
-- Print styles hide admin navigation and controls.
+- The frontend provides a browser-printable A4 portrait receipt using actual receipt, payment, booking, and resident data only.
+- Print styles center the receipt content on the page, use readable print typography, preserve a one-page receipt layout, and hide admin navigation, modal controls, and other non-receipt UI.
 - The print view does not invent tax numbers, registration numbers, bank details, signatures, addresses, VAT values, or unsupported business data.
 
 Refund interaction:
@@ -610,6 +610,13 @@ Refund interaction:
 - The backend refund flow does not automatically void receipts.
 - The Receipts page shows the actual receipt status returned by the backend after any payment refund.
 - Refunded-payment receipt policy remains a business-rule decision for a later backend phase if needed.
+
+Verification fixture note:
+
+- `VERIFY-REC-1` is stale schema-verification data inserted directly by `cloudflare/tests/schema-verification.sql`.
+- That fixture inserts `VERIFY-PAY-1` with payment status `submitted`, then directly inserts `VERIFY-REC-1` with receipt status `issued`.
+- It bypasses the production service workflow and can therefore display an issued receipt with a submitted payment and unavailable verified date.
+- Production receipt issuance remains protected by the backend service rule that requires a verified payment before `POST /admin/payments/:id/receipt` can issue a receipt.
 
 RBAC behavior:
 
@@ -739,7 +746,8 @@ Frontend tests cover:
 - successful void without deletion
 - void failure handling
 - voided receipt visibility
-- printable receipt rendering without unsupported business data
+- printable A4 receipt rendering without unsupported business data
+- print-layout style coverage
 - receipt RBAC action visibility
 - receipts API error state
 - money parser validation
@@ -751,7 +759,7 @@ Latest validation:
 
 ```text
 admin-frontend: npm.cmd run typecheck passed
-admin-frontend: npm.cmd test passed, 12 files / 81 tests
+admin-frontend: npm.cmd test passed, 12 files / 82 tests
 admin-frontend: npm.cmd run build passed
 cloudflare: npm.cmd run typecheck passed
 cloudflare: npm.cmd test passed, 5 files / 71 tests

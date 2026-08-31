@@ -84,7 +84,19 @@ describe("ReceiptsPage", () => {
     expect(screen.getAllByText("KSM-BKG-0100").length).toBeGreaterThan(1);
     expect(screen.getAllByText("KSM-RES-0007").length).toBeGreaterThan(1);
     expect(screen.getAllByText("Mobile Money").length).toBeGreaterThan(0);
+    expect(screen.getByText("University of Ghana")).toBeInTheDocument();
+    expect(screen.getByText("Date verified/issued")).toBeInTheDocument();
     expect(screen.queryByText(/VAT|signature|bank details/i)).not.toBeInTheDocument();
+  });
+
+  it("applies professional A4 print layout styles", async () => {
+    renderReceipts();
+    await openReceipt();
+    const style = document.querySelector(".printable-receipt style")?.textContent ?? "";
+    expect(style).toContain("@page { size: A4 portrait; margin: 18mm; }");
+    expect(style).toContain("width: 174mm");
+    expect(style).toContain("left: 50%");
+    expect(style).toContain("page-break-inside: avoid");
   });
 
   it("does not generate receipt numbers on the frontend when issuing receipts", async () => {
