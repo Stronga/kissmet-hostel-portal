@@ -175,6 +175,11 @@ export interface Allocation {
   status: string;
   starts_on?: string | null;
   ends_on?: string | null;
+  released_at?: string | null;
+  assigned_by_staff_id?: number | null;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface AvailabilityBed {

@@ -93,10 +93,10 @@ Implemented routes:
 - `/applications`
 - `/bookings`
 - `/rooms`
+- `/allocations`
 
 Prepared placeholder routes:
 
-- `/allocations`
 - `/payments`
 - `/receipts`
 - `/maintenance`
@@ -404,6 +404,80 @@ Known backend/API limitations:
 - `GET /admin/rooms` and `GET /admin/room-rates` do not provide server-side search/status/gender filters yet. The UI applies those filters to the bounded current result page.
 - `GET /admin/rooms/:id/beds` returns bed rows without joined resident/allocation details. The UI combines the existing allocations endpoint with resident lookups for active bed occupancy display.
 
+## Allocations
+
+The Allocations interface uses the existing backend APIs:
+
+- `GET /admin/allocations`
+- `POST /admin/allocations`
+- `GET /admin/allocations/:id`
+- `POST /admin/allocations/:id/transfer`
+- `PATCH /admin/allocations/:id/status`
+- `GET /admin/bookings`
+- `GET /admin/bookings/:id`
+- `GET /admin/availability`
+- `GET /admin/rooms`
+- `GET /admin/rooms/:id/beds`
+- `GET /admin/residents/:id`
+- `GET /admin/academic-sessions`
+- `GET /admin/room-rates`
+- `GET /admin/institutions`
+
+Implemented functionality:
+
+- `/allocations` admin route
+- scoped summary cards for active allocations, available beds, ready loaded bookings, and transfers
+- paginated table with resident, booking, academic session, room/bed, status, assigned date, ended date, and actions
+- detail dialog organized into Allocation, Resident, Booking, Placement, History, and Actions sections
+- create-allocation workflow for roles with `allocation:write`
+- transfer workflow for active allocations
+- end, cancel, and archive status actions where the backend status rules allow
+- loading, empty, no-results, lookup, create, transfer, status-change, and API error states
+
+Allocation creation:
+
+- Only loaded bookings with `status = confirmed` are offered.
+- Confirmed bookings are excluded when the resident already has an active allocation for the same academic session in the loaded allocation set.
+- A specific bed is required; the frontend never allocates by room only.
+- Available beds come from `GET /admin/availability` for the selected booking session and resident.
+- `POST /admin/allocations` submits only `bookingId`, `residentId`, `academicSessionId`, `bedId`, `startsOn`, and optional notes.
+- The frontend does not submit or mutate booking totals, priced room IDs, priced rate IDs, room rates, payments, receipts, or booking status.
+
+Placement and pricing rules:
+
+- The backend remains authoritative for confirmed-booking eligibility, room availability, bed availability, duplicate resident allocation, gender policy, session matching, active allocation uniqueness, and pricing compatibility.
+- Same-room transfers are offered where backend availability allows them.
+- Same-priced cross-room transfers are offered only when the destination active rate amount and currency match the booking's captured financial basis.
+- Differently priced destination rooms are hidden where the frontend can determine the mismatch and are still rejected by backend validation.
+- The frontend does not implement repricing, refunds, credits, adjustment invoices, or booking-total changes.
+
+Allocation history:
+
+- The detail view includes current-page resident allocation history, including transferred, ended, cancelled, archived, and active rows where loaded.
+- History is not collapsed into only the current placement.
+- If complete resident-scoped allocation history is needed beyond the loaded page, the backend needs a resident-scoped history endpoint.
+
+Room/bed operational safeguards:
+
+- Actively allocated rooms/beds cannot be taken out of service through room/bed status endpoints.
+- Ending or transferring an allocation naturally frees the old bed for later room/bed status operations through the existing APIs.
+
+RBAC behavior:
+
+- `super_admin`: full access.
+- `manager`: allocation read/write in the current backend permission map.
+- `reception`: allocation read/write in the current backend permission map.
+- `accounts`: no allocation management actions in the current backend/frontend permission map.
+- `maintenance`: no allocation management actions in the current backend/frontend permission map.
+- Backend authorization remains authoritative.
+
+Known backend/API limitations:
+
+- `GET /admin/allocations` returns raw allocation rows without joined resident, booking, room, bed, institution, or session labels. The UI performs bounded current-page lookups using existing endpoints.
+- Server-side allocation search currently covers allocation `status` only.
+- Resident, booking, room, and academic-session filters are current-page/frontend filters unless backend list filtering is expanded later.
+- There is no resident-scoped allocation-history endpoint yet; detail history uses the loaded allocation page.
+
 ## Design System
 
 Design tokens are defined as CSS variables in `src/styles/index.css` and mapped into Tailwind:
@@ -481,6 +555,21 @@ Frontend tests cover:
 - room-rate status changes do not mutate booking pricing
 - rooms RBAC write-action visibility
 - rooms API error state
+- allocations list rendering
+- allocation detail dialog
+- only confirmed bookings eligible for allocation
+- specific destination bed required
+- successful allocation without booking financial-basis mutation
+- duplicate active resident/session allocation excluded from the eligible booking list
+- unavailable/occupied bed filtering through backend availability
+- gender and pricing incompatible beds excluded where available data allows
+- same-room and same-priced cross-room transfer options
+- differently priced cross-room transfer rejection surfaced from the backend
+- transferred allocation history remains visible
+- end allocation status action
+- allocation RBAC action visibility
+- allocation API and mutation error states
+- human-readable allocation dates
 - money parser validation
 - currency formatting
 - status formatting
@@ -490,7 +579,7 @@ Latest validation:
 
 ```text
 admin-frontend: npm.cmd run typecheck passed
-admin-frontend: npm.cmd test passed, 9 files / 52 tests
+admin-frontend: npm.cmd test passed, 10 files / 61 tests
 admin-frontend: npm.cmd run build passed
 cloudflare: npm.cmd run typecheck passed
 cloudflare: npm.cmd test passed, 5 files / 71 tests

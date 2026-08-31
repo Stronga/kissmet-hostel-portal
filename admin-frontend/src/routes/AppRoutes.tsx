@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
+import { AllocationsPage } from "../pages/Allocations/AllocationsPage";
 import { ApplicationsPage } from "../pages/Applications/ApplicationsPage";
 import { BookingsPage } from "../pages/Bookings/BookingsPage";
 import { DashboardPage } from "../pages/Dashboard/DashboardPage";
@@ -21,7 +22,7 @@ export function AppRoutes() {
           <Route path="/applications" element={<ApplicationsPage />} />
           <Route path="/bookings" element={<BookingsPage />} />
           <Route path="/rooms" element={<RoomsPage />} />
-          <Route path="/allocations" element={<PlaceholderPage title="Allocations" />} />
+          <Route path="/allocations" element={<AllocationsPage />} />
           <Route path="/payments" element={<PlaceholderPage title="Payments" />} />
           <Route path="/receipts" element={<PlaceholderPage title="Receipts" />} />
           <Route path="/maintenance" element={<PlaceholderPage title="Maintenance" />} />
