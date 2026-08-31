@@ -8,6 +8,9 @@ type AllocationStatus = "active" | "ended" | "cancelled" | "transferred" | "arch
 type PaymentStatus = "pending" | "submitted" | "verified" | "rejected" | "refunded" | "cancelled" | "archived";
 type MaintenanceStatus = "open" | "assigned" | "in_progress" | "resolved" | "closed" | "cancelled" | "archived";
 type AnnouncementStatus = "draft" | "published" | "expired" | "archived";
+const unavailableInventoryStatuses = new Set(["maintenance", "inactive", "archived"]);
+const occupiedBedStatusMessage = "This bed is currently occupied. Transfer or end the active allocation before taking the bed out of service.";
+const occupiedRoomStatusMessage = "This room currently has active allocations. Transfer or end the active allocations before taking the room out of service.";
 
 export class AdminService {
   constructor(private readonly repo: AdminRepository, private readonly documents?: R2Bucket) {}
@@ -52,12 +55,36 @@ export class AdminService {
   }
 
   async updateStatus(actor: AuthUser, table: string, id: number, status: string) {
+    await this.validateOperationalStatusChange(table, id, status);
     if (table === "academic_sessions" && status === "active") {
       await this.repo.run("UPDATE academic_sessions SET status = 'closed', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE status = 'active' AND id <> ?", id);
     }
     await this.repo.run(`UPDATE ${table} SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`, status, id);
     await this.repo.audit(actor.id, actor.staffId, `admin.${table}.status`, table, id, { status });
     return this.get(table, id);
+  }
+
+  private async validateOperationalStatusChange(table: string, id: number, status: string) {
+    if (!unavailableInventoryStatuses.has(status)) return;
+
+    if (table === "beds") {
+      const activeAllocation = await this.repo.first(
+        "SELECT id FROM allocations WHERE bed_id = ? AND status = 'active' LIMIT 1",
+        id
+      );
+      if (activeAllocation) throw new Error(occupiedBedStatusMessage);
+    }
+
+    if (table === "rooms") {
+      const activeAllocation = await this.repo.first(`
+        SELECT a.id
+        FROM allocations a
+        JOIN beds b ON b.id = a.bed_id
+        WHERE b.room_id = ? AND a.status = 'active'
+        LIMIT 1
+      `, id);
+      if (activeAllocation) throw new Error(occupiedRoomStatusMessage);
+    }
   }
 
   async createInstitution(actor: AuthUser, data: { code: string; name: string; status?: string }) {

@@ -17,15 +17,23 @@ class FakeRepo {
     room_rates: [],
     residents: [],
     staff: [],
-    roles: [{ id: 1, code: "manager" }]
+    roles: [{ id: 1, code: "manager" }],
+    allocations: []
   };
   audits: string[] = [];
   nextResidentCode = 1;
 
   async list(table: string) { return { results: this.rows[table] ?? [] }; }
   async get(table: string, id: number) { return (this.rows[table] ?? []).find((r) => r.id === id) ?? null; }
-  async first<T>(sql: string): Promise<T | null> {
+  async first<T>(sql: string, ...binds: unknown[]): Promise<T | null> {
     if (sql.includes("capacity")) return { capacity: 2, active_beds: this.rows.beds.filter((b) => b.status !== "archived").length } as T;
+    if (sql.includes("FROM allocations WHERE bed_id")) return (this.rows.allocations.find((a) => a.bed_id === binds[0] && a.status === "active") ?? null) as T | null;
+    if (sql.includes("FROM allocations a") && sql.includes("JOIN beds b")) {
+      return (this.rows.allocations.find((allocation) => {
+        const bed = this.rows.beds.find((item) => item.id === allocation.bed_id);
+        return bed?.room_id === binds[0] && allocation.status === "active";
+      }) ?? null) as T | null;
+    }
     if (sql.includes("total_residents")) return { total_residents: 1, active_residents: 1, total_rooms: 1, total_active_beds: 2, occupied_beds: 1, available_beds: 1, active_academic_session: "2026", active_staff_count: 1 } as T;
     return null;
   }
@@ -51,6 +59,16 @@ class FakeRepo {
       return { meta: { last_row_id: id } };
     }
     if (sql.startsWith("INSERT INTO staff")) this.rows.staff.push({ id: 1, user_id: binds[0], role_id: binds[1], staff_code: binds[2], status: "active" });
+    if (sql.startsWith("UPDATE beds SET status")) {
+      const bed = this.rows.beds.find((item) => item.id === binds[1]);
+      if (bed) bed.status = binds[0];
+      return { meta: { last_row_id: 0 } };
+    }
+    if (sql.startsWith("UPDATE rooms SET status")) {
+      const room = this.rows.rooms.find((item) => item.id === binds[1]);
+      if (room) room.status = binds[0];
+      return { meta: { last_row_id: 0 } };
+    }
     if (sql.startsWith("UPDATE")) return { meta: { last_row_id: 0 } };
     if (sql.startsWith("INSERT INTO audit_logs")) this.audits.push(String(binds[2]));
     return { meta: { last_row_id: 2 } };
@@ -96,6 +114,45 @@ describe("admin service", () => {
     await svc.createBed(manager, { roomId: 1, bedCode: "R1-A", label: "A" });
     await svc.createBed(manager, { roomId: 1, bedCode: "R1-B", label: "B" });
     await expect(svc.createBed(manager, { roomId: 1, bedCode: "R1-C", label: "C" })).rejects.toThrow("Room capacity exceeded");
+  });
+
+  it("allows an unoccupied available bed to move to maintenance and return to service", async () => {
+    const { service: svc, repo } = service();
+    await svc.createBed(manager, { roomId: 1, bedCode: "R1-A", label: "A" });
+
+    await svc.updateStatus(manager, "beds", 1, "maintenance");
+    expect(repo.rows.beds[0].status).toBe("maintenance");
+
+    await svc.updateStatus(manager, "beds", 1, "available");
+    expect(repo.rows.beds[0].status).toBe("available");
+  });
+
+  it("rejects occupied bed transitions to unavailable statuses without changing allocations", async () => {
+    const { service: svc, repo } = service();
+    await svc.createBed(manager, { roomId: 1, bedCode: "R1-A", label: "A" });
+    repo.rows.allocations.push({ id: 1, bed_id: 1, status: "active" });
+    const before = JSON.stringify(repo.rows.allocations);
+
+    await expect(svc.updateStatus(manager, "beds", 1, "maintenance")).rejects.toThrow("This bed is currently occupied");
+    await expect(svc.updateStatus(manager, "beds", 1, "inactive")).rejects.toThrow("This bed is currently occupied");
+    await expect(svc.updateStatus(manager, "beds", 1, "archived")).rejects.toThrow("This bed is currently occupied");
+
+    expect(repo.rows.beds[0].status).toBe("available");
+    expect(JSON.stringify(repo.rows.allocations)).toBe(before);
+  });
+
+  it("rejects taking a room with active allocations out of service without changing allocations", async () => {
+    const { service: svc, repo } = service();
+    await svc.createBed(manager, { roomId: 1, bedCode: "R1-A", label: "A" });
+    repo.rows.allocations.push({ id: 1, bed_id: 1, status: "active" });
+    const before = JSON.stringify(repo.rows.allocations);
+
+    await expect(svc.updateStatus(manager, "rooms", 1, "maintenance")).rejects.toThrow("This room currently has active allocations");
+    await expect(svc.updateStatus(manager, "rooms", 1, "inactive")).rejects.toThrow("This room currently has active allocations");
+    await expect(svc.updateStatus(manager, "rooms", 1, "archived")).rejects.toThrow("This room currently has active allocations");
+
+    expect(repo.rows.rooms[0].status).toBeUndefined();
+    expect(JSON.stringify(repo.rows.allocations)).toBe(before);
   });
 
   it("creates room rates and rejects duplicate active room/session rate", async () => {

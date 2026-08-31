@@ -67,6 +67,10 @@ Server-side middleware enforces access. Frontend visibility is not trusted.
 - Activating an academic session closes any previously active session in the service layer before setting the target active.
 - Rooms expose configured capacity, active bed count, active occupancy, and availability.
 - Bed creation checks current non-archived bed inventory against `rooms.capacity` before inserting.
+- A bed with an active allocation cannot be moved to `maintenance`, `inactive`, or `archived` through the bed status endpoint. The allocation must first be transferred or ended through the allocation workflow.
+- A room with one or more active allocations cannot be moved to `maintenance`, `inactive`, or `archived` through the room status endpoint.
+- Room and bed status endpoints do not end, transfer, or otherwise mutate allocations.
+- Maintenance or inactive rooms/beds may return to `available` through the existing status endpoint when no other backend constraint blocks the change.
 - Room rates use integer minor units and default currency `GHS`.
 - D1 prevents more than one active room rate for the same room/session.
 - Resident creation generates `resident_code` in the admin service. Clients never submit or choose it.
@@ -100,6 +104,7 @@ Examples:
 - `admin.institution.create`
 - `admin.room.create`
 - `admin.bed.create`
+- `admin.beds.status`
 - `admin.room_rate.create`
 - `admin.resident.create`
 - `admin.staff.create`
@@ -114,8 +119,8 @@ npm.cmd run typecheck
 tsc --noEmit passed
 
 npm.cmd test
-2 test files passed
-27 tests passed
+5 test files passed
+71 tests passed
 ```
 
 Covered Phase 4 cases:
@@ -128,6 +133,10 @@ Covered Phase 4 cases:
 - create room
 - create multiple beds
 - reject bed creation beyond capacity
+- reject occupied bed out-of-service status changes
+- reject occupied room out-of-service status changes
+- preserve allocation history on failed room/bed status changes
+- return room/bed inventory to service through existing status changes
 - create room rate
 - reject duplicate active room/session rate
 - create resident

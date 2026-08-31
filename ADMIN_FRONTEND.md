@@ -90,12 +90,12 @@ Implemented routes:
 - `/login`
 - `/dashboard`
 - `/residents`
-
-Prepared placeholder routes:
-
 - `/applications`
 - `/bookings`
 - `/rooms`
+
+Prepared placeholder routes:
+
 - `/allocations`
 - `/payments`
 - `/receipts`
@@ -245,6 +245,165 @@ Known backend/API limitations:
 - Application status and academic-session filters are not server-side filters yet. The UI applies them to the current result page and documents this behavior.
 - There is no application-scoped document endpoint yet. The page uses the existing identity-document metadata endpoint and filters by the selected resident.
 
+## Bookings
+
+The Bookings interface uses the existing backend APIs:
+
+- `GET /admin/bookings`
+- `POST /admin/bookings`
+- `GET /admin/bookings/:id`
+- `PATCH /admin/bookings/:id/status`
+- `GET /admin/bookings/:id/payment-summary`
+- `GET /admin/availability`
+- `GET /admin/applications`
+- `GET /admin/applications/:id`
+- `GET /admin/residents/:id`
+- `GET /admin/institutions`
+- `GET /admin/academic-sessions`
+- `GET /admin/rooms`
+- `GET /admin/room-rates`
+
+Implemented functionality:
+
+- `/bookings` admin route
+- professional Bookings page header with the approved shell and visual system
+- current-page summary cards for pending, confirmed, completed, and payment-attention bookings
+- server-side search by backend-supported fields: booking number and status
+- current-page status and academic-session filters
+- paginated bookings table with booking number, resident, application, academic session, priced room, amount, payment progress, status, created date, and view action
+- booking detail dialog organized into Booking, Resident, Application, Financial basis, Payment summary, Allocation, and Actions sections
+- create-booking workflow for roles with `booking:write`
+- confirmation/status actions that expose only valid backend transitions
+- payment-summary, create, transition, empty, and API error states
+
+Booking creation:
+
+- Starts from approved applications only.
+- Shows resident, institution, and academic session context for the selected application.
+- Calls `GET /admin/availability` for eligible rooms with active rates.
+- Shows an active room-rate preview before submission.
+- Calls `POST /admin/bookings` with `applicationId` and `roomId` only.
+- The frontend never generates `KSM-BKG-xxxx`, never submits a booking number, and never calculates or overrides the captured booking total.
+
+Booking lifecycle shown in the UI follows the backend service:
+
+- `pending -> confirmed`
+- `pending -> cancelled`
+- `pending -> expired`
+- `pending -> archived`
+- `confirmed -> completed`
+- `confirmed -> cancelled`
+- `confirmed -> archived`
+- `cancelled -> archived`
+- `expired -> archived`
+- `completed -> archived`
+
+Payment confirmation:
+
+- The detail view uses `GET /admin/bookings/:id/payment-summary`.
+- It distinguishes booking total, verified payments, outstanding balance, pending/submitted payment availability, confirmation threshold, and confirmation eligibility.
+- The Confirm action is shown only for pending bookings when the role can confirm and the payment summary reports `confirmationRequirementMet = true`.
+- Backend confirmation remains authoritative and may still reject the transition.
+- Payment attention is displayed from booking/payment-summary state and does not automatically change booking status.
+
+Pricing integrity:
+
+- The UI shows the booking's captured `total_amount_minor`, `currency`, `priced_room_id`, and `priced_room_rate_id`.
+- It does not recalculate the booking amount from the current room rate.
+- Later room-rate changes therefore do not rewrite or visually replace the booking's historical financial basis.
+
+Allocation boundary:
+
+- Confirming a booking does not allocate a bed.
+- Confirmed bookings display placement readiness, but the Bookings page never calls `/admin/allocations`.
+- Allocation remains a separate management phase.
+
+RBAC behavior:
+
+- `super_admin`: full access.
+- `manager`: booking read/write and confirmation in current backend permissions.
+- `reception`: booking read/write in current backend permissions; confirmation is not granted by the current permission map.
+- `accounts`: booking read and `booking:confirm` in the current permission map.
+- `maintenance`: no booking management actions.
+- Backend authorization remains authoritative.
+
+Known backend/API limitations:
+
+- `GET /admin/bookings` returns raw booking rows without joined resident, application, room, or session labels. The UI performs bounded current-page lookups using existing endpoints.
+- Booking status and academic-session filters are not server-side filters yet. The UI applies them to the current result page and documents this behavior.
+- `GET /admin/bookings/:id/payment-summary` does not expose pending/submitted payment totals. The UI labels that field as unavailable instead of fabricating a value.
+- There is no active-allocation summary endpoint scoped by booking yet. Allocation detail is limited to readiness messaging in this phase.
+
+## Rooms & Beds
+
+The Rooms & Beds interface uses the existing backend APIs:
+
+- `GET /admin/rooms`
+- `POST /admin/rooms`
+- `GET /admin/rooms/:id`
+- `PATCH /admin/rooms/:id/status`
+- `GET /admin/rooms/:id/beds`
+- `POST /admin/beds`
+- `PATCH /admin/beds/:id/status`
+- `GET /admin/room-rates`
+- `POST /admin/room-rates`
+- `PATCH /admin/room-rates/:id/status`
+- `GET /admin/academic-sessions`
+- `GET /admin/dashboard/occupancy`
+- `GET /admin/allocations`
+- `GET /admin/residents/:id`
+
+Implemented functionality:
+
+- `/rooms` admin route
+- professional Rooms & Beds page header with the approved shell and visual system
+- dashboard-backed summary cards for rooms, usable beds, occupied beds, and available beds
+- search by room code/name plus current-page status and gender-policy filters
+- rooms table with room identity, configured capacity, actual usable bed inventory, occupied beds, available beds, gender policy, status, active rate, and actions
+- room detail view with Overview, Beds, and Rates tabs
+- room creation using backend validation
+- room status changes with confirmation
+- bed creation by room
+- bed status changes for unoccupied beds
+- occupied beds show protected messaging and do not offer out-of-service actions when active allocation data is known
+- room-rate creation by room and academic session
+- room-rate status changes with confirmation
+- loading, empty, no-results, API-error, form-error, and confirmation states
+
+Capacity and occupancy rules:
+
+- `rooms.capacity` is shown as the configured maximum capacity only.
+- Actual room inventory comes from bed records.
+- Occupancy and available-bed counts come from `GET /admin/dashboard/occupancy` where possible.
+- The frontend does not reconstruct occupancy from booking status.
+- Bed creation is locally blocked when active bed inventory has already reached configured room capacity, and the backend capacity guard remains authoritative.
+- Room creation does not implicitly create beds.
+- Taking a bed or room out of service stores the backend `maintenance` status.
+- A bed or room with an active allocation cannot be moved to `maintenance`, `inactive`, or `archived` by the backend status endpoint.
+- Failed room/bed status changes do not alter allocation history.
+
+Room-rate and pricing rules:
+
+- Room-rate amounts are entered in GHS major units such as `2500.00`.
+- The frontend converts amounts to integer minor units such as `250000` before calling the backend.
+- The conversion is handled by the reusable `parseMoneyToMinorUnits` utility and does not use floating point arithmetic.
+- The backend default currency remains `GHS`, and the UI submits the selected currency explicitly.
+- One active room rate per room/session is enforced by the backend and surfaced as an API error.
+- Rate status changes do not call booking endpoints and do not mutate historical booking totals.
+
+RBAC behavior:
+
+- Users with `admin:read` can view the Rooms & Beds page.
+- Users with `admin:write` can create rooms, create beds, create room rates, and perform status changes.
+- Roles without `admin:write`, such as `maintenance` in the current permission map, do not see write actions.
+- Backend authorization remains authoritative.
+
+Known backend/API limitations:
+
+- There are no general room, bed, or room-rate update endpoints yet; only create and status-change operations are exposed.
+- `GET /admin/rooms` and `GET /admin/room-rates` do not provide server-side search/status/gender filters yet. The UI applies those filters to the bounded current result page.
+- `GET /admin/rooms/:id/beds` returns bed rows without joined resident/allocation details. The UI combines the existing allocations endpoint with resident lookups for active bed occupancy display.
+
 ## Design System
 
 Design tokens are defined as CSS variables in `src/styles/index.css` and mapped into Tailwind:
@@ -296,6 +455,33 @@ Frontend tests cover:
 - applications server-side search request
 - applications API error and transition failure states
 - frontend does not expose application creation or generated-number input
+- bookings list rendering
+- booking detail dialog
+- booking creation from approved applications
+- non-approved applications excluded from booking creation
+- frontend does not generate booking numbers
+- room/rate preview
+- captured amount display
+- payment-threshold-gated confirmation visibility
+- confirmation success and failure
+- confirmation does not trigger allocation requests
+- payment-attention display
+- booking RBAC action visibility
+- invalid booking transitions hidden
+- booking API and creation error states
+- human-readable booking dates
+- rooms list rendering
+- configured capacity separated from actual bed inventory
+- room detail occupancy from active allocations
+- room creation without implicit bed creation
+- bed capacity guard
+- bed creation and safe bed status handling
+- room-rate creation with integer minor units
+- duplicate active room/session rate error display
+- room-rate status changes do not mutate booking pricing
+- rooms RBAC write-action visibility
+- rooms API error state
+- money parser validation
 - currency formatting
 - status formatting
 - date/time formatting
@@ -304,10 +490,10 @@ Latest validation:
 
 ```text
 admin-frontend: npm.cmd run typecheck passed
-admin-frontend: npm.cmd test passed, 6 files / 29 tests
+admin-frontend: npm.cmd test passed, 9 files / 52 tests
 admin-frontend: npm.cmd run build passed
 cloudflare: npm.cmd run typecheck passed
-cloudflare: npm.cmd test passed, 5 files / 68 tests
+cloudflare: npm.cmd test passed, 5 files / 71 tests
 ```
 
 ## Running Locally

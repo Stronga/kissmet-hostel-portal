@@ -107,6 +107,101 @@ export interface IdentityDocument {
   created_at?: string;
 }
 
+export type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "archived";
+
+export interface Booking {
+  id: number;
+  resident_id: number;
+  academic_session_id: number;
+  application_id: number;
+  booking_number: string;
+  status: BookingStatus;
+  total_amount_minor: number;
+  currency: string;
+  expires_at?: string | null;
+  priced_room_id?: number | null;
+  priced_room_rate_id?: number | null;
+  payment_attention_required?: number | boolean | null;
+  payment_attention_reason?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Room {
+  id: number;
+  room_code: string;
+  room_name?: string | null;
+  floor?: string | null;
+  capacity: number;
+  gender_policy: string;
+  status: string;
+  bed_count?: number;
+  active_occupancy?: number;
+  availability?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface RoomRate {
+  id: number;
+  room_id: number;
+  academic_session_id: number;
+  rate_code: string;
+  amount_minor: number;
+  currency: string;
+  status: string;
+  effective_from?: string | null;
+  effective_to?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Bed {
+  id: number;
+  room_id: number;
+  bed_code: string;
+  label: string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Allocation {
+  id: number;
+  booking_id: number;
+  resident_id: number;
+  academic_session_id: number;
+  bed_id: number;
+  status: string;
+  starts_on?: string | null;
+  ends_on?: string | null;
+}
+
+export interface AvailabilityBed {
+  room_id: number;
+  room_code: string;
+  room_name?: string | null;
+  capacity: number;
+  gender_policy: string;
+  bed_id: number;
+  bed_code: string;
+  label: string;
+  amount_minor: number;
+  currency: string;
+}
+
+export interface BookingPaymentSummary {
+  bookingId: number;
+  bookingTotalMinor: number;
+  verifiedPaidMinor: number;
+  balanceMinor: number;
+  requiredConfirmationAmountMinor: number;
+  remainingToConfirmationMinor: number;
+  confirmationRequirementMet: boolean;
+  bookingStatus: BookingStatus;
+  paymentAttentionRequired: boolean;
+}
+
 export interface MaintenanceReport {
   open?: number;
   assigned?: number;
