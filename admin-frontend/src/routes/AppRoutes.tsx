@@ -7,6 +7,7 @@ import { BookingsPage } from "../pages/Bookings/BookingsPage";
 import { DashboardPage } from "../pages/Dashboard/DashboardPage";
 import { LoginPage } from "../pages/Login/LoginPage";
 import { MaintenancePage } from "../pages/Maintenance/MaintenancePage";
+import { MessagesPage } from "../pages/Messages/MessagesPage";
 import { PaymentsPage } from "../pages/Payments/PaymentsPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
 import { ReceiptsPage } from "../pages/Receipts/ReceiptsPage";
@@ -31,6 +32,7 @@ export function AppRoutes() {
           <Route path="/receipts" element={<ReceiptsPage />} />
           <Route path="/maintenance" element={<MaintenancePage />} />
           <Route path="/announcements" element={<AnnouncementsPage />} />
+          <Route path="/messages" element={<MessagesPage />} />
           <Route path="/reports" element={<PlaceholderPage title="Reports" />} />
           <Route path="/staff" element={<PlaceholderPage title="Staff" />} />
           <Route path="/audit-logs" element={<PlaceholderPage title="Audit Logs" />} />

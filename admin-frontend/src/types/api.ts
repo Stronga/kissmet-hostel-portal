@@ -323,6 +323,49 @@ export interface AnnouncementReport {
   expiring_soon?: number;
 }
 
+export type MessageStatus = "draft" | "queued" | "sent" | "partially_failed" | "failed" | "archived";
+export type MessageTargetType = "individual_resident" | "selected_residents" | "room" | "selected_rooms" | "group" | "all_residents" | "staff";
+export type MessageChannel = "portal" | "sms" | "email";
+
+export interface MessagePreview {
+  targetType: MessageTargetType;
+  targetLabel: string;
+  totalRecipients: number;
+  smsEligible: number;
+  emailEligible: number;
+  portalEligible: number;
+}
+
+export interface MessageRecipientSnapshot {
+  id: number;
+  recipient_kind: "resident" | "staff";
+  display_name: string;
+  resident_code?: string | null;
+  student_id?: string | null;
+  institution_name?: string | null;
+  staff_code?: string | null;
+  room_code?: string | null;
+  sms_eligible: number;
+  email_eligible: number;
+  portal_eligible: number;
+}
+
+export interface Message {
+  id: number;
+  subject: string;
+  body: string;
+  target_type: MessageTargetType;
+  target_label?: string | null;
+  status: MessageStatus;
+  channels: MessageChannel[];
+  recipient_count?: number;
+  sent_by_name?: string | null;
+  sent_at?: string | null;
+  created_at?: string;
+  delivery_summary?: Array<{ channel: string; status: string; count: number }>;
+  recipients?: MessageRecipientSnapshot[];
+}
+
 export interface Staff {
   id: number;
   user_id: number;

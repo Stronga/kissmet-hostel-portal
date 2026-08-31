@@ -79,6 +79,36 @@ WHERE i.code = 'verify-school' AND r.student_id = 'KSM-VERIFY-STU'
 INSERT OR IGNORE INTO announcements (title, body, audience, status, published_at)
 VALUES ('Verification Announcement', 'Schema verification announcement.', 'all', 'published', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 
+INSERT OR IGNORE INTO messages (subject, body, target_type, target_label, target_config_json, status, sent_at, idempotency_key)
+VALUES ('Verification Message', 'Schema verification targeted message.', 'individual_resident', 'Verification Resident', '{"targetIds":[1]}', 'sent', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'verify-message-send-1');
+
+INSERT OR IGNORE INTO message_channels (message_id, channel)
+SELECT id, 'portal' FROM messages WHERE subject = 'Verification Message';
+
+INSERT OR IGNORE INTO message_channels (message_id, channel)
+SELECT id, 'sms' FROM messages WHERE subject = 'Verification Message';
+
+INSERT OR IGNORE INTO message_recipient_snapshots (message_id, user_id, resident_id, recipient_kind, display_name, resident_code, student_id, institution_name, room_id, room_code, sms_eligible, email_eligible, portal_eligible)
+SELECT m.id, u.id, r.id, 'resident', u.display_name, r.resident_code, r.student_id, i.name, room.id, room.room_code, 1, 1, 1
+FROM messages m, users u, residents r, institutions i, rooms room
+WHERE m.subject = 'Verification Message'
+  AND u.email = 'verification.resident@example.com'
+  AND r.student_id = 'KSM-VERIFY-STU'
+  AND i.id = r.institution_id
+  AND room.room_code = 'VERIFY-ROOM-1';
+
+INSERT OR IGNORE INTO portal_message_deliveries (message_id, recipient_snapshot_id, user_id, status)
+SELECT m.id, rs.id, rs.user_id, 'unread'
+FROM messages m
+JOIN message_recipient_snapshots rs ON rs.message_id = m.id
+WHERE m.subject = 'Verification Message';
+
+INSERT OR IGNORE INTO message_delivery_attempts (message_id, recipient_snapshot_id, channel, status, provider_message_id, provider_status, idempotency_key)
+SELECT m.id, rs.id, 'sms', 'sent', 'verify-provider-message-1', 'mock_sent', 'verify-message-send-1'
+FROM messages m
+JOIN message_recipient_snapshots rs ON rs.message_id = m.id
+WHERE m.subject = 'Verification Message';
+
 INSERT OR IGNORE INTO otp_codes (user_id, resident_id, destination, purpose, code_hash, rate_limit_key, expires_at)
 SELECT u.id, r.id, u.phone, 'resident_login', 'verification-hash-only', 'otp:resident_login:+233000009001', datetime('now', '+10 minutes')
 FROM users u, residents r
@@ -141,6 +171,11 @@ SELECT 'receipts' AS table_name, COUNT(*) AS row_count FROM receipts;
 SELECT 'documents' AS table_name, COUNT(*) AS row_count FROM documents;
 SELECT 'maintenance_requests' AS table_name, COUNT(*) AS row_count FROM maintenance_requests;
 SELECT 'announcements' AS table_name, COUNT(*) AS row_count FROM announcements;
+SELECT 'messages' AS table_name, COUNT(*) AS row_count FROM messages;
+SELECT 'message_channels' AS table_name, COUNT(*) AS row_count FROM message_channels;
+SELECT 'message_recipient_snapshots' AS table_name, COUNT(*) AS row_count FROM message_recipient_snapshots;
+SELECT 'message_delivery_attempts' AS table_name, COUNT(*) AS row_count FROM message_delivery_attempts;
+SELECT 'portal_message_deliveries' AS table_name, COUNT(*) AS row_count FROM portal_message_deliveries;
 SELECT 'otp_codes' AS table_name, COUNT(*) AS row_count FROM otp_codes;
 SELECT 'sessions' AS table_name, COUNT(*) AS row_count FROM sessions;
 SELECT 'audit_logs' AS table_name, COUNT(*) AS row_count FROM audit_logs;

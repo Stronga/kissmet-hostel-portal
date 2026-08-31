@@ -21,6 +21,7 @@ cloudflare/migrations/0006_resident_onboarding.sql
 cloudflare/migrations/0007_operations_reporting.sql
 cloudflare/migrations/0008_booking_priced_room.sql
 cloudflare/migrations/0009_announcements_alerts.sql
+cloudflare/migrations/0010_messages_communications.sql
 ```
 
 Development seed data is:
@@ -326,6 +327,59 @@ Stores external SMS/email delivery attempt records.
 - Provider failure is logged here and does not delete, archive, or otherwise mutate the announcement.
 - Contact lists are not exposed through admin or public announcement responses; services may expose aggregate recipient counts.
 
+### `messages`
+
+Stores targeted private or operational communication drafts and send history. Messaging is separate from Announcements & Alerts: announcements are broad/public notices, while messages are targeted communications.
+
+- Important fields: `subject`, `body`, `target_type`, `target_label`, `target_config_json`, `status`, `created_by_staff_id`, `sent_by_staff_id`, `sent_at`, `idempotency_key`.
+- Target type values: `individual_resident`, `selected_residents`, `room`, `selected_rooms`, `group`, `all_residents`, `staff`.
+- Status values: `draft`, `queued`, `sent`, `partially_failed`, `failed`, `archived`.
+- Unique constraints: `idempotency_key`.
+- Provider-specific delivery statuses are not stored on the message record. Message status only summarizes the resolved delivery outcomes.
+- The target configuration records how the target was selected; the final historical recipient set is preserved separately in `message_recipient_snapshots`.
+
+### `message_channels`
+
+Stores normalized selected channels for each message.
+
+- Relationships: `message_channels.message_id -> messages.id`.
+- Channel values: `portal`, `sms`, `email`.
+- Status values: `enabled`, `disabled`.
+- Unique constraints: `(message_id, channel)`.
+- SMS and email are explicit opt-in channels and are never inferred from message importance.
+
+### `message_recipient_snapshots`
+
+Stores the resolved recipient set when a message is sent.
+
+- Relationships may point to `users`, `residents`, `staff`, and room context.
+- Important fields: `recipient_kind`, `display_name`, `resident_code`, `student_id`, `institution_name`, `staff_code`, `room_id`, `room_code`, `sms_eligible`, `email_eligible`, `portal_eligible`.
+- Unique constraints: `(message_id, user_id)`.
+- Room and selected-room targets resolve residents from active allocations, not booking status.
+- Snapshot rows preserve history. A room-targeted message keeps the residents who were actively allocated at send time even if occupants later transfer rooms.
+- Phone and email values are not stored in snapshots and are not exposed in admin message responses.
+
+### `message_delivery_attempts`
+
+Stores per-recipient external SMS/email delivery attempts.
+
+- Relationships: `message_delivery_attempts.message_id -> messages.id`, `recipient_snapshot_id -> message_recipient_snapshots.id`.
+- Channel values: `sms`, `email`.
+- Status values: `sent`, `delivered`, `failed`.
+- Important fields: `provider_message_id`, `provider_status`, `failure_reason`, `idempotency_key`, `attempted_at`.
+- Unique constraints: `(message_id, recipient_snapshot_id, channel, idempotency_key)` prevents duplicate sends during retries, double-clicks, refreshes, or repeated requests.
+- One failed SMS/email attempt does not erase successful deliveries to other recipients.
+
+### `portal_message_deliveries`
+
+Stores durable portal-message delivery state for future Resident Portal inbox support.
+
+- Relationships: `portal_message_deliveries.message_id -> messages.id`, `recipient_snapshot_id -> message_recipient_snapshots.id`, `user_id -> users.id`.
+- Status values: `unread`, `read`.
+- Important fields: `delivered_at`, `read_at`.
+- Unique constraints: `(message_id, recipient_snapshot_id)`.
+- Phase 10J creates the backend foundation only; it does not build the Resident Portal inbox UI.
+
 ### `otp_codes`
 
 Stores OTP challenges for later authentication flows.
@@ -374,6 +428,11 @@ Stores append-only operational audit events.
 - `idx_announcements_status_severity` and `idx_announcements_current`: support admin/public announcement filtering by lifecycle, severity, and current scheduling.
 - `idx_announcement_channels_lookup`: supports portal/public channel visibility checks.
 - `idx_announcement_delivery_announcement`: supports external delivery summaries by announcement/channel/status.
+- `idx_messages_status_target` and `idx_messages_sent_at`: support admin messaging list filters.
+- `idx_message_channels_message`: supports message channel filtering.
+- `idx_message_snapshots_message`: supports message detail recipient summaries.
+- `idx_message_delivery_summary`: supports delivery summaries by channel/status.
+- `idx_portal_message_user_status`: supports future resident portal inbox unread/read lookups.
 - Lookup indexes cover status, session, room/bed, resident/payment, OTP rate limiting, sessions, and audit queries.
 
 ## Verification

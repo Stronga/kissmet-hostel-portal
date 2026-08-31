@@ -435,6 +435,60 @@ routes.post("/announcements/:id/archive", requirePermission("announcement:write"
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 
+routes.get("/messages", requirePermission("message:read"), async (c) => {
+  const url = new URL(c.req.url);
+  const p = pagination(url);
+  const result = await service(c).listMessages(p.limit, p.offset, {
+    search: url.searchParams.get("search") ?? undefined,
+    status: url.searchParams.get("status"),
+    targetType: url.searchParams.get("targetType"),
+    channel: url.searchParams.get("channel")
+  });
+  return c.json(listOk((result.results ?? []) as unknown[], p));
+});
+routes.post("/messages/preview", requirePermission("message:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).previewMessageTarget({
+      targetType: stringField(input, "targetType")!,
+      targetIds: Array.isArray(input.targetIds) ? input.targetIds.map(Number) : undefined,
+      group: stringField(input, "group", false),
+      academicSessionId: intField(input, "academicSessionId", false),
+      staffRoleCodes: Array.isArray(input.staffRoleCodes) ? input.staffRoleCodes.map(String) : undefined,
+      staffIds: Array.isArray(input.staffIds) ? input.staffIds.map(Number) : undefined
+    })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.post("/messages", requirePermission("message:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).createMessage(c.get("authUser"), {
+      subject: stringField(input, "subject", true, 200)!,
+      body: stringField(input, "body", true, 5000)!,
+      targetType: stringField(input, "targetType")!,
+      targetIds: Array.isArray(input.targetIds) ? input.targetIds.map(Number) : undefined,
+      group: stringField(input, "group", false),
+      academicSessionId: intField(input, "academicSessionId", false),
+      staffRoleCodes: Array.isArray(input.staffRoleCodes) ? input.staffRoleCodes.map(String) : undefined,
+      staffIds: Array.isArray(input.staffIds) ? input.staffIds.map(Number) : undefined,
+      channels: Array.isArray(input.channels) ? input.channels.map(String) : ["portal"]
+    })), 201);
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/messages/:id", requirePermission("message:read"), async (c) => c.json(ok(await service(c).message(Number(c.req.param("id")), hasPermission(c.get("authUser").role, "message:read")))));
+routes.post("/messages/:id/send", requirePermission("message:send"), async (c) => {
+  try {
+    const input = await body(c);
+    const msg = await service(c).message(Number(c.req.param("id"))) as Record<string, unknown> & { channels?: string[] };
+    if ((msg.channels ?? []).some((channel) => channel === "sms" || channel === "email") && !hasPermission(c.get("authUser").role, "message:external_delivery")) return c.json(error("Forbidden", "forbidden"), 403);
+    return c.json(ok(await service(c).sendMessage(c.get("authUser"), Number(c.req.param("id")), { idempotencyKey: stringField(input, "idempotencyKey", true, 128)! })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.post("/messages/:id/archive", requirePermission("message:write"), async (c) => {
+  try { return c.json(ok(await service(c).archiveMessage(c.get("authUser"), Number(c.req.param("id"))))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+
 routes.get("/audit-logs", requirePermission("audit:read"), async (c) => {
   const url = new URL(c.req.url);
   const p = pagination(url);

@@ -2,6 +2,7 @@ import { hashPassword, randomToken } from "../auth/crypto";
 import type { AuthUser } from "../auth/context";
 import { AdminRepository } from "../repositories/admin.repository";
 import { MockAnnouncementDeliveryProvider, type AnnouncementDeliveryProvider, type ExternalAnnouncementChannel } from "./announcement-delivery.service";
+import { MockMessageDeliveryProvider, type MessageDeliveryProvider, type MessageExternalChannel } from "./message-delivery.service";
 
 type ApplicationStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "cancelled" | "archived";
 type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "archived";
@@ -12,6 +13,9 @@ type AnnouncementStatus = "draft" | "published" | "expired" | "archived";
 type AnnouncementAudience = "all" | "residents" | "staff";
 type AnnouncementSeverity = "normal" | "important" | "high_alert";
 type AnnouncementChannel = "resident_portal" | "staff_portal" | "public_website" | "sms" | "email";
+type MessageStatus = "draft" | "queued" | "sent" | "partially_failed" | "failed" | "archived";
+type MessageTargetType = "individual_resident" | "selected_residents" | "room" | "selected_rooms" | "group" | "all_residents" | "staff";
+type MessageChannel = "portal" | "sms" | "email";
 const unavailableInventoryStatuses = new Set(["maintenance", "inactive", "archived"]);
 const occupiedBedStatusMessage = "This bed is currently occupied. Transfer or end the active allocation before taking the bed out of service.";
 const occupiedRoomStatusMessage = "This room currently has active allocations. Transfer or end the active allocations before taking the room out of service.";
@@ -19,9 +23,17 @@ const announcementAudiences = new Set(["all", "residents", "staff"]);
 const announcementSeverities = new Set(["normal", "important", "high_alert"]);
 const announcementChannels = new Set(["resident_portal", "staff_portal", "public_website", "sms", "email"]);
 const externalAnnouncementChannels = new Set(["sms", "email"]);
+const messageTargetTypes = new Set(["individual_resident", "selected_residents", "room", "selected_rooms", "group", "all_residents", "staff"]);
+const messageChannels = new Set(["portal", "sms", "email"]);
+const messageGroups = new Set(["current_residents", "applicants", "active_allocations", "outstanding_balance", "academic_session"]);
 
 export class AdminService {
-  constructor(private readonly repo: AdminRepository, private readonly documents?: R2Bucket, private readonly announcementDelivery: AnnouncementDeliveryProvider = new MockAnnouncementDeliveryProvider()) {}
+  constructor(
+    private readonly repo: AdminRepository,
+    private readonly documents?: R2Bucket,
+    private readonly announcementDelivery: AnnouncementDeliveryProvider = new MockAnnouncementDeliveryProvider(),
+    private readonly messageDelivery: MessageDeliveryProvider = new MockMessageDeliveryProvider()
+  ) {}
 
   list(table: string, limit: number, offset: number, search?: string) {
     return this.repo.list(table, limit, offset, search);
@@ -662,6 +674,127 @@ export class AdminService {
     `);
   }
 
+  async listMessages(limit: number, offset: number, filters: { search?: string; status?: string | null; targetType?: string | null; channel?: string | null } = {}) {
+    const where: string[] = [];
+    const binds: unknown[] = [];
+    if (filters.search) {
+      where.push("(m.subject LIKE ? OR m.target_label LIKE ? OR m.status LIKE ? OR m.target_type LIKE ?)");
+      binds.push(`%${filters.search}%`, `%${filters.search}%`, `%${filters.search}%`, `%${filters.search}%`);
+    }
+    if (filters.status) { where.push("m.status = ?"); binds.push(filters.status); }
+    if (filters.targetType) { where.push("m.target_type = ?"); binds.push(filters.targetType); }
+    if (filters.channel) { where.push("EXISTS (SELECT 1 FROM message_channels mc WHERE mc.message_id = m.id AND mc.channel = ? AND mc.status = 'enabled')"); binds.push(filters.channel); }
+    const rows = await this.repo.all<Record<string, unknown>>(
+      `SELECT m.*, u.display_name AS sent_by_name,
+        (SELECT COUNT(*) FROM message_recipient_snapshots rs WHERE rs.message_id = m.id) AS recipient_count
+       FROM messages m
+       LEFT JOIN staff st ON st.id = m.sent_by_staff_id
+       LEFT JOIN users u ON u.id = st.user_id
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY m.id DESC LIMIT ? OFFSET ?`,
+      ...binds,
+      limit,
+      offset
+    );
+    return { results: await Promise.all((rows.results ?? []).map((row) => this.decorateMessage(row, false))) };
+  }
+
+  async message(id: number, includeRecipients = false) {
+    const row = await this.repo.first<Record<string, unknown>>(
+      `SELECT m.*, u.display_name AS sent_by_name,
+        (SELECT COUNT(*) FROM message_recipient_snapshots rs WHERE rs.message_id = m.id) AS recipient_count
+       FROM messages m
+       LEFT JOIN staff st ON st.id = m.sent_by_staff_id
+       LEFT JOIN users u ON u.id = st.user_id
+       WHERE m.id = ?`,
+      id
+    );
+    if (!row) throw new Error("Message not found");
+    return this.decorateMessage(row, includeRecipients);
+  }
+
+  async previewMessageTarget(data: { targetType: string; targetIds?: number[]; group?: string | null; academicSessionId?: number | null; staffRoleCodes?: string[]; staffIds?: number[] }) {
+    const targetType = this.assertMessageValue(data.targetType, messageTargetTypes, "Invalid message target type") as MessageTargetType;
+    const recipients = await this.resolveMessageRecipients({ ...data, targetType });
+    return this.messagePreview(targetType, recipients, data);
+  }
+
+  async createMessage(actor: AuthUser, data: { subject: string; body: string; targetType: string; targetIds?: number[]; group?: string | null; academicSessionId?: number | null; staffRoleCodes?: string[]; staffIds?: number[]; channels: string[] }) {
+    const targetType = this.assertMessageValue(data.targetType, messageTargetTypes, "Invalid message target type") as MessageTargetType;
+    const channels = this.normalizeMessageChannels(data.channels);
+    const target = await this.messagePreview(targetType, await this.resolveMessageRecipients({ ...data, targetType }), data);
+    if (!target.totalRecipients) throw new Error("No target recipients matched");
+    const config = JSON.stringify({ targetIds: data.targetIds ?? [], group: data.group ?? null, academicSessionId: data.academicSessionId ?? null, staffRoleCodes: data.staffRoleCodes ?? [], staffIds: data.staffIds ?? [] });
+    const res = await this.repo.run(
+      "INSERT INTO messages (subject, body, target_type, target_label, target_config_json, status, created_by_staff_id) VALUES (?, ?, ?, ?, ?, 'draft', ?)",
+      data.subject,
+      data.body,
+      targetType,
+      target.targetLabel,
+      config,
+      actor.staffId
+    );
+    const id = Number(res.meta.last_row_id);
+    await this.replaceMessageChannels(id, channels);
+    await this.repo.audit(actor.id, actor.staffId, "admin.message.created", "message", id, { targetType, resolvedRecipientCount: target.totalRecipients, channels });
+    return this.message(id);
+  }
+
+  async sendMessage(actor: AuthUser, id: number, options: { idempotencyKey: string }) {
+    const msg = await this.message(id) as Record<string, unknown> & { channels: MessageChannel[] };
+    if (msg.status !== "draft" && msg.status !== "queued") throw new Error("Invalid workflow transition");
+    if (!options.idempotencyKey) throw new Error("idempotencyKey is required");
+    const existing = await this.repo.first("SELECT id FROM messages WHERE id = ? AND idempotency_key = ?", id, options.idempotencyKey);
+    if (existing && msg.status !== "draft" && msg.status !== "queued") return this.message(id, true);
+    await this.repo.run("UPDATE messages SET status = 'queued', idempotency_key = COALESCE(idempotency_key, ?), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", options.idempotencyKey, id);
+    const recipients = await this.resolveMessageRecipients({ targetType: msg.target_type as MessageTargetType, ...(this.parseJson(String(msg.target_config_json ?? "{}"))) });
+    await this.snapshotMessageRecipients(id, recipients);
+    const snapshots = await this.repo.all<Record<string, unknown>>("SELECT * FROM message_recipient_snapshots WHERE message_id = ? ORDER BY id", id);
+    const channels = msg.channels;
+    let sent = 0;
+    let failed = 0;
+    for (const snapshot of snapshots.results ?? []) {
+      if (channels.includes("portal") && Number(snapshot.portal_eligible) === 1) {
+        await this.repo.run("INSERT OR IGNORE INTO portal_message_deliveries (message_id, recipient_snapshot_id, user_id, status) VALUES (?, ?, ?, 'unread')", id, snapshot.id, snapshot.user_id);
+        sent += 1;
+      }
+      for (const channel of channels.filter((c) => c === "sms" || c === "email") as MessageExternalChannel[]) {
+        const eligible = channel === "sms" ? Number(snapshot.sms_eligible) === 1 : Number(snapshot.email_eligible) === 1;
+        if (!eligible) continue;
+        const result = await this.messageDelivery.send({ messageId: id, recipientSnapshotId: Number(snapshot.id), channel, subject: String(msg.subject), body: String(msg.body) });
+        if (result.status === "failed") failed += 1;
+        else sent += 1;
+        try {
+          await this.repo.run(
+            "INSERT INTO message_delivery_attempts (message_id, recipient_snapshot_id, channel, status, provider_message_id, provider_status, failure_reason, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            id,
+            snapshot.id,
+            channel,
+            result.status,
+            result.providerMessageId ?? null,
+            result.providerStatus ?? null,
+            result.failureReason ?? null,
+            options.idempotencyKey
+          );
+        } catch (error) {
+          if (!String((error as Error).message).includes("UNIQUE")) throw error;
+        }
+      }
+    }
+    const status: MessageStatus = failed > 0 && sent > 0 ? "partially_failed" : failed > 0 ? "failed" : "sent";
+    await this.repo.run("UPDATE messages SET status = ?, sent_by_staff_id = ?, sent_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", status, actor.staffId, id);
+    await this.repo.audit(actor.id, actor.staffId, "admin.message.sent", "message", id, { targetType: msg.target_type, resolvedRecipientCount: snapshots.results?.length ?? 0, channels, status });
+    return this.message(id, true);
+  }
+
+  async archiveMessage(actor: AuthUser, id: number) {
+    const msg = await this.message(id) as Record<string, unknown>;
+    if (msg.status === "archived") return msg;
+    await this.repo.run("UPDATE messages SET status = 'archived', archived_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", id);
+    await this.repo.audit(actor.id, actor.staffId, "admin.message.archived", "message", id);
+    return this.message(id, true);
+  }
+
   operationalOverview() {
     return this.dashboard();
   }
@@ -882,6 +1015,236 @@ export class AdminService {
           if (!String((error as Error).message).includes("UNIQUE")) throw error;
         }
       }
+    }
+  }
+
+  private assertMessageValue(value: string, allowed: Set<string>, message: string) {
+    if (!allowed.has(value)) throw new Error(message);
+    return value;
+  }
+
+  private normalizeMessageChannels(channels: string[] | undefined | null) {
+    const unique = Array.from(new Set((channels?.length ? channels : ["portal"]).map(String)));
+    for (const channel of unique) this.assertMessageValue(channel, messageChannels, "Invalid message channel");
+    return unique as MessageChannel[];
+  }
+
+  private parseJson(value: string) {
+    try { return JSON.parse(value) as Record<string, unknown>; }
+    catch { return {}; }
+  }
+
+  private async replaceMessageChannels(id: number, channels: MessageChannel[]) {
+    await this.repo.run("DELETE FROM message_channels WHERE message_id = ?", id);
+    for (const channel of channels) await this.repo.run("INSERT INTO message_channels (message_id, channel, status) VALUES (?, ?, 'enabled')", id, channel);
+  }
+
+  private async decorateMessage(row: Record<string, unknown>, includeRecipients: boolean) {
+    const channels = await this.repo.all<{ channel: MessageChannel }>("SELECT channel FROM message_channels WHERE message_id = ? AND status = 'enabled' ORDER BY channel", row.id);
+    const summary = await this.repo.all<Record<string, unknown>>(
+      `SELECT channel, status, COUNT(*) AS count FROM (
+        SELECT 'portal' AS channel, status FROM portal_message_deliveries WHERE message_id = ?
+        UNION ALL
+        SELECT channel, status FROM message_delivery_attempts WHERE message_id = ?
+      ) GROUP BY channel, status`,
+      row.id,
+      row.id
+    );
+    const recipients = includeRecipients ? await this.repo.all<Record<string, unknown>>(
+      "SELECT id, recipient_kind, display_name, resident_code, student_id, institution_name, staff_code, room_code, sms_eligible, email_eligible, portal_eligible FROM message_recipient_snapshots WHERE message_id = ? ORDER BY display_name",
+      row.id
+    ) : { results: [] };
+    return {
+      ...row,
+      channels: (channels.results ?? []).map((item) => item.channel),
+      delivery_summary: summary.results ?? [],
+      recipients: recipients.results ?? []
+    };
+  }
+
+  private messagePreview(targetType: MessageTargetType, recipients: Array<Record<string, unknown>>, data: Record<string, unknown>) {
+    const deduped = Array.from(new Map(recipients.map((r) => [Number(r.user_id), r])).values());
+    return {
+      targetType,
+      targetLabel: this.messageTargetLabel(targetType, deduped, data),
+      totalRecipients: deduped.length,
+      smsEligible: deduped.filter((r) => r.sms_eligible).length,
+      emailEligible: deduped.filter((r) => r.email_eligible).length,
+      portalEligible: deduped.filter((r) => r.portal_eligible).length
+    };
+  }
+
+  private messageTargetLabel(targetType: MessageTargetType, recipients: Array<Record<string, unknown>>, data: Record<string, unknown>) {
+    if (targetType === "room" && recipients[0]?.room_code) return `Room ${recipients[0].room_code}`;
+    if (targetType === "selected_rooms") return `Selected rooms: ${(data.targetIds as unknown[] | undefined)?.length ?? 0}`;
+    if (targetType === "group") return String(data.group ?? "Group");
+    if (targetType === "staff") return "Staff";
+    if (targetType === "all_residents") return "All residents";
+    if (targetType === "individual_resident" && recipients[0]) return String(recipients[0].display_name);
+    return `Selected residents: ${recipients.length}`;
+  }
+
+  private async resolveMessageRecipients(data: { targetType: MessageTargetType; targetIds?: number[]; group?: string | null; academicSessionId?: number | null; staffRoleCodes?: string[]; staffIds?: number[] }) {
+    if (data.targetType === "individual_resident" || data.targetType === "selected_residents") {
+      return this.residentRecipients("r.id", data.targetIds ?? []);
+    }
+    if (data.targetType === "room" || data.targetType === "selected_rooms") {
+      return this.roomRecipients(data.targetIds ?? []);
+    }
+    if (data.targetType === "all_residents") {
+      return this.residentRecipients("r.status <> 'archived'");
+    }
+    if (data.targetType === "staff") {
+      return this.staffRecipients(data.staffIds ?? [], data.staffRoleCodes ?? []);
+    }
+    if (data.targetType === "group") {
+      const group = String(data.group ?? "");
+      this.assertMessageValue(group, messageGroups, "Invalid message group");
+      if (group === "current_residents") return this.residentRecipients("r.status = 'resident'");
+      if (group === "applicants") return this.residentRecipients("r.status = 'applicant'");
+      if (group === "active_allocations") return this.activeAllocationRecipients();
+      if (group === "academic_session") return this.academicSessionRecipients(Number(data.academicSessionId));
+      if (group === "outstanding_balance") return this.outstandingBalanceRecipients();
+    }
+    return [];
+  }
+
+  private async residentRecipients(where: string, ids?: number[]) {
+    const binds = ids?.length ? ids : [];
+    const condition = ids?.length ? `${where} IN (${ids.map(() => "?").join(",")})` : where;
+    const rows = await this.repo.all<Record<string, unknown>>(
+      `SELECT u.id AS user_id, r.id AS resident_id, NULL AS staff_id, 'resident' AS recipient_kind,
+        u.display_name, r.resident_code, r.student_id, i.name AS institution_name, NULL AS staff_code,
+        NULL AS room_id, NULL AS room_code,
+        CASE WHEN u.phone IS NOT NULL THEN 1 ELSE 0 END AS sms_eligible,
+        CASE WHEN u.email IS NOT NULL THEN 1 ELSE 0 END AS email_eligible,
+        1 AS portal_eligible
+       FROM residents r
+       JOIN users u ON u.id = r.user_id
+       LEFT JOIN institutions i ON i.id = r.institution_id
+       WHERE u.status = 'active' AND ${condition}`,
+      ...binds
+    );
+    return rows.results ?? [];
+  }
+
+  private async roomRecipients(roomIds: number[]) {
+    if (!roomIds.length) return [];
+    const rows = await this.repo.all<Record<string, unknown>>(
+      `SELECT u.id AS user_id, r.id AS resident_id, NULL AS staff_id, 'resident' AS recipient_kind,
+        u.display_name, r.resident_code, r.student_id, i.name AS institution_name, NULL AS staff_code,
+        room.id AS room_id, room.room_code,
+        CASE WHEN u.phone IS NOT NULL THEN 1 ELSE 0 END AS sms_eligible,
+        CASE WHEN u.email IS NOT NULL THEN 1 ELSE 0 END AS email_eligible,
+        1 AS portal_eligible
+       FROM allocations a
+       JOIN beds b ON b.id = a.bed_id
+       JOIN rooms room ON room.id = b.room_id
+       JOIN residents r ON r.id = a.resident_id
+       JOIN users u ON u.id = r.user_id
+       LEFT JOIN institutions i ON i.id = r.institution_id
+       WHERE a.status = 'active' AND u.status = 'active' AND room.id IN (${roomIds.map(() => "?").join(",")})`,
+      ...roomIds
+    );
+    return rows.results ?? [];
+  }
+
+  private activeAllocationRecipients() {
+    return this.repo.all<Record<string, unknown>>(
+      `SELECT u.id AS user_id, r.id AS resident_id, NULL AS staff_id, 'resident' AS recipient_kind,
+        u.display_name, r.resident_code, r.student_id, i.name AS institution_name, NULL AS staff_code,
+        room.id AS room_id, room.room_code,
+        CASE WHEN u.phone IS NOT NULL THEN 1 ELSE 0 END AS sms_eligible,
+        CASE WHEN u.email IS NOT NULL THEN 1 ELSE 0 END AS email_eligible,
+        1 AS portal_eligible
+       FROM allocations a
+       JOIN beds b ON b.id = a.bed_id
+       JOIN rooms room ON room.id = b.room_id
+       JOIN residents r ON r.id = a.resident_id
+       JOIN users u ON u.id = r.user_id
+       LEFT JOIN institutions i ON i.id = r.institution_id
+       WHERE a.status = 'active' AND u.status = 'active'`
+    ).then((r) => r.results ?? []);
+  }
+
+  private academicSessionRecipients(sessionId: number) {
+    if (!sessionId) throw new Error("academicSessionId is required");
+    return this.repo.all<Record<string, unknown>>(
+      `SELECT u.id AS user_id, r.id AS resident_id, NULL AS staff_id, 'resident' AS recipient_kind,
+        u.display_name, r.resident_code, r.student_id, i.name AS institution_name, NULL AS staff_code,
+        NULL AS room_id, NULL AS room_code,
+        CASE WHEN u.phone IS NOT NULL THEN 1 ELSE 0 END AS sms_eligible,
+        CASE WHEN u.email IS NOT NULL THEN 1 ELSE 0 END AS email_eligible,
+        1 AS portal_eligible
+       FROM applications app
+       JOIN residents r ON r.id = app.resident_id
+       JOIN users u ON u.id = r.user_id
+       LEFT JOIN institutions i ON i.id = r.institution_id
+       WHERE app.academic_session_id = ? AND app.status IN ('submitted', 'under_review', 'approved') AND u.status = 'active'`,
+      sessionId
+    ).then((r) => r.results ?? []);
+  }
+
+  private outstandingBalanceRecipients() {
+    return this.repo.all<Record<string, unknown>>(
+      `SELECT u.id AS user_id, r.id AS resident_id, NULL AS staff_id, 'resident' AS recipient_kind,
+        u.display_name, r.resident_code, r.student_id, i.name AS institution_name, NULL AS staff_code,
+        NULL AS room_id, NULL AS room_code,
+        CASE WHEN u.phone IS NOT NULL THEN 1 ELSE 0 END AS sms_eligible,
+        CASE WHEN u.email IS NOT NULL THEN 1 ELSE 0 END AS email_eligible,
+        1 AS portal_eligible
+       FROM bookings b
+       JOIN residents r ON r.id = b.resident_id
+       JOIN users u ON u.id = r.user_id
+       LEFT JOIN institutions i ON i.id = r.institution_id
+       WHERE b.status IN ('pending', 'confirmed')
+         AND b.total_amount_minor > (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')
+         AND u.status = 'active'`
+    ).then((r) => r.results ?? []);
+  }
+
+  private async staffRecipients(staffIds: number[], roleCodes: string[]) {
+    const where: string[] = ["u.status = 'active'", "s.status = 'active'"];
+    const binds: unknown[] = [];
+    if (staffIds.length) { where.push(`s.id IN (${staffIds.map(() => "?").join(",")})`); binds.push(...staffIds); }
+    if (roleCodes.length) { where.push(`role.code IN (${roleCodes.map(() => "?").join(",")})`); binds.push(...roleCodes); }
+    const rows = await this.repo.all<Record<string, unknown>>(
+      `SELECT u.id AS user_id, NULL AS resident_id, s.id AS staff_id, 'staff' AS recipient_kind,
+        u.display_name, NULL AS resident_code, NULL AS student_id, NULL AS institution_name, s.staff_code,
+        NULL AS room_id, NULL AS room_code,
+        CASE WHEN u.phone IS NOT NULL THEN 1 ELSE 0 END AS sms_eligible,
+        CASE WHEN u.email IS NOT NULL THEN 1 ELSE 0 END AS email_eligible,
+        0 AS portal_eligible
+       FROM staff s JOIN users u ON u.id = s.user_id JOIN roles role ON role.id = s.role_id
+       WHERE ${where.join(" AND ")}`,
+      ...binds
+    );
+    return rows.results ?? [];
+  }
+
+  private async snapshotMessageRecipients(messageId: number, recipients: Array<Record<string, unknown>>) {
+    const deduped = Array.from(new Map(recipients.map((r) => [Number(r.user_id), r])).values());
+    for (const r of deduped) {
+      await this.repo.run(
+        `INSERT OR IGNORE INTO message_recipient_snapshots
+         (message_id, user_id, resident_id, staff_id, recipient_kind, display_name, resident_code, student_id, institution_name, staff_code, room_id, room_code, sms_eligible, email_eligible, portal_eligible)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        messageId,
+        r.user_id,
+        r.resident_id ?? null,
+        r.staff_id ?? null,
+        r.recipient_kind,
+        r.display_name,
+        r.resident_code ?? null,
+        r.student_id ?? null,
+        r.institution_name ?? null,
+        r.staff_code ?? null,
+        r.room_id ?? null,
+        r.room_code ?? null,
+        r.sms_eligible ? 1 : 0,
+        r.email_eligible ? 1 : 0,
+        r.portal_eligible ? 1 : 0
+      );
     }
   }
 }

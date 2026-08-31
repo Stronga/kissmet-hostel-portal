@@ -98,6 +98,7 @@ Implemented routes:
 - `/receipts`
 - `/maintenance`
 - `/announcements`
+- `/messages`
 
 Prepared placeholder routes:
 
@@ -793,6 +794,86 @@ Known backend/API limitations:
 - Status and severity filters are current-page/frontend filters unless backend list filtering is expanded later.
 - External SMS/email delivery is mocked only. Ghana SMS/email provider credentials and delivery webhooks are intentionally not implemented in this phase.
 
+## Messaging
+
+The Messaging interface uses the current backend APIs:
+
+- `GET /admin/messages`
+- `POST /admin/messages/preview`
+- `POST /admin/messages`
+- `GET /admin/messages/:id`
+- `POST /admin/messages/:id/send`
+- `POST /admin/messages/:id/archive`
+
+Implemented functionality:
+
+- `/messages` admin route
+- message history table with subject, target, channels, recipient count, sender, status, sent date, and actions
+- summary cards for draft, sent, partially failed, and failed messages
+- server-side search by backend-supported message fields: subject, target label, target type, and status
+- current-page status filter
+- create-draft workflow with required recipient preview before creation
+- target modes for individual resident, selected residents, room, selected rooms, group, all residents, and staff
+- explicit channel selection for Portal, SMS, and Email
+- SMS character count and provider-cost placeholder
+- send confirmation with target, recipient count, channels, SMS recipient context, and cost-not-configured wording
+- message detail view with delivery summary and recipient names/status eligibility without raw phone/email
+- archive action using the backend archive endpoint
+- loading, empty, API-error, preview-error, send-error, archive-error, and RBAC states
+
+Announcements vs Messaging:
+
+- Announcements & Alerts are broad/public broadcast notices.
+- Messaging & Communications is targeted private or operational communication.
+- The Messaging UI does not reuse announcements as private messages.
+
+Target definitions:
+
+- `individual_resident`: one selected resident.
+- `selected_residents`: selected resident IDs, deduplicated by backend user ID.
+- `room`: residents with active allocations in one selected room.
+- `selected_rooms`: residents with active allocations in selected rooms, deduplicated by backend user ID.
+- `all_residents`: all active user accounts linked to non-archived residents.
+- `staff`: staff selected by staff ID or role code; staff recipients are separate from residents.
+- `current_residents`: residents where `residents.status = 'resident'`.
+- `applicants`: residents where `residents.status = 'applicant'`.
+- `active_allocations`: residents with active allocation records.
+- `outstanding_balance`: residents with pending/confirmed bookings where `bookings.total_amount_minor` is greater than verified payment totals.
+- `academic_session`: residents with submitted, under-review, or approved applications for the selected session.
+
+Recipient snapshot behavior:
+
+- The backend resolves recipients again at send time and persists the exact snapshot in `message_recipient_snapshots`.
+- Room and selected-room messages use active allocations, not bookings.
+- A later room transfer or status change does not change historical recipients for an already sent message.
+
+Channels and delivery:
+
+- Portal delivery writes durable `portal_message_deliveries` rows for future Resident Portal inbox support.
+- SMS and email use server-side mock providers in development.
+- SMS/email must be explicitly selected and require `message:external_delivery`.
+- The UI never sends one email with visible resident addresses and never exposes SMS numbers.
+- Idempotency keys are submitted by the frontend and enforced by backend durable unique constraints.
+- Message-level status summarizes per-recipient/channel results as `sent`, `partially_failed`, or `failed`.
+- Provider-specific details stay in delivery-attempt rows, not the main message record.
+
+RBAC behavior:
+
+- `super_admin`: full access.
+- `manager`: message read/write/send and external delivery in the current backend/frontend permission map.
+- `reception`: message read/write/send, portal-only because external delivery is not granted.
+- `accounts`: message read/write/send, portal-only because external delivery is not granted.
+- `maintenance`: message read/write/send, portal-only because external delivery is not granted.
+- Backend authorization remains authoritative.
+
+Known backend/API limitations:
+
+- The Resident Portal inbox UI is not built in this phase.
+- Live Ghana SMS and email providers are not connected.
+- Provider pricing is not configured, so the UI displays `Estimated cost: Not configured`.
+- Retry failed deliveries is not exposed yet; delivery attempts are stored so a later safe retry workflow can be added.
+- Staff selection UI is intentionally minimal in this phase; resident and room targeting are the primary admin workflows.
+
 ## Design System
 
 Design tokens are defined as CSS variables in `src/styles/index.css` and mapped into Tailwind:
@@ -924,6 +1005,15 @@ Frontend tests cover:
 - announcement draft creation without frontend-generated recipients
 - high-alert publish confirmation
 - announcement RBAC visibility
+- messages list rendering
+- message draft creation after preview
+- message target type selection
+- individual resident targeting
+- explicit SMS selection
+- send confirmation with idempotency key
+- delivery detail without contact disclosure
+- messaging RBAC external-channel behavior
+- messaging error state
 - money parser validation
 - currency formatting
 - status formatting
@@ -933,11 +1023,11 @@ Latest validation:
 
 ```text
 admin-frontend: npm.cmd run typecheck passed
-admin-frontend: npm.cmd test passed, 14 files / 98 tests
+admin-frontend: npm.cmd test passed, 15 files / 103 tests
 admin-frontend: npm.cmd run build passed
 cloudflare: npm.cmd run typecheck passed
-cloudflare: npm.cmd test passed, 5 files / 72 tests
-cloudflare: npm.cmd run db:migrations:apply:local passed for 0009_announcements_alerts.sql
+cloudflare: npm.cmd test passed, 5 files / 75 tests
+cloudflare: npm.cmd run db:migrations:apply:local passed for 0010_messages_communications.sql
 cloudflare: npm.cmd run db:verify:local passed
 ```
 

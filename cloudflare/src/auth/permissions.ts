@@ -2,10 +2,10 @@ export type RoleCode = "super_admin" | "manager" | "reception" | "accounts" | "m
 
 export const rolePermissions: Record<RoleCode, string[]> = {
   super_admin: ["*"],
-  manager: ["admin:read", "admin:write", "resident:read", "resident:write", "application:read", "application:write", "booking:read", "booking:write", "booking:confirm", "allocation:read", "allocation:write", "payment:read", "payment:write", "payment:verify", "receipt:read", "receipt:write", "document:read", "document:write", "document:ghana_card", "maintenance:read", "maintenance:create", "maintenance:assign", "maintenance:update", "maintenance:resolve", "maintenance:close", "announcement:read", "announcement:write", "announcement:publish", "announcement:external_delivery", "audit:read"],
-  reception: ["admin:read", "resident:read", "resident:write", "application:read", "application:write", "booking:read", "booking:write", "allocation:read", "allocation:write", "payment:read", "payment:write", "document:read", "document:write", "maintenance:read", "maintenance:create", "maintenance:assign", "announcement:read"],
-  accounts: ["booking:read", "booking:confirm", "payment:read", "payment:write", "payment:verify", "receipt:read", "receipt:write"],
-  maintenance: ["maintenance:read", "maintenance:update", "maintenance:resolve"],
+  manager: ["admin:read", "admin:write", "resident:read", "resident:write", "application:read", "application:write", "booking:read", "booking:write", "booking:confirm", "allocation:read", "allocation:write", "payment:read", "payment:write", "payment:verify", "receipt:read", "receipt:write", "document:read", "document:write", "document:ghana_card", "maintenance:read", "maintenance:create", "maintenance:assign", "maintenance:update", "maintenance:resolve", "maintenance:close", "announcement:read", "announcement:write", "announcement:publish", "announcement:external_delivery", "message:read", "message:write", "message:send", "message:external_delivery", "audit:read"],
+  reception: ["admin:read", "resident:read", "resident:write", "application:read", "application:write", "booking:read", "booking:write", "allocation:read", "allocation:write", "payment:read", "payment:write", "document:read", "document:write", "maintenance:read", "maintenance:create", "maintenance:assign", "announcement:read", "message:read", "message:write", "message:send"],
+  accounts: ["booking:read", "booking:confirm", "payment:read", "payment:write", "payment:verify", "receipt:read", "receipt:write", "message:read", "message:write", "message:send"],
+  maintenance: ["maintenance:read", "maintenance:update", "maintenance:resolve", "message:read", "message:write", "message:send"],
   resident: ["resident:self"]
 };
 

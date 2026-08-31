@@ -154,6 +154,15 @@ Announcement permissions added after Phase 10I:
 
 `super_admin` has all permissions. `manager` has the announcement write/publish/external-delivery permissions. `reception` has announcement read access only.
 
+Messaging permissions added after Phase 10J:
+
+- `message:read`: list and view targeted message history.
+- `message:write`: create draft messages and archive messages.
+- `message:send`: send queued/draft messages.
+- `message:external_delivery`: send messages that include explicit SMS or email channels.
+
+`super_admin` has all permissions. `manager` has full messaging permissions. `reception`, `accounts`, and `maintenance` may create/send portal messages but do not have external SMS/email delivery permission in the current map.
+
 ## Security Decisions
 
 - Plaintext passwords are never stored.
