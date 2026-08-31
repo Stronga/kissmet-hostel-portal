@@ -228,6 +228,36 @@ export interface Payment {
   updated_at?: string;
 }
 
+export type ReceiptStatus = "issued" | "voided" | "archived";
+
+export interface Receipt {
+  id: number;
+  payment_id: number;
+  receipt_number: string;
+  status: ReceiptStatus;
+  issued_at: string;
+  issued_by_staff_id?: number | null;
+  voided_at?: string | null;
+  void_reason?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ReceiptDetailData extends Receipt {
+  payment_reference: string;
+  amount_minor: number;
+  method: PaymentMethod;
+  paid_at?: string | null;
+  verified_at?: string | null;
+  booking_number?: string | null;
+  total_amount_minor?: number | null;
+  resident_code: string;
+  resident_name: string;
+  student_id?: string | null;
+  institution_name?: string | null;
+  issuing_staff_name?: string | null;
+}
+
 export interface MaintenanceReport {
   open?: number;
   assigned?: number;

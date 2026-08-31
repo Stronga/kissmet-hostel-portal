@@ -7,6 +7,7 @@ import { DashboardPage } from "../pages/Dashboard/DashboardPage";
 import { LoginPage } from "../pages/Login/LoginPage";
 import { PaymentsPage } from "../pages/Payments/PaymentsPage";
 import { PlaceholderPage } from "../pages/PlaceholderPage";
+import { ReceiptsPage } from "../pages/Receipts/ReceiptsPage";
 import { ResidentsPage } from "../pages/Residents/ResidentsPage";
 import { RoomsPage } from "../pages/Rooms/RoomsPage";
 import { ProtectedRoute } from "./ProtectedRoute";
@@ -25,7 +26,7 @@ export function AppRoutes() {
           <Route path="/rooms" element={<RoomsPage />} />
           <Route path="/allocations" element={<AllocationsPage />} />
           <Route path="/payments" element={<PaymentsPage />} />
-          <Route path="/receipts" element={<PlaceholderPage title="Receipts" />} />
+          <Route path="/receipts" element={<ReceiptsPage />} />
           <Route path="/maintenance" element={<PlaceholderPage title="Maintenance" />} />
           <Route path="/announcements" element={<PlaceholderPage title="Announcements" />} />
           <Route path="/reports" element={<PlaceholderPage title="Reports" />} />
