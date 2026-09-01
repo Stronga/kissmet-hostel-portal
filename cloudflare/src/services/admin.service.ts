@@ -862,6 +862,144 @@ export class AdminService {
     `);
   }
 
+  async reportOverview(filters: { academicSessionId?: number | null } = {}) {
+    const [overview, occupancy, applicationsBookings, maintenance] = await Promise.all([
+      this.operationalOverview(),
+      this.occupancyReport(filters.academicSessionId),
+      this.applicationBookingReport(filters.academicSessionId),
+      this.maintenanceReport()
+    ]);
+    return { scope: { academicSession: filters.academicSessionId ? "selected_session" : "all_sessions" }, overview, occupancy, applicationsBookings, maintenance };
+  }
+
+  async reportOccupancy(filters: { academicSessionId?: number | null } = {}) {
+    return this.occupancyReport(filters.academicSessionId);
+  }
+
+  async reportResidents(filters: { status?: string | null; academicSessionId?: number | null } = {}) {
+    const where: string[] = ["u.status = 'active'"];
+    const binds: unknown[] = [];
+    if (filters.status) { where.push("r.status = ?"); binds.push(filters.status); }
+    const counts = await this.repo.all<Record<string, unknown>>("SELECT r.status, COUNT(*) AS count FROM residents r JOIN users u ON u.id = r.user_id WHERE u.status = 'active' GROUP BY r.status ORDER BY r.status");
+    const rows = await this.repo.all<Record<string, unknown>>(
+      `SELECT r.id, r.resident_code, r.first_name, r.last_name, r.student_id, r.status,
+        i.name AS institution_name,
+        room.room_code, b.label AS bed_label, a.starts_on AS assigned_date
+       FROM residents r
+       JOIN users u ON u.id = r.user_id
+       LEFT JOIN institutions i ON i.id = r.institution_id
+       LEFT JOIN allocations a ON a.resident_id = r.id AND a.status = 'active' ${filters.academicSessionId ? "AND a.academic_session_id = ?" : ""}
+       LEFT JOIN beds b ON b.id = a.bed_id
+       LEFT JOIN rooms room ON room.id = b.room_id
+       WHERE ${where.join(" AND ")}
+       ORDER BY r.resident_code`,
+      ...(filters.academicSessionId ? [filters.academicSessionId] : []),
+      ...binds
+    );
+    return { statusCounts: counts.results ?? [], residents: rows.results ?? [] };
+  }
+
+  async reportApplicationsBookings(filters: { academicSessionId?: number | null; bookingStatus?: string | null } = {}) {
+    const summary = await this.applicationBookingReport(filters.academicSessionId);
+    const where: string[] = [];
+    const binds: unknown[] = [];
+    if (filters.academicSessionId) { where.push("b.academic_session_id = ?"); binds.push(filters.academicSessionId); }
+    if (filters.bookingStatus) { where.push("b.status = ?"); binds.push(filters.bookingStatus); }
+    const rows = await this.repo.all<Record<string, unknown>>(
+      `SELECT b.id, b.booking_number, b.status, b.total_amount_minor, b.currency, b.payment_attention_required,
+        s.name AS academic_session_name,
+        r.resident_code, r.first_name, r.last_name,
+        room.room_code AS priced_room_code,
+        COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS verified_amount_minor,
+        b.total_amount_minor - COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS outstanding_amount_minor
+       FROM bookings b
+       JOIN residents r ON r.id = b.resident_id
+       LEFT JOIN academic_sessions s ON s.id = b.academic_session_id
+       LEFT JOIN rooms room ON room.id = b.priced_room_id
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY b.id DESC LIMIT 100`,
+      ...binds
+    );
+    return { summary, bookings: rows.results ?? [] };
+  }
+
+  async reportFinance(filters: { academicSessionId?: number | null; dateFrom?: string | null; dateTo?: string | null } = {}) {
+    const bookingWhere: string[] = ["b.status IN ('pending', 'confirmed', 'completed')"];
+    const bookingBinds: unknown[] = [];
+    if (filters.academicSessionId) { bookingWhere.push("b.academic_session_id = ?"); bookingBinds.push(filters.academicSessionId); }
+    const paymentWhere: string[] = [];
+    const paymentBinds: unknown[] = [];
+    if (filters.dateFrom) { paymentWhere.push("p.created_at >= ?"); paymentBinds.push(filters.dateFrom); }
+    if (filters.dateTo) { paymentWhere.push("p.created_at <= ?"); paymentBinds.push(filters.dateTo); }
+    if (filters.academicSessionId) { paymentWhere.push("b.academic_session_id = ?"); paymentBinds.push(filters.academicSessionId); }
+    const paymentScope = paymentWhere.length ? `AND ${paymentWhere.join(" AND ")}` : "";
+    const summary = await this.repo.first<Record<string, unknown>>(
+      `SELECT
+        (SELECT COALESCE(SUM(b.total_amount_minor), 0) FROM bookings b WHERE ${bookingWhere.join(" AND ")}) AS expected_booking_revenue,
+        (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p LEFT JOIN bookings b ON b.id = p.booking_id WHERE p.status = 'verified' ${paymentScope}) AS verified_payments,
+        (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p LEFT JOIN bookings b ON b.id = p.booking_id WHERE p.status IN ('pending', 'submitted') ${paymentScope}) AS pending_submitted_payment_totals,
+        (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p LEFT JOIN bookings b ON b.id = p.booking_id WHERE p.status = 'refunded' ${paymentScope}) AS refunded_totals,
+        (SELECT COUNT(*) FROM bookings b WHERE ${bookingWhere.join(" AND ")} AND b.total_amount_minor <= (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS fully_paid_bookings,
+        (SELECT COUNT(*) FROM bookings b WHERE ${bookingWhere.join(" AND ")} AND b.payment_attention_required = 1) AS bookings_requiring_payment_attention`,
+      ...bookingBinds,
+      ...paymentBinds,
+      ...paymentBinds,
+      ...paymentBinds,
+      ...bookingBinds,
+      ...bookingBinds
+    );
+    const outstanding = await this.reportOutstanding(filters);
+    const methods = await this.repo.all<Record<string, unknown>>(
+      `SELECT p.method, COUNT(*) AS count, COALESCE(SUM(p.amount_minor), 0) AS verified_amount_minor
+       FROM payments p
+       LEFT JOIN bookings b ON b.id = p.booking_id
+       WHERE p.status = 'verified' ${paymentScope}
+       GROUP BY p.method ORDER BY p.method`,
+      ...paymentBinds
+    );
+    return { summary: { ...summary, outstanding_booking_balances: outstanding.totalOutstandingMinor }, paymentMethods: methods.results ?? [], outstanding };
+  }
+
+  async reportOutstanding(filters: { academicSessionId?: number | null } = {}) {
+    const where: string[] = ["b.status IN ('pending', 'confirmed', 'completed')"];
+    const binds: unknown[] = [];
+    if (filters.academicSessionId) { where.push("b.academic_session_id = ?"); binds.push(filters.academicSessionId); }
+    const rows = await this.repo.all<Record<string, unknown>>(
+      `SELECT b.id, b.booking_number, b.status, b.total_amount_minor, b.currency, b.payment_attention_required,
+        r.resident_code, r.first_name, r.last_name,
+        COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS verified_amount_minor,
+        b.total_amount_minor - COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS outstanding_amount_minor
+       FROM bookings b
+       JOIN residents r ON r.id = b.resident_id
+       WHERE ${where.join(" AND ")}
+       ORDER BY outstanding_amount_minor DESC, b.id DESC`,
+      ...binds
+    );
+    const balances = (rows.results ?? []).filter((row) => Number(row.outstanding_amount_minor ?? 0) > 0);
+    return { totalOutstandingMinor: balances.reduce((sum, row) => sum + Number(row.outstanding_amount_minor ?? 0), 0), balances };
+  }
+
+  async reportMaintenance(filters: { dateFrom?: string | null; dateTo?: string | null } = {}) {
+    const where: string[] = [];
+    const binds: unknown[] = [];
+    if (filters.dateFrom) { where.push("created_at >= ?"); binds.push(filters.dateFrom); }
+    if (filters.dateTo) { where.push("created_at <= ?"); binds.push(filters.dateTo); }
+    const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const [summary, byCategory, byPriority] = await Promise.all([
+      this.repo.first<Record<string, unknown>>(`SELECT
+        COALESCE(SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END), 0) AS open,
+        COALESCE(SUM(CASE WHEN status = 'assigned' THEN 1 ELSE 0 END), 0) AS assigned,
+        COALESCE(SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END), 0) AS in_progress,
+        COALESCE(SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END), 0) AS resolved,
+        COALESCE(SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END), 0) AS closed,
+        COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled
+       FROM maintenance_requests ${clause}`, ...binds),
+      this.repo.all<Record<string, unknown>>(`SELECT category, COUNT(*) AS count FROM maintenance_requests ${clause} GROUP BY category ORDER BY category`, ...binds),
+      this.repo.all<Record<string, unknown>>(`SELECT priority, COUNT(*) AS count FROM maintenance_requests ${clause} GROUP BY priority ORDER BY priority`, ...binds)
+    ]);
+    return { summary, byCategory: byCategory.results ?? [], byPriority: byPriority.results ?? [] };
+  }
+
   async auditLogs(actor: AuthUser, filters: { action?: string | null; entityType?: string | null; actorUserId?: number | null; dateFrom?: string | null; dateTo?: string | null }, limit = 25, offset = 0) {
     const where: string[] = [];
     const binds: unknown[] = [];

@@ -63,6 +63,45 @@ routes.get("/dashboard/applications", requirePermission("application:read"), asy
 routes.get("/dashboard/maintenance", requirePermission("maintenance:read"), async (c) => c.json(ok(await service(c).maintenanceReport())));
 routes.get("/dashboard/announcements", requirePermission("announcement:read"), async (c) => c.json(ok(await service(c).announcementReport())));
 
+function reportFilters(url: URL) {
+  return {
+    academicSessionId: url.searchParams.get("academicSessionId") ? Number(url.searchParams.get("academicSessionId")) : null,
+    dateFrom: url.searchParams.get("dateFrom"),
+    dateTo: url.searchParams.get("dateTo"),
+    status: url.searchParams.get("residentStatus"),
+    bookingStatus: url.searchParams.get("bookingStatus")
+  };
+}
+
+routes.get("/reports/overview", requirePermission("report:read"), async (c) => {
+  const filters = reportFilters(new URL(c.req.url));
+  return c.json(ok(await service(c).reportOverview({ academicSessionId: filters.academicSessionId })));
+});
+routes.get("/reports/occupancy", requirePermission("report:read"), async (c) => {
+  const filters = reportFilters(new URL(c.req.url));
+  return c.json(ok(await service(c).reportOccupancy({ academicSessionId: filters.academicSessionId })));
+});
+routes.get("/reports/residents", requirePermission("report:read"), async (c) => {
+  const filters = reportFilters(new URL(c.req.url));
+  return c.json(ok(await service(c).reportResidents({ status: filters.status, academicSessionId: filters.academicSessionId })));
+});
+routes.get("/reports/applications-bookings", requirePermission("report:read"), async (c) => {
+  const filters = reportFilters(new URL(c.req.url));
+  return c.json(ok(await service(c).reportApplicationsBookings({ academicSessionId: filters.academicSessionId, bookingStatus: filters.bookingStatus })));
+});
+routes.get("/reports/finance", requirePermission("report:finance"), async (c) => {
+  const filters = reportFilters(new URL(c.req.url));
+  return c.json(ok(await service(c).reportFinance({ academicSessionId: filters.academicSessionId, dateFrom: filters.dateFrom, dateTo: filters.dateTo })));
+});
+routes.get("/reports/outstanding", requirePermission("report:finance"), async (c) => {
+  const filters = reportFilters(new URL(c.req.url));
+  return c.json(ok(await service(c).reportOutstanding({ academicSessionId: filters.academicSessionId })));
+});
+routes.get("/reports/maintenance", requirePermission("report:read"), async (c) => {
+  const filters = reportFilters(new URL(c.req.url));
+  return c.json(ok(await service(c).reportMaintenance({ dateFrom: filters.dateFrom, dateTo: filters.dateTo })));
+});
+
 routes.post("/academic-sessions", requirePermission("admin:write"), async (c) => {
   try {
     const input = await body(c);

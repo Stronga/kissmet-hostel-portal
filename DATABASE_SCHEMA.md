@@ -216,6 +216,7 @@ Stores payment records.
 - `amount_minor` must be greater than zero.
 - Payment references use the format `KSM-PAY-0001`, `KSM-PAY-0002`, and so on. They are allocated from `payment_reference_sequence`, not derived from the D1 integer primary key.
 - Verified totals and balances are calculated from `payments`; no manually maintained booking balance is stored.
+- Reporting finance queries count only `status = 'verified'` payments as verified revenue. Pending/submitted payments are reported separately, refunded payments are reported separately, and receipt totals are not used as a substitute for payment totals.
 
 ### `payment_reference_sequence`
 

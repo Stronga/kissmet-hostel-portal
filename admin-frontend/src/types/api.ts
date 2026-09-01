@@ -63,12 +63,17 @@ export interface FinancialReport {
 }
 
 export interface ApplicationBookingReport {
+  draft_applications?: number;
   submitted_applications?: number;
   under_review_applications?: number;
   approved_applications?: number;
   rejected_applications?: number;
+  cancelled_applications?: number;
   pending_bookings?: number;
   confirmed_bookings?: number;
+  cancelled_bookings?: number;
+  expired_bookings?: number;
+  completed_bookings?: number;
 }
 
 export type ApplicationStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "cancelled" | "archived";
@@ -264,7 +269,72 @@ export interface MaintenanceReport {
   in_progress?: number;
   resolved?: number;
   closed?: number;
+  cancelled?: number;
   urgent?: number;
+}
+
+export interface ResidentReportRow {
+  id: number;
+  resident_code: string;
+  first_name: string;
+  last_name: string;
+  student_id?: string | null;
+  institution_name?: string | null;
+  status: Resident["status"];
+  room_code?: string | null;
+  bed_label?: string | null;
+  assigned_date?: string | null;
+}
+
+export interface ReportsResidents {
+  statusCounts: Array<{ status: string; count: number }>;
+  residents: ResidentReportRow[];
+}
+
+export interface ReportBookingRow {
+  id: number;
+  booking_number: string;
+  status: BookingStatus;
+  total_amount_minor: number;
+  currency: string;
+  payment_attention_required?: number | boolean | null;
+  academic_session_name?: string | null;
+  resident_code: string;
+  first_name: string;
+  last_name: string;
+  priced_room_code?: string | null;
+  verified_amount_minor: number;
+  outstanding_amount_minor: number;
+}
+
+export interface ReportsApplicationsBookings {
+  summary: ApplicationBookingReport;
+  bookings: ReportBookingRow[];
+}
+
+export interface OutstandingReport {
+  totalOutstandingMinor: number;
+  balances: ReportBookingRow[];
+}
+
+export interface ReportsFinance {
+  summary: FinancialReport;
+  paymentMethods: Array<{ method: PaymentMethod; count: number; verified_amount_minor: number }>;
+  outstanding: OutstandingReport;
+}
+
+export interface ReportsMaintenance {
+  summary: MaintenanceReport;
+  byCategory: Array<{ category: MaintenanceCategory; count: number }>;
+  byPriority: Array<{ priority: MaintenancePriority; count: number }>;
+}
+
+export interface ReportsOverview {
+  scope: { academicSession: "selected_session" | "all_sessions" };
+  overview: DashboardOverview;
+  occupancy: OccupancyReport;
+  applicationsBookings: ApplicationBookingReport;
+  maintenance: MaintenanceReport;
 }
 
 export type MaintenanceStatus = "open" | "assigned" | "in_progress" | "resolved" | "closed" | "cancelled" | "archived";

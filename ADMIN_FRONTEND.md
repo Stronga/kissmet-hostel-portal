@@ -877,6 +877,65 @@ Known backend/API limitations:
 - Retry failed deliveries is not exposed yet; delivery attempts are stored so a later safe retry workflow can be added.
 - Staff selection UI is intentionally minimal in this phase; resident and room targeting are the primary admin workflows.
 
+## Reports
+
+The Reports interface uses dedicated backend report endpoints plus existing academic-session lookup:
+
+- `GET /admin/reports/overview`
+- `GET /admin/reports/occupancy`
+- `GET /admin/reports/residents`
+- `GET /admin/reports/applications-bookings`
+- `GET /admin/reports/finance`
+- `GET /admin/reports/outstanding`
+- `GET /admin/reports/maintenance`
+- `GET /admin/academic-sessions`
+
+Implemented functionality:
+
+- `/reports` admin route
+- practical tabs for Overview, Occupancy, Residents, Applications & Bookings, Finance, and Maintenance
+- academic-session filter for reports that can be scoped by session
+- resident-status filter for the resident report
+- booking-status filter for the applications/bookings report
+- date-range filters for finance and maintenance reports where timestamp fields exist
+- summary cards, concise tables, browser print support, and CSV export for report tables
+- loading, API-error, empty-table, unauthorized, and finance-RBAC states
+
+Report formulas:
+
+- Occupancy uses actual bed inventory and active allocation records: occupied usable beds divided by usable beds.
+- `rooms.capacity` is displayed only as configured maximum capacity. It is not used as actual occupancy.
+- Room occupancy rows show configured capacity, actual available-bed inventory, active allocations, available beds, gender policy, and room status.
+- Resident placement comes from active allocations. It is not inferred from bookings.
+- Application and booking lifecycle counts use their persisted status fields.
+- Expected revenue is captured booking totals for pending, confirmed, and completed bookings.
+- Verified revenue is verified payment total only. Pending/submitted payments are reported separately.
+- Refunded payments are reported separately and are not treated as current verified revenue.
+- Outstanding balance uses captured booking total minus verified payments for that booking.
+- Receipt totals are not used as a substitute for verified payment totals.
+- Maintenance reports use maintenance request records; they do not treat room or bed maintenance status as a request.
+
+CSV export:
+
+- Exports use the currently visible report table rows and filter context.
+- Exports include clear column headings and formatted values.
+- Exports do not include Ghana Card data, document URLs, OTP data, session tokens, password hashes, or raw private contact lists.
+
+RBAC behavior:
+
+- `super_admin`: full report access.
+- `manager`: operational and financial reports.
+- `accounts`: operational and financial reports.
+- `reception`: operational reports only.
+- `maintenance`: operational reports only.
+- Finance tabs are hidden without `report:finance`, and backend authorization remains authoritative.
+
+Known backend/API limitations:
+
+- Reports are aggregate/table reports, not a BI warehouse.
+- Date filters are passed as UTC-stored ISO/date strings and currently apply to payment `created_at` and maintenance request `created_at`.
+- Charts were deferred; each report exposes the underlying accessible numbers and tables first.
+
 ## Design System
 
 Design tokens are defined as CSS variables in `src/styles/index.css` and mapped into Tailwind:

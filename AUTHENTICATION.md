@@ -163,6 +163,13 @@ Messaging permissions added after Phase 10J:
 
 `super_admin` has all permissions. `manager` has full messaging permissions. `reception`, `accounts`, and `maintenance` may create/send portal messages but do not have external SMS/email delivery permission in the current map.
 
+Report permissions added after Phase 10K:
+
+- `report:read`: access operational reports such as overview, occupancy, residents, applications/bookings, and maintenance.
+- `report:finance`: access financial reports, payment method breakdowns, and outstanding balance rows.
+
+`super_admin` has all report permissions. `manager` has operational and financial reports. `accounts` has operational report access plus financial reports. `reception` and `maintenance` have operational report access only; the frontend hides finance tabs for those roles and the backend still enforces `report:finance`.
+
 ## Security Decisions
 
 - Plaintext passwords are never stored.

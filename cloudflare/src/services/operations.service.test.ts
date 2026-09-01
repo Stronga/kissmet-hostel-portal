@@ -6,6 +6,7 @@ import type { AuthUser } from "../auth/context";
 
 const manager: AuthUser = { id: 1, userType: "staff", displayName: "Manager", email: "m@test", role: "manager", staffId: 1, residentId: null, sessionId: 1 };
 const accounts: AuthUser = { ...manager, role: "accounts" };
+const maintenanceUser: AuthUser = { ...manager, role: "maintenance" };
 
 class OpsRepo {
   rows: Record<string, Record<string, unknown>[]> = {
@@ -58,17 +59,28 @@ class OpsRepo {
     if (sql.includes("FROM message_recipient_snapshots WHERE message_id")) return { results: this.rows.message_recipient_snapshots.filter((r) => r.message_id === binds[0]) as T[] };
     if (sql.includes("FROM message_delivery_attempts")) return { results: this.rows.message_delivery_attempts.filter((r) => r.message_id === binds[1] || r.message_id === binds[0]) as T[] };
     if (sql.includes("FROM portal_message_deliveries")) return { results: this.rows.portal_message_deliveries.filter((r) => r.message_id === binds[0]) as T[] };
+    if (sql.includes("GROUP BY r.status")) {
+      const counts = this.rows.residents.reduce<Record<string, number>>((acc, r) => {
+        acc[String(r.status)] = (acc[String(r.status)] ?? 0) + 1;
+        return acc;
+      }, {});
+      return { results: Object.entries(counts).map(([status, count]) => ({ status, count })) as T[] };
+    }
     if (sql.includes("FROM residents r")) {
       const ids = binds.map(Number);
       return { results: this.rows.residents.filter((r) => {
         if (ids.length && !ids.includes(Number(r.id))) return false;
         if (sql.includes("r.status = 'resident'") && r.status !== "resident") return false;
+        if (sql.includes("r.status = ?") && r.status !== binds.at(-1)) return false;
         if (sql.includes("r.status = 'applicant'") && r.status !== "applicant") return false;
         if (sql.includes("r.status <> 'archived'") && r.status === "archived") return false;
         return true;
       }).map((r) => {
         const user = this.rows.users.find((u) => u.id === r.user_id)!;
-        return { user_id: user.id, resident_id: r.id, recipient_kind: "resident", display_name: user.display_name, resident_code: r.resident_code, student_id: r.student_id, institution_name: "University of Ghana", sms_eligible: user.phone ? 1 : 0, email_eligible: user.email ? 1 : 0, portal_eligible: 1 };
+        const allocation = this.rows.allocations.find((a) => a.resident_id === r.id && a.status === "active");
+        const bed = allocation ? this.rows.beds.find((b) => b.id === allocation.bed_id) : null;
+        const room = bed ? this.rows.rooms.find((room) => room.id === bed.room_id) : null;
+        return { id: r.id, user_id: user.id, resident_id: r.id, recipient_kind: "resident", display_name: user.display_name, resident_code: r.resident_code, first_name: String(user.display_name).split(" ")[0], last_name: String(user.display_name).split(" ").slice(1).join(" "), student_id: r.student_id, status: r.status, institution_name: "University of Ghana", room_code: room?.room_code, bed_label: bed ? `Bed ${bed.id}` : null, assigned_date: allocation?.starts_on ?? null, sms_eligible: user.phone ? 1 : 0, email_eligible: user.email ? 1 : 0, portal_eligible: 1 };
       }) as T[] };
     }
     if (sql.includes("FROM allocations a") && sql.includes("room.id IN")) {
@@ -102,6 +114,18 @@ class OpsRepo {
     if (sql.includes("FROM rooms r")) {
       return { results: this.rows.rooms.map((room) => ({ room_code: room.room_code, configured_capacity: room.capacity, active_bed_count: this.rows.beds.filter((b) => b.room_id === room.id && b.status === "available").length, occupied_bed_count: this.rows.allocations.filter((a) => a.status === "active" && a.academic_session_id === binds[0]).length, gender_policy: room.gender_policy, room_status: room.status, active_rate_minor: this.rows.room_rates.find((r) => r.room_id === room.id)?.amount_minor })) as T[] };
     }
+    if (sql.includes("FROM bookings b") && sql.includes("JOIN residents r")) {
+      return { results: this.rows.bookings.map((b) => {
+        const resident = this.rows.residents[0];
+        const verified = this.rows.payments.filter((p) => p.booking_id === b.id && p.status === "verified").reduce((sum, p) => sum + Number(p.amount_minor), 0);
+        return { id: b.id, booking_number: `KSM-BKG-${String(b.id).padStart(4, "0")}`, status: b.status, total_amount_minor: b.total_amount_minor, currency: "GHS", payment_attention_required: b.payment_attention_required ?? 0, academic_session_name: "2026/2027", resident_code: resident.resident_code, first_name: "Ama", last_name: "Mensah", priced_room_code: "R1", verified_amount_minor: verified, outstanding_amount_minor: Number(b.total_amount_minor) - verified };
+      }) as T[] };
+    }
+    if (sql.includes("FROM payments p") && sql.includes("GROUP BY p.method")) {
+      return { results: [{ method: "cash", count: 1, verified_amount_minor: 250000 }, { method: "mobile_money", count: 1, verified_amount_minor: 100000 }] as T[] };
+    }
+    if (sql.includes("FROM maintenance_requests") && sql.includes("GROUP BY category")) return { results: [{ category: "plumbing", count: 1 }] as T[] };
+    if (sql.includes("FROM maintenance_requests") && sql.includes("GROUP BY priority")) return { results: [{ priority: "urgent", count: 1 }] as T[] };
     return { results: [] as T[] };
   }
   async first<T>(sql: string, ...binds: unknown[]): Promise<T | null> {
@@ -113,6 +137,7 @@ class OpsRepo {
     if (sql.includes("total_usable_beds")) return { total_usable_beds: 2, occupied_beds: 1, available_beds: 1 } as T;
     if (sql.includes("expected_booking_revenue")) return { expected_booking_revenue: 500000, verified_payments: 350000, outstanding_booking_balances: 150000, refunded_totals: 50000, fully_paid_bookings: 1, partially_paid_bookings: 1, unpaid_bookings: 0, bookings_requiring_payment_attention: 1 } as T;
     if (sql.includes("draft_applications")) return { submitted_applications: 1, approved_applications: 1, pending_bookings: 1, confirmed_bookings: 1 } as T;
+    if (sql.includes("COALESCE(SUM(CASE WHEN status = 'cancelled'")) return { open: 1, assigned: 0, in_progress: 0, resolved: 0, closed: 0, cancelled: 0 } as T;
     if (sql.includes("FROM maintenance_requests WHERE status = 'open'")) return { open: 1, assigned: 0, in_progress: 0, resolved: 0, closed: 0, urgent: 1 } as T;
     return null;
   }
@@ -298,6 +323,50 @@ describe("operations and reporting", () => {
     await expect(svc.financialReport()).resolves.toMatchObject({ verified_payments: 350000, refunded_totals: 50000, partially_paid_bookings: 1, bookings_requiring_payment_attention: 1 });
     await expect(svc.applicationBookingReport(1)).resolves.toMatchObject({ submitted_applications: 1, approved_applications: 1, pending_bookings: 1, confirmed_bookings: 1 });
     await expect(svc.maintenanceReport()).resolves.toMatchObject({ open: 1, urgent: 1 });
+  });
+
+  it("returns consolidated report data without sensitive fields", async () => {
+    const { svc } = service();
+    const residents = await svc.reportResidents({ status: "resident", academicSessionId: 1 });
+    expect(residents.statusCounts).toEqual(expect.arrayContaining([{ status: "resident", count: 2 }]));
+    expect(residents.residents.every((row) => row.status === "resident")).toBe(true);
+    expect(JSON.stringify(residents)).not.toContain("phone");
+    expect(JSON.stringify(residents)).not.toContain("ghana");
+
+    const applications = await svc.reportApplicationsBookings({ academicSessionId: 1 });
+    expect(applications.summary).toMatchObject({ submitted_applications: 1, approved_applications: 1, pending_bookings: 1, confirmed_bookings: 1 });
+    expect(applications.bookings[0]).toMatchObject({ booking_number: "KSM-BKG-0001", priced_room_code: "R1" });
+  });
+
+  it("keeps report finance totals aligned to verified payments and outstanding balances", async () => {
+    const { svc } = service();
+    const finance = await svc.reportFinance({ academicSessionId: 1 });
+    expect(finance.summary).toMatchObject({ expected_booking_revenue: 500000, verified_payments: 350000, refunded_totals: 50000, bookings_requiring_payment_attention: 1 });
+    expect(finance.summary.outstanding_booking_balances).toBe(150000);
+    expect(finance.outstanding.balances).toEqual(expect.arrayContaining([expect.objectContaining({ outstanding_amount_minor: 150000 })]));
+    expect(finance.paymentMethods).toEqual(expect.arrayContaining([expect.objectContaining({ method: "cash", verified_amount_minor: 250000 })]));
+  });
+
+  it("reports maintenance breakdowns by status category and priority", async () => {
+    const { svc } = service();
+    const report = await svc.reportMaintenance({ dateFrom: "2026-08-01", dateTo: "2026-09-01" });
+    expect(report.summary).toMatchObject({ open: 1, assigned: 0, in_progress: 0, resolved: 0, closed: 0 });
+    expect(report.byCategory).toEqual([{ category: "plumbing", count: 1 }]);
+    expect(report.byPriority).toEqual([{ priority: "urgent", count: 1 }]);
+  });
+
+  it("enforces report and finance report permissions", async () => {
+    const operational = new Hono<{ Variables: { authUser: AuthUser } }>();
+    operational.use("*", async (c, next) => { c.set("authUser", maintenanceUser); return next(); });
+    operational.get("/reports", requirePermission("report:read"), (c) => c.json({ ok: true }));
+    operational.get("/finance", requirePermission("report:finance"), (c) => c.json({ ok: true }));
+    expect((await operational.request("/reports")).status).toBe(200);
+    expect((await operational.request("/finance")).status).toBe(403);
+
+    const financial = new Hono<{ Variables: { authUser: AuthUser } }>();
+    financial.use("*", async (c, next) => { c.set("authUser", accounts); return next(); });
+    financial.get("/finance", requirePermission("report:finance"), (c) => c.json({ ok: true }));
+    expect((await financial.request("/finance")).status).toBe(200);
   });
 
   it("allows authorized audit-log access and rejects unauthorized role", async () => {
