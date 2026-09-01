@@ -26,6 +26,9 @@ const externalAnnouncementChannels = new Set(["sms", "email"]);
 const messageTargetTypes = new Set(["individual_resident", "selected_residents", "room", "selected_rooms", "group", "all_residents", "staff"]);
 const messageChannels = new Set(["portal", "sms", "email"]);
 const messageGroups = new Set(["current_residents", "applicants", "active_allocations", "outstanding_balance", "academic_session"]);
+const staffStatuses = new Set(["active", "inactive", "archived"]);
+const userStatuses = new Set(["active", "inactive", "suspended", "archived"]);
+const staffRoleCodes = new Set(["super_admin", "manager", "reception", "accounts", "maintenance"]);
 
 export class AdminService {
   constructor(
@@ -1060,12 +1063,126 @@ export class AdminService {
     if (allocated) throw new Error("Resident already allocated");
   }
 
+  async listStaff(limit: number, offset: number, search?: string) {
+    const where: string[] = [];
+    const binds: unknown[] = [];
+    if (search) {
+      where.push("(s.staff_code LIKE ? OR u.display_name LIKE ? OR u.username LIKE ? OR u.email LIKE ? OR role.code LIKE ? OR s.status LIKE ? OR u.status LIKE ?)");
+      binds.push(...Array(7).fill(`%${search}%`));
+    }
+    const rows = await this.repo.all<Record<string, unknown>>(
+      `SELECT s.id, s.user_id, s.role_id, s.staff_code, s.job_title, s.status AS staff_status, s.created_at, s.updated_at,
+        u.display_name, u.username, u.email, u.phone, u.status AS user_status, u.created_at AS user_created_at,
+        role.code AS role_code, role.name AS role_name
+       FROM staff s
+       JOIN users u ON u.id = s.user_id
+       JOIN roles role ON role.id = s.role_id
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY s.id DESC LIMIT ? OFFSET ?`,
+      ...binds,
+      limit,
+      offset
+    );
+    return { results: rows.results ?? [] };
+  }
+
+  async staffMember(id: number) {
+    const row = await this.repo.first<Record<string, unknown>>(
+      `SELECT s.id, s.user_id, s.role_id, s.staff_code, s.job_title, s.status AS staff_status, s.created_at, s.updated_at,
+        u.display_name, u.username, u.email, u.phone, u.status AS user_status, u.created_at AS user_created_at,
+        role.code AS role_code, role.name AS role_name
+       FROM staff s
+       JOIN users u ON u.id = s.user_id
+       JOIN roles role ON role.id = s.role_id
+       WHERE s.id = ?`,
+      id
+    );
+    if (!row) throw new Error("Staff not found");
+    return row;
+  }
+
   async createStaff(actor: AuthUser, data: { email: string; username: string; phone?: string | null; displayName: string; roleId: number; staffCode: string; jobTitle?: string | null; password?: string }) {
+    const role = await this.repo.first<{ id: number; code: string }>("SELECT id, code FROM roles WHERE id = ?", data.roleId);
+    if (!role || !staffRoleCodes.has(role.code)) throw new Error("Invalid staff role");
+    this.assertStaffRoleManageAllowed(actor, role.code);
     const password = data.password ?? randomToken(12);
     const user = await this.repo.run("INSERT INTO users (email, username, phone, display_name, user_type, status, password_hash) VALUES (?, ?, ?, ?, 'staff', 'active', ?)", data.email, data.username, data.phone ?? null, data.displayName, await hashPassword(password));
-    const res = await this.repo.run("INSERT INTO staff (user_id, role_id, staff_code, job_title, status) VALUES (?, ?, ?, ?, 'active')", user.meta.last_row_id, data.roleId, data.staffCode, data.jobTitle ?? null);
-    await this.repo.audit(actor.id, actor.staffId, "admin.staff.create", "staff", res.meta.last_row_id);
-    return { staff: await this.get("staff", Number(res.meta.last_row_id)), initialPassword: password };
+    let res: { meta: { last_row_id?: number | string | null } };
+    try {
+      res = await this.repo.run("INSERT INTO staff (user_id, role_id, staff_code, job_title, status) VALUES (?, ?, ?, ?, 'active')", user.meta.last_row_id, data.roleId, data.staffCode, data.jobTitle ?? null);
+    } catch (error) {
+      await this.repo.run("DELETE FROM users WHERE id = ?", user.meta.last_row_id);
+      throw error;
+    }
+    await this.repo.audit(actor.id, actor.staffId, "admin.staff.create", "staff", Number(res.meta.last_row_id));
+    return { staff: await this.staffMember(Number(res.meta.last_row_id)), initialPassword: password };
+  }
+
+  async changeStaffRole(actor: AuthUser, id: number, roleId: number) {
+    const staff = await this.staffMember(id);
+    const next = await this.repo.first<{ id: number; code: string }>("SELECT id, code FROM roles WHERE id = ?", roleId);
+    if (!next || !staffRoleCodes.has(next.code)) throw new Error("Invalid staff role");
+    this.assertStaffRoleManageAllowed(actor, String(staff.role_code));
+    this.assertStaffRoleManageAllowed(actor, next.code);
+    if (String(staff.role_code) === "super_admin" && next.code !== "super_admin") await this.ensureAnotherActiveSuperAdmin(Number(staff.id));
+    await this.repo.run("UPDATE staff SET role_id = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", roleId, id);
+    await this.revokeStaffSessions(Number(staff.user_id), "role_changed");
+    await this.repo.audit(actor.id, actor.staffId, "admin.staff.role_changed", "staff", id, { from: staff.role_code, to: next.code });
+    return this.staffMember(id);
+  }
+
+  async changeStaffStatus(actor: AuthUser, id: number, status: string) {
+    this.assertAnnouncementValue(status, staffStatuses, "Invalid staff status");
+    const staff = await this.staffMember(id);
+    this.assertStaffRoleManageAllowed(actor, String(staff.role_code));
+    if (String(staff.role_code) === "super_admin" && status !== "active") await this.ensureAnotherActiveSuperAdmin(Number(staff.id));
+    if (actor.staffId === id && status !== "active") throw new Error("Cannot deactivate your own staff record");
+    await this.repo.run("UPDATE staff SET status = ?, archived_at = CASE WHEN ? = 'archived' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE archived_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", status, status, id);
+    if (status !== "active") await this.revokeStaffSessions(Number(staff.user_id), `staff_${status}`);
+    await this.repo.audit(actor.id, actor.staffId, "admin.staff.status_changed", "staff", id, { status });
+    return this.staffMember(id);
+  }
+
+  async changeStaffAccountStatus(actor: AuthUser, id: number, status: string) {
+    this.assertAnnouncementValue(status, userStatuses, "Invalid account status");
+    const staff = await this.staffMember(id);
+    this.assertStaffRoleManageAllowed(actor, String(staff.role_code));
+    if (String(staff.role_code) === "super_admin" && status !== "active") await this.ensureAnotherActiveSuperAdmin(Number(staff.id));
+    if (actor.staffId === id && status !== "active") throw new Error("Cannot deactivate your own account");
+    await this.repo.run("UPDATE users SET status = ?, archived_at = CASE WHEN ? = 'archived' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE archived_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", status, status, staff.user_id);
+    if (status !== "active") await this.revokeStaffSessions(Number(staff.user_id), `account_${status}`);
+    await this.repo.audit(actor.id, actor.staffId, "admin.staff.account_status_changed", "staff", id, { userId: staff.user_id, status });
+    return this.staffMember(id);
+  }
+
+  async resetStaffPassword(actor: AuthUser, id: number) {
+    const staff = await this.staffMember(id);
+    this.assertStaffRoleManageAllowed(actor, String(staff.role_code));
+    const password = randomToken(12);
+    await this.repo.run("UPDATE users SET password_hash = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", await hashPassword(password), staff.user_id);
+    await this.revokeStaffSessions(Number(staff.user_id), "password_reset");
+    await this.repo.audit(actor.id, actor.staffId, "admin.staff.password_reset", "staff", id);
+    return { staff: await this.staffMember(id), temporaryPassword: password };
+  }
+
+  private assertStaffRoleManageAllowed(actor: AuthUser, roleCode: string) {
+    if (actor.role !== "super_admin") throw new Error(roleCode === "super_admin" ? "Only super admins can manage super admin accounts" : "Only super admins can manage staff accounts");
+  }
+
+  private async ensureAnotherActiveSuperAdmin(staffId: number) {
+    const row = await this.repo.first<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM staff s
+       JOIN users u ON u.id = s.user_id
+       JOIN roles r ON r.id = s.role_id
+       WHERE s.id <> ? AND s.status = 'active' AND u.status = 'active' AND r.code = 'super_admin'`,
+      staffId
+    );
+    if (Number(row?.count ?? 0) < 1) throw new Error("At least one other active Super Admin is required");
+  }
+
+  private async revokeStaffSessions(userId: number, reason: string) {
+    await this.repo.run("UPDATE sessions SET status = 'revoked', revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), revocation_reason = ? WHERE user_id = ? AND status = 'active'", reason, userId);
   }
 
   private assertAnnouncementValue(value: string, allowed: Set<string>, message: string) {

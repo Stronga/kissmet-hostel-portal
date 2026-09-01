@@ -443,8 +443,38 @@ export interface Staff {
   staff_code: string;
   job_title?: string | null;
   status: string;
+  staff_status?: string;
+  display_name?: string;
+  username?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  user_status?: string;
+  user_created_at?: string;
+  role_code?: Exclude<RoleCode, "resident">;
+  role_name?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface CreateStaffInput {
+  email: string;
+  username: string;
+  phone?: string | null;
+  displayName: string;
+  roleId: number;
+  staffCode: string;
+  jobTitle?: string | null;
+  password?: string;
+}
+
+export interface CreateStaffResult {
+  staff: Staff;
+  initialPassword: string;
+}
+
+export interface ResetStaffPasswordResult {
+  staff: Staff;
+  temporaryPassword: string;
 }
 
 export interface Pagination {

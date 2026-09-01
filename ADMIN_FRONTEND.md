@@ -18,7 +18,7 @@ admin-frontend/src/
   auth/         session provider and auth state
   components/   layout, common, and dashboard components
   hooks/        data-loading hooks
-  pages/        Login, Dashboard, and placeholders
+  pages/        Login, Dashboard, and admin modules
   routes/       protected route tree
   styles/       Tailwind entry and design tokens
   types/        shared API response types
@@ -100,10 +100,10 @@ Implemented routes:
 - `/announcements`
 - `/messages`
 - `/reports`
+- `/staff`
 
 Prepared placeholder routes:
 
-- `/staff`
 - `/audit-logs`
 - `/settings`
 
@@ -936,6 +936,66 @@ Known backend/API limitations:
 - Date filters are passed as UTC-stored ISO/date strings and currently apply to payment `created_at` and maintenance request `created_at`.
 - Charts were deferred; each report exposes the underlying accessible numbers and tables first.
 
+## Staff
+
+The Staff interface uses joined backend Staff APIs:
+
+- `GET /admin/staff`
+- `POST /admin/staff`
+- `GET /admin/staff/:id`
+- `PATCH /admin/staff/:id/role`
+- `PATCH /admin/staff/:id/status`
+- `PATCH /admin/staff/:id/account-status`
+- `POST /admin/staff/:id/reset-password`
+- `GET /admin/roles`
+
+Implemented functionality:
+
+- `/staff` admin route
+- professional Staff page header using the approved shell and visual system
+- current-page summary cards for active staff, managers, reception, accounts, and maintenance
+- server-side search by backend-supported fields: staff code, name, username, email, role, staff status, and account status
+- paginated staff table with Staff Code, Name, Username, Email, Role, Staff Status, Account Status, Created, and Actions
+- joined backend response that preserves `users -> staff -> roles` without frontend fan-out lookups
+- staff detail dialog organized into Staff, Login Account, Access, and Actions sections
+- Add Staff workflow for Super Admins only
+- role-change, staff-status, account-status, and password-reset workflows with confirmation dialogs
+- clear distinction between `staff.status` and `users.status`
+- loading, empty, no-search-results, API-error, validation-error, and one-time-password states
+
+Staff identity model:
+
+- Identity fields such as display name, username, email, phone, account status, and password hash belong to `users`.
+- Staff operational profile fields such as staff code, job title, staff status, and role assignment belong to `staff`.
+- Role metadata comes from `roles`.
+- Staff code is currently caller-supplied by Super Admin users; no `KSM-STF` sequence exists yet.
+- The frontend never manufactures password hashes, session tokens, OTPs, or resident-style staff sequences.
+
+Password handling:
+
+- New staff passwords are sent to the backend once as a requested initial password or omitted so the backend generates one.
+- The backend hashes passwords before persistence.
+- The plaintext initial password or reset password is returned once and shown in an immediate success dialog only.
+- The frontend does not persist, log, list, or redisplay plaintext staff passwords.
+- Password reset revokes active sessions for that staff user's account.
+
+Backend safeguards surfaced by the UI:
+
+- Only `super_admin` can create staff, change staff roles, change staff status, change account status, or reset staff passwords.
+- Managers have staff read access only.
+- `resident` is filtered out of staff role choices.
+- Non-Super Admin users cannot create, promote, demote, deactivate, archive, suspend, or reset Super Admin accounts.
+- The last active Super Admin cannot be demoted, deactivated, archived, or account-deactivated.
+- Self-deactivation and self account deactivation are blocked by the backend.
+- Role, staff-status, account-status, and password changes revoke active sessions so permission changes take effect immediately.
+- Backend authorization remains authoritative; UI hiding is only an ergonomic layer.
+
+Known backend/API limitations:
+
+- Staff code remains caller-supplied. A future migration can add a dedicated staff-code sequence if Kissmet wants generated `KSM-STF-xxxx` references.
+- The Staff list response returns a page of joined records but not a total-count field yet, so summary cards are current-page counts.
+- There is no general staff profile edit endpoint for changing job title, email, username, display name, or phone without using account/status/role-specific operations.
+
 ## Design System
 
 Design tokens are defined as CSS variables in `src/styles/index.css` and mapped into Tailwind:
@@ -1076,6 +1136,13 @@ Frontend tests cover:
 - delivery detail without contact disclosure
 - messaging RBAC external-channel behavior
 - messaging error state
+- staff joined table rendering
+- staff server-side search request
+- staff creation without password hash exposure
+- one-time initial password display
+- Super Admin role/password management actions
+- staff management actions hidden from managers
+- staff API error state
 - money parser validation
 - currency formatting
 - status formatting
@@ -1085,10 +1152,10 @@ Latest validation:
 
 ```text
 admin-frontend: npm.cmd run typecheck passed
-admin-frontend: npm.cmd test passed, 16 files / 109 tests
+admin-frontend: npm.cmd test passed, 17 files / 115 tests
 admin-frontend: npm.cmd run build passed
 cloudflare: npm.cmd run typecheck passed
-cloudflare: npm.cmd test passed, 5 files / 83 tests
+cloudflare: npm.cmd test passed, 5 files / 87 tests
 cloudflare: npm.cmd run db:verify:local passed, 54 commands executed successfully
 ```
 

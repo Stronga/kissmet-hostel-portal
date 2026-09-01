@@ -67,8 +67,12 @@ Stores identity records shared by residents, staff, and system actors.
 Stores staff profile records connected to `users` and `roles`.
 
 - Relationships: `staff.user_id -> users.id`, `staff.role_id -> roles.id`.
+- Identity fields such as `display_name`, `username`, `email`, `phone`, `status`, and `password_hash` remain on `users`.
+- Staff-specific fields such as `staff_code`, `job_title`, `hire_date`, and operational `status` remain on `staff`.
 - Status values: `active`, `inactive`, `archived`.
 - Unique constraints: `user_id`, `staff_code`.
+- Staff code is currently caller-supplied by Super Admin users. There is no staff-code sequence in the v1 schema.
+- Staff role/status/account/password management revokes active sessions at the service layer; session revocation data is stored in `sessions.status`, `revoked_at`, and `revocation_reason`.
 
 ### `academic_sessions`
 

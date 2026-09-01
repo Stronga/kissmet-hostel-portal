@@ -170,6 +170,14 @@ Report permissions added after Phase 10K:
 
 `super_admin` has all report permissions. `manager` has operational and financial reports. `accounts` has operational report access plus financial reports. `reception` and `maintenance` have operational report access only; the frontend hides finance tabs for those roles and the backend still enforces `report:finance`.
 
+Staff-management permissions added after Phase 10L:
+
+- `staff:read`: list and view joined staff/user/role records.
+
+`super_admin` has full staff management through role checks on staff mutation routes. `manager` has staff read access only. Staff mutation endpoints require `super_admin` and enforce server-side safeguards for Super Admin accounts, the last active Super Admin, and self-deactivation.
+
+Role changes, staff-status changes, account-status changes, and password resets revoke the affected staff user's active sessions. This forces changed permissions and deactivations to take effect immediately instead of waiting for session expiry.
+
 ## Security Decisions
 
 - Plaintext passwords are never stored.
@@ -183,6 +191,8 @@ Report permissions added after Phase 10K:
 - Resident OTP request responses are intentionally generic so callers cannot reliably enumerate residents or phone numbers.
 - Auth events are written to `audit_logs`.
 - Passwords, OTPs, and session tokens are not logged.
+- Staff-management responses do not expose password hashes, session token hashes, OTP hashes, or other secret material.
+- Initial and reset staff passwords are returned once by the backend and are not recoverable from D1.
 
 ## Endpoints
 

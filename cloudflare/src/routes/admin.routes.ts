@@ -41,7 +41,7 @@ listRoute("/institutions", "institutions");
 listRoute("/rooms", "rooms");
 listRoute("/room-rates", "room_rates");
 listRoute("/residents", "residents", "resident:read");
-listRoute("/staff", "staff");
+// Staff uses joined users/staff/roles responses below.
 listRoute("/roles", "roles");
 listRoute("/applications", "applications", "application:read");
 listRoute("/bookings", "bookings", "booking:read");
@@ -216,6 +216,12 @@ routes.post("/residents", requirePermission("resident:write"), async (c) => {
 });
 routes.get("/residents/:id", requirePermission("resident:read"), async (c) => c.json(ok(await service(c).get("residents", Number(c.req.param("id"))))));
 
+routes.get("/staff", requirePermission("staff:read"), async (c) => {
+  const p = pagination(new URL(c.req.url));
+  const search = new URL(c.req.url).searchParams.get("search") ?? undefined;
+  const result = await service(c).listStaff(p.limit, p.offset, search);
+  return c.json(listOk((result.results ?? []) as unknown[], p));
+});
 routes.post("/staff", requireRole("super_admin"), async (c) => {
   try {
     const input = await body(c);
@@ -231,9 +237,21 @@ routes.post("/staff", requireRole("super_admin"), async (c) => {
     })), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
-routes.get("/staff/:id", requirePermission("admin:read"), async (c) => c.json(ok(await service(c).get("staff", Number(c.req.param("id"))))));
+routes.get("/staff/:id", requirePermission("staff:read"), async (c) => c.json(ok(await service(c).staffMember(Number(c.req.param("id"))))));
 routes.patch("/staff/:id/status", requireRole("super_admin"), async (c) => {
-  try { const input = await body(c); return c.json(ok(await service(c).updateStatus(c.get("authUser"), "staff", Number(c.req.param("id")), stringField(input, "status")!))); }
+  try { const input = await body(c); return c.json(ok(await service(c).changeStaffStatus(c.get("authUser"), Number(c.req.param("id")), stringField(input, "status")!))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.patch("/staff/:id/role", requireRole("super_admin"), async (c) => {
+  try { const input = await body(c); return c.json(ok(await service(c).changeStaffRole(c.get("authUser"), Number(c.req.param("id")), intField(input, "roleId")!))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.patch("/staff/:id/account-status", requireRole("super_admin"), async (c) => {
+  try { const input = await body(c); return c.json(ok(await service(c).changeStaffAccountStatus(c.get("authUser"), Number(c.req.param("id")), stringField(input, "status")!))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.post("/staff/:id/reset-password", requireRole("super_admin"), async (c) => {
+  try { return c.json(ok(await service(c).resetStaffPassword(c.get("authUser"), Number(c.req.param("id"))))); }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 
