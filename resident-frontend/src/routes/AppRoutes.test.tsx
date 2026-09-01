@@ -7,9 +7,15 @@ function mockFetch(handler: (url: string) => Response) {
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => handler(String(input))));
 }
 
+function defaultPublicResponse(url: string) {
+  if (url.endsWith("/public/institutions")) return Response.json({ ok: true, data: [{ code: "ug", name: "University of Ghana" }] });
+  return Response.json({ error: "Unauthorized" }, { status: 401 });
+}
+
 describe("resident routes", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   afterEach(() => {
@@ -17,13 +23,13 @@ describe("resident routes", () => {
   });
 
   it("renders the app", async () => {
-    mockFetch(() => Response.json({ error: "Unauthorized" }, { status: 401 }));
+    mockFetch(defaultPublicResponse);
     render(renderResidentApp(["/login"]));
     expect(await screen.findByRole("heading", { name: /Resident Portal/i })).toBeInTheDocument();
   });
 
   it("redirects unauthenticated / to /login", async () => {
-    mockFetch(() => Response.json({ error: "Unauthorized" }, { status: 401 }));
+    mockFetch(defaultPublicResponse);
     render(renderResidentApp(["/"]));
     expect(await screen.findByRole("heading", { name: /Resident Portal/i })).toBeInTheDocument();
   });
@@ -36,7 +42,7 @@ describe("resident routes", () => {
   });
 
   it("redirects protected routes when unauthenticated", async () => {
-    mockFetch(() => Response.json({ error: "Unauthorized" }, { status: 401 }));
+    mockFetch(defaultPublicResponse);
     render(renderResidentApp(["/payments"]));
     expect(await screen.findByRole("heading", { name: /Resident Portal/i })).toBeInTheDocument();
   });

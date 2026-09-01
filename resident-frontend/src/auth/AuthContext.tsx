@@ -59,9 +59,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(RESIDENT_TOKEN_KEY, nextToken);
     setAuthToken(nextToken);
     setToken(nextToken);
-    const current = await fetchMe();
-    setUser(requireResidentUser(current.user));
-  }, [requireResidentUser]);
+    try {
+      const current = await fetchMe();
+      setUser(requireResidentUser(current.user));
+    } catch (error) {
+      clearSession();
+      throw error;
+    }
+  }, [clearSession, requireResidentUser]);
 
   const logout = useCallback(async () => {
     try {

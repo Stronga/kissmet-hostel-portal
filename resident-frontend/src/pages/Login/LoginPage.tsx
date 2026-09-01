@@ -1,30 +1,89 @@
-import { Link, Navigate } from "react-router-dom";
+import { FormEvent, useMemo, useState } from "react";
+import { Link, Navigate, useNavigate } from "react-router-dom";
+import { requestResidentLoginOtp } from "../../api/residentAuth";
 import { Card } from "../../components/common/Card";
-import { FormField } from "../../components/common/FormField";
+import { ErrorState } from "../../components/common/ErrorState";
+import { FormField, SelectField } from "../../components/common/FormField";
 import { Button } from "../../components/common/Button";
 import { useAuth } from "../../auth/AuthContext";
+import { loginContext, saveVerificationContext } from "../../auth/verificationContext";
+import { useInstitutions } from "../../hooks/useInstitutions";
 import { usePageTitle } from "../../hooks/usePageTitle";
+import { safeAuthError } from "../../utils/errors";
 
 export function LoginPage() {
   const { isAuthenticated } = useAuth();
+  const { institutions, isLoading, error: institutionError } = useInstitutions();
+  const navigate = useNavigate();
+  const [institutionCode, setInstitutionCode] = useState("");
+  const [studentId, setStudentId] = useState("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   usePageTitle("Login");
 
+  const options = useMemo(() => institutions.map((item) => ({ value: item.code, label: item.name })), [institutions]);
+
   if (isAuthenticated) return <Navigate to="/home" replace />;
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextErrors: Record<string, string> = {};
+    if (!institutionCode) nextErrors.institutionCode = "Institution is required.";
+    if (!studentId.trim()) nextErrors.studentId = "Student ID is required.";
+    setErrors(nextErrors);
+    setSubmitError(null);
+    if (Object.keys(nextErrors).length) return;
+
+    setIsSubmitting(true);
+    try {
+      const selected = institutions.find((item) => item.code === institutionCode);
+      await requestResidentLoginOtp({ institutionCode, studentId: studentId.trim() });
+      saveVerificationContext(loginContext({ institutionCode, studentId: studentId.trim() }, selected?.name ?? institutionCode));
+      navigate("/verify-otp", { replace: false });
+    } catch (error) {
+      setSubmitError(safeAuthError(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
       <Card className="w-full max-w-md">
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">Kissmet</p>
         <h1 className="mt-2 text-2xl font-semibold text-text-primary">Resident Portal</h1>
-        <p className="mt-2 text-sm text-text-secondary">Resident login will use institution, student ID, and a phone OTP.</p>
-        <div className="mt-6 space-y-4">
-          <FormField label="Institution" placeholder="Select your institution" disabled />
-          <FormField label="Student ID" placeholder="Enter your student ID" disabled />
-          <Button className="w-full" disabled>Continue</Button>
-        </div>
+        <p className="mt-2 text-sm text-text-secondary">Sign in with your institution, student ID, and the OTP sent to your registered phone.</p>
+        {institutionError ? <div className="mt-4"><ErrorState message={institutionError} /></div> : null}
+        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+          <SelectField
+            label="Institution"
+            name="institutionCode"
+            value={institutionCode}
+            onChange={(event) => setInstitutionCode(event.currentTarget.value)}
+            options={options}
+            disabled={isLoading || isSubmitting || Boolean(institutionError) || institutions.length === 0}
+            hint={isLoading ? "Loading institutions" : institutions.length === 0 && !institutionError ? "No institutions are available." : undefined}
+            error={errors.institutionCode}
+          />
+          <FormField
+            label="Student ID"
+            name="studentId"
+            placeholder="Enter your student ID"
+            value={studentId}
+            onChange={(event) => setStudentId(event.currentTarget.value)}
+            disabled={isSubmitting}
+            autoComplete="username"
+            error={errors.studentId}
+          />
+          {submitError ? <ErrorState message={submitError} /> : null}
+          <Button className="w-full" type="submit" disabled={isSubmitting || isLoading || institutions.length === 0}>
+            {isSubmitting ? "Sending OTP" : "Continue"}
+          </Button>
+        </form>
         <div className="mt-5 flex items-center justify-between text-sm">
           <Link to="/register" className="font-semibold text-primary">Register</Link>
-          <Link to="/verify-otp" className="font-semibold text-primary">Verify OTP</Link>
+          <Link to="/verify-otp" className="font-semibold text-primary">Enter OTP</Link>
         </div>
       </Card>
     </main>
