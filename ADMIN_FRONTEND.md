@@ -101,10 +101,10 @@ Implemented routes:
 - `/messages`
 - `/reports`
 - `/staff`
+- `/audit-logs`
 
 Prepared placeholder routes:
 
-- `/audit-logs`
 - `/settings`
 
 Placeholders intentionally do not fake CRUD behavior.
@@ -996,6 +996,59 @@ Known backend/API limitations:
 - The Staff list response returns a page of joined records but not a total-count field yet, so summary cards are current-page counts.
 - There is no general staff profile edit endpoint for changing job title, email, username, display name, or phone without using account/status/role-specific operations.
 
+## Audit Logs
+
+The Audit Logs interface uses read-only backend audit APIs:
+
+- `GET /admin/audit-logs`
+- `GET /admin/audit-logs/:id`
+
+Implemented functionality:
+
+- `/audit-logs` admin route
+- professional Audit Logs page header using the approved shell and visual system
+- no Add, Edit, Delete, Archive, Clear Logs, Purge, Restore, or manually-create actions
+- paginated audit table with Timestamp, Actor, Action, Entity, Details, and View columns
+- newest-first backend ordering
+- server-side filters for search, actor user ID, actor staff ID, action, entity type, date from, and date to
+- detail modal organized into Event, Actor, Target, Request Context, and Details
+- human-readable timestamps through the shared `formatDateTime()` utility
+- readable action labels while preserving the exact stored action key in details
+- readable metadata key/value display with JSON fallback for nested values
+- loading, empty, filtered-empty, API-error, missing-value, and pagination states
+
+Read-only and append-only behavior:
+
+- Audit records are operational/security history.
+- The Admin Portal exposes no audit mutation controls.
+- The backend exposes no audit log update, delete, archive, purge, restore, or manual-create route.
+- Viewing audit logs records `admin.audit_logs.accessed`; viewing a specific log records `admin.audit_logs.detail_accessed`.
+
+Permissions:
+
+- `super_admin`: audit read access.
+- `manager`: audit read access in the current locked permission model.
+- `reception`, `accounts`, `maintenance`, and `resident`: blocked unless the backend permission map is changed in a future phase.
+- Frontend navigation hides Audit Logs from unauthorized roles, and backend `audit:read` remains authoritative.
+
+Metadata redaction:
+
+- The backend sanitizes audit metadata before returning it to the frontend.
+- Sensitive keys such as password, password hash, temporary password, token, session token, OTP, OTP hash, authorization header, secret, API key, Cloudflare token, SMS secret, and storage secrets are returned as `[REDACTED]`.
+- Redaction is recursive for nested metadata.
+- Historical audit rows are not rewritten.
+
+Audit coverage review:
+
+- Existing critical administrative and security workflows already write audit entries for staff creation, staff role changes, staff/account status changes, password reset, application decisions, booking create/status changes, payment verification/rejection/refund, payment-threshold/payment-attention events, allocation create/transfer/status changes, receipt issue/void, document access/verification/rejection, maintenance create/assign/status changes, announcement create/update/publish/status changes, targeted message create/send/archive, resident registration, resident profile updates, resident document uploads, and resident application changes.
+- No critical audit gap requiring a code fix was found during this phase.
+
+Known backend/API limitations:
+
+- Audit metadata depends on what the original mutation captured. Missing historical fields are displayed as `Not available`.
+- Actor details are joined from current `users`, `staff`, and `roles` where available. If a referenced actor was removed or is unavailable, the historical actor IDs remain visible.
+- The API returns total count for audit pagination, but it does not expose separate summary-card aggregates yet.
+
 ## Design System
 
 Design tokens are defined as CSS variables in `src/styles/index.css` and mapped into Tailwind:
@@ -1143,6 +1196,14 @@ Frontend tests cover:
 - Super Admin role/password management actions
 - staff management actions hidden from managers
 - staff API error state
+- audit logs route rendering
+- audit table rendering with human-readable timestamps
+- audit server-side filter parameters
+- audit detail modal event/actor/target/context display
+- audit missing-value handling
+- audit sensitive metadata redaction
+- audit pagination
+- unauthorized Audit Logs navigation hiding
 - money parser validation
 - currency formatting
 - status formatting
@@ -1152,10 +1213,10 @@ Latest validation:
 
 ```text
 admin-frontend: npm.cmd run typecheck passed
-admin-frontend: npm.cmd test passed, 17 files / 115 tests
+admin-frontend: npm.cmd test passed, 18 files / 121 tests
 admin-frontend: npm.cmd run build passed
 cloudflare: npm.cmd run typecheck passed
-cloudflare: npm.cmd test passed, 5 files / 87 tests
+cloudflare: npm.cmd test passed, 5 files / 90 tests
 cloudflare: npm.cmd run db:verify:local passed, 54 commands executed successfully
 ```
 

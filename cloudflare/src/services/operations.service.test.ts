@@ -21,6 +21,7 @@ class OpsRepo {
     message_delivery_attempts: [],
     portal_message_deliveries: [],
     users: [
+      { id: 1, display_name: "Manager", phone: "233255000000", email: "manager@test", status: "active" },
       { id: 20, display_name: "Ama Mensah", phone: "233200000000", email: "ama@test", status: "active" },
       { id: 21, display_name: "Kofi Owusu", phone: null, email: "kofi@test", status: "active" },
       { id: 22, display_name: "Esi Boateng", phone: "233244000000", email: null, status: "active" },
@@ -33,7 +34,11 @@ class OpsRepo {
     ],
     institutions: [{ id: 1, name: "University of Ghana" }],
     roles: [{ id: 1, code: "maintenance" }],
-    audit_logs: [],
+    audit_logs: [
+      { id: 1, actor_user_id: 1, actor_staff_id: 1, action: "admin.staff.password_reset", entity_type: "staff", entity_id: 3, metadata_json: JSON.stringify({ temporaryPassword: "secret", nested: { sessionToken: "token" } }), ip_hash: "ip-1", user_agent: "agent", created_at: "2026-08-30T10:00:00.000Z" },
+      { id: 2, actor_user_id: 1, actor_staff_id: 1, action: "admin.payment.verified", entity_type: "payment", entity_id: 4, metadata_json: JSON.stringify({ bookingId: 2 }), ip_hash: null, user_agent: null, created_at: "2026-08-31T10:00:00.000Z" },
+      { id: 3, actor_user_id: null, actor_staff_id: null, action: "resident.registration.initiated", entity_type: "registration", entity_id: null, metadata_json: null, ip_hash: null, user_agent: null, created_at: "2026-09-01T10:00:00.000Z" }
+    ],
     beds: [{ id: 1, room_id: 1, status: "available" }, { id: 2, room_id: 1, status: "available" }, { id: 3, room_id: 2, status: "maintenance" }, { id: 4, room_id: 2, status: "available" }],
     rooms: [{ id: 1, room_code: "R1", capacity: 2, gender_policy: "female", status: "available" }, { id: 2, room_code: "R2", capacity: 1, gender_policy: "any", status: "available" }],
     room_rates: [{ room_id: 1, academic_session_id: 1, amount_minor: 250000, status: "active" }],
@@ -48,7 +53,17 @@ class OpsRepo {
   async get(table: string, id: number) { return (this.rows[table] ?? []).find((r) => r.id === id) ?? null; }
   async list(table: string) { return { results: this.rows[table] ?? [] }; }
   async all<T>(sql: string, ...binds: unknown[]) {
-    if (sql.includes("FROM audit_logs")) return { results: this.rows.audit_logs as T[] };
+    if (sql.includes("FROM audit_logs audit")) {
+      let rows = this.joinedAuditRows();
+      if (sql.includes("audit.action = ?")) rows = rows.filter((row) => row.action === binds.find((bind) => bind === "admin.payment.verified" || bind === "admin.staff.password_reset" || bind === "resident.registration.initiated"));
+      if (sql.includes("audit.entity_type = ?")) rows = rows.filter((row) => row.entity_type === binds.find((bind) => bind === "payment" || bind === "staff" || bind === "registration"));
+      if (sql.includes("audit.actor_user_id = ?")) rows = rows.filter((row) => row.actor_user_id === 1);
+      if (sql.includes("audit.actor_staff_id = ?")) rows = rows.filter((row) => row.actor_staff_id === 1);
+      if (sql.includes("audit.created_at >= ?")) rows = rows.filter((row) => String(row.created_at) >= "2026-08-31");
+      if (sql.includes("audit.created_at <= ?")) rows = rows.filter((row) => String(row.created_at) <= "2026-09-01");
+      if (sql.includes("LIKE ?")) rows = rows.filter((row) => JSON.stringify(row).toLowerCase().includes(String(binds[0]).replaceAll("%", "").toLowerCase()));
+      return { results: rows.sort((a, b) => Number(b.id) - Number(a.id)).slice(Number(binds.at(-1)), Number(binds.at(-1)) + Number(binds.at(-2))) as T[] };
+    }
     if (sql.includes("FROM announcement_channels")) return { results: this.rows.announcement_channels.filter((r) => r.announcement_id === binds[0]).map((r) => ({ channel: r.channel })) as T[] };
     if (sql.includes("FROM announcement_delivery_attempts")) return { results: this.rows.announcement_delivery_attempts.filter((r) => r.announcement_id === binds[0]) as T[] };
     if (sql.includes("FROM users u JOIN residents r")) return { results: [{ id: 20, kind: "resident" }] as T[] };
@@ -129,6 +144,8 @@ class OpsRepo {
     return { results: [] as T[] };
   }
   async first<T>(sql: string, ...binds: unknown[]): Promise<T | null> {
+    if (sql.includes("COUNT(*) AS total") && sql.includes("FROM audit_logs audit")) return { total: this.rows.audit_logs.length } as T;
+    if (sql.includes("FROM audit_logs audit") && sql.includes("WHERE audit.id")) return (this.joinedAuditRows().find((row) => row.id === binds[0]) ?? null) as T | null;
     if (sql.includes("FROM staff")) return this.rows.staff[0] as T;
     if (sql.includes("FROM messages m") && sql.includes("WHERE m.id")) return (this.rows.messages.find((r) => r.id === binds[0]) ?? null) as T;
     if (sql.includes("FROM messages WHERE id")) return (this.rows.messages.find((r) => r.id === binds[0]) ?? null) as T;
@@ -140,6 +157,14 @@ class OpsRepo {
     if (sql.includes("COALESCE(SUM(CASE WHEN status = 'cancelled'")) return { open: 1, assigned: 0, in_progress: 0, resolved: 0, closed: 0, cancelled: 0 } as T;
     if (sql.includes("FROM maintenance_requests WHERE status = 'open'")) return { open: 1, assigned: 0, in_progress: 0, resolved: 0, closed: 0, urgent: 1 } as T;
     return null;
+  }
+  joinedAuditRows(): Record<string, unknown>[] {
+    return this.rows.audit_logs.map((audit) => {
+      const staff = this.rows.staff.find((item) => item.id === audit.actor_staff_id);
+      const user = this.rows.users.find((item) => item.id === audit.actor_user_id);
+      const role = this.rows.roles.find((item) => item.id === staff?.role_id);
+      return { ...audit, actor_display_name: user?.display_name ?? null, actor_staff_code: staff?.staff_code ?? null, actor_role_code: role?.code ?? null, actor_role_name: role?.name ?? null };
+    });
   }
   async allocateMaintenanceRequestNumber() { return `KSM-MNT-${String(this.seq++).padStart(4, "0")}`; }
   async run(sql: string, ...binds: unknown[]) {
@@ -371,11 +396,41 @@ describe("operations and reporting", () => {
 
   it("allows authorized audit-log access and rejects unauthorized role", async () => {
     const { svc, repo } = service();
-    await expect(svc.auditLogs(manager, { action: null, entityType: null }, 25, 0)).resolves.toMatchObject({ results: expect.any(Array) });
+    await expect(svc.auditLogs(manager, { action: null, entityType: null }, 25, 0)).resolves.toMatchObject({ results: expect.any(Array), total: 3 });
     expect(repo.audits).toContain("admin.audit_logs.accessed");
     const app = new Hono<{ Variables: { authUser: AuthUser } }>();
     app.use("*", async (c, next) => { c.set("authUser", accounts); return next(); });
     app.get("/audit", requirePermission("audit:read"), (c) => c.json({ ok: true }));
     expect((await app.request("/audit")).status).toBe(403);
+  });
+
+  it("returns paginated newest-first joined audit logs with filters", async () => {
+    const { svc } = service();
+    const page = await svc.auditLogs(manager, { search: null, action: null, entityType: null }, 2, 0) as { results: Record<string, unknown>[]; total: number };
+    expect(page.results.map((row) => row.id)).toEqual([3, 2]);
+    expect(page.total).toBe(3);
+
+    await expect(svc.auditLogs(manager, { action: "admin.payment.verified", entityType: null }, 25, 0)).resolves.toMatchObject({ results: [expect.objectContaining({ action: "admin.payment.verified", actor_display_name: "Manager" })] });
+    await expect(svc.auditLogs(manager, { action: null, entityType: "payment" }, 25, 0)).resolves.toMatchObject({ results: [expect.objectContaining({ entity_type: "payment" })] });
+    await expect(svc.auditLogs(manager, { actorUserId: 1, actorStaffId: 1, dateFrom: "2026-08-31", dateTo: "2026-09-01" }, 25, 0)).resolves.toMatchObject({ results: [expect.objectContaining({ actor_user_id: 1, actor_staff_id: 1 })] });
+  });
+
+  it("retrieves audit details and redacts sensitive metadata", async () => {
+    const { svc } = service();
+    const detail = await svc.auditLog(manager, 1);
+    expect(detail).toMatchObject({ action: "admin.staff.password_reset", actor_staff_code: "KSM-STF-0001" });
+    expect(JSON.stringify(detail)).not.toContain("secret");
+    expect(JSON.stringify(detail)).not.toContain("token");
+    expect(JSON.stringify(detail)).toContain("[REDACTED]");
+  });
+
+  it("does not expose audit mutation routes", async () => {
+    const app = new Hono<{ Variables: { authUser: AuthUser } }>();
+    app.use("*", async (c, next) => { c.set("authUser", manager); return next(); });
+    app.get("/audit", requirePermission("audit:read"), (c) => c.json({ ok: true }));
+    expect((await app.request("/audit")).status).toBe(200);
+    expect((await app.request("/audit", { method: "POST" })).status).toBe(404);
+    expect((await app.request("/audit/1", { method: "PATCH" })).status).toBe(404);
+    expect((await app.request("/audit/1", { method: "DELETE" })).status).toBe(404);
   });
 });

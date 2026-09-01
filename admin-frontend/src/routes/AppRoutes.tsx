@@ -3,6 +3,7 @@ import { AppShell } from "../components/layout/AppShell";
 import { AllocationsPage } from "../pages/Allocations/AllocationsPage";
 import { AnnouncementsPage } from "../pages/Announcements/AnnouncementsPage";
 import { ApplicationsPage } from "../pages/Applications/ApplicationsPage";
+import { AuditLogsPage } from "../pages/AuditLogs/AuditLogsPage";
 import { BookingsPage } from "../pages/Bookings/BookingsPage";
 import { DashboardPage } from "../pages/Dashboard/DashboardPage";
 import { LoginPage } from "../pages/Login/LoginPage";
@@ -37,7 +38,7 @@ export function AppRoutes() {
           <Route path="/messages" element={<MessagesPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/staff" element={<StaffPage />} />
-          <Route path="/audit-logs" element={<PlaceholderPage title="Audit Logs" />} />
+          <Route path="/audit-logs" element={<AuditLogsPage />} />
           <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
         </Route>
       </Route>

@@ -480,6 +480,7 @@ export interface ResetStaffPasswordResult {
 export interface Pagination {
   limit: number;
   offset: number;
+  total?: number;
 }
 
 export interface ListEnvelope<T> {
@@ -491,6 +492,24 @@ export interface ListEnvelope<T> {
 export interface DataEnvelope<T> {
   ok: true;
   data: T;
+}
+
+export interface AuditLog {
+  id: number;
+  actor_user_id?: number | null;
+  actor_staff_id?: number | null;
+  actor_display_name?: string | null;
+  actor_staff_code?: string | null;
+  actor_role_code?: Exclude<RoleCode, "resident"> | null;
+  actor_role_name?: string | null;
+  action: string;
+  entity_type: string;
+  entity_id?: number | null;
+  metadata_json?: string | null;
+  metadata?: unknown;
+  ip_hash?: string | null;
+  user_agent?: string | null;
+  created_at: string;
 }
 
 export interface Institution {

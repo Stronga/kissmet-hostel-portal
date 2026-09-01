@@ -549,14 +549,17 @@ routes.post("/messages/:id/archive", requirePermission("message:write"), async (
 routes.get("/audit-logs", requirePermission("audit:read"), async (c) => {
   const url = new URL(c.req.url);
   const p = pagination(url);
-  return c.json(listOk(((await service(c).auditLogs(c.get("authUser"), {
+  const result = await service(c).auditLogs(c.get("authUser"), {
+    search: url.searchParams.get("search"),
     action: url.searchParams.get("action"),
     entityType: url.searchParams.get("entityType"),
     actorUserId: url.searchParams.get("actorUserId") ? Number(url.searchParams.get("actorUserId")) : null,
+    actorStaffId: url.searchParams.get("actorStaffId") ? Number(url.searchParams.get("actorStaffId")) : null,
     dateFrom: url.searchParams.get("dateFrom"),
     dateTo: url.searchParams.get("dateTo")
-  }, p.limit, p.offset)).results ?? []) as unknown[], p));
+  }, p.limit, p.offset);
+  return c.json({ ...listOk((result.results ?? []) as unknown[], p), pagination: { ...p, total: result.total } });
 });
-routes.get("/audit-logs/:id", requirePermission("audit:read"), async (c) => c.json(ok(await service(c).get("audit_logs", Number(c.req.param("id"))))));
+routes.get("/audit-logs/:id", requirePermission("audit:read"), async (c) => c.json(ok(await service(c).auditLog(c.get("authUser"), Number(c.req.param("id"))))));
 
 export const adminRoutes = routes;

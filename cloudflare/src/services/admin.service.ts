@@ -29,6 +29,7 @@ const messageGroups = new Set(["current_residents", "applicants", "active_alloca
 const staffStatuses = new Set(["active", "inactive", "archived"]);
 const userStatuses = new Set(["active", "inactive", "suspended", "archived"]);
 const staffRoleCodes = new Set(["super_admin", "manager", "reception", "accounts", "maintenance"]);
+const sensitiveAuditKeys = new Set(["password", "password_hash", "temporary_password", "temporaryPassword", "initialPassword", "token", "session_token", "sessionToken", "session_token_hash", "authorization", "authorization_header", "otp", "otp_code", "code_hash", "otp_hash", "secret", "api_key", "apiKey", "cloudflare_token", "sms_secret", "r2_secret"]);
 
 export class AdminService {
   constructor(
@@ -1003,16 +1004,83 @@ export class AdminService {
     return { summary, byCategory: byCategory.results ?? [], byPriority: byPriority.results ?? [] };
   }
 
-  async auditLogs(actor: AuthUser, filters: { action?: string | null; entityType?: string | null; actorUserId?: number | null; dateFrom?: string | null; dateTo?: string | null }, limit = 25, offset = 0) {
+  async auditLogs(actor: AuthUser, filters: { search?: string | null; action?: string | null; entityType?: string | null; actorUserId?: number | null; actorStaffId?: number | null; dateFrom?: string | null; dateTo?: string | null }, limit = 25, offset = 0) {
     const where: string[] = [];
     const binds: unknown[] = [];
-    if (filters.action) { where.push("action = ?"); binds.push(filters.action); }
-    if (filters.entityType) { where.push("entity_type = ?"); binds.push(filters.entityType); }
-    if (filters.actorUserId) { where.push("actor_user_id = ?"); binds.push(filters.actorUserId); }
-    if (filters.dateFrom) { where.push("created_at >= ?"); binds.push(filters.dateFrom); }
-    if (filters.dateTo) { where.push("created_at <= ?"); binds.push(filters.dateTo); }
+    if (filters.search) {
+      where.push("(audit.action LIKE ? OR audit.entity_type LIKE ? OR CAST(audit.entity_id AS TEXT) LIKE ? OR u.display_name LIKE ? OR st.staff_code LIKE ?)");
+      binds.push(...Array(5).fill(`%${filters.search}%`));
+    }
+    if (filters.action) { where.push("audit.action = ?"); binds.push(filters.action); }
+    if (filters.entityType) { where.push("audit.entity_type = ?"); binds.push(filters.entityType); }
+    if (filters.actorUserId) { where.push("audit.actor_user_id = ?"); binds.push(filters.actorUserId); }
+    if (filters.actorStaffId) { where.push("audit.actor_staff_id = ?"); binds.push(filters.actorStaffId); }
+    if (filters.dateFrom) { where.push("audit.created_at >= ?"); binds.push(filters.dateFrom); }
+    if (filters.dateTo) { where.push("audit.created_at <= ?"); binds.push(filters.dateTo); }
+    const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const joined = `FROM audit_logs audit
+       LEFT JOIN users u ON u.id = audit.actor_user_id
+       LEFT JOIN staff st ON st.id = audit.actor_staff_id
+       LEFT JOIN roles r ON r.id = st.role_id
+       ${clause}`;
+    const [rows, total] = await Promise.all([
+      this.repo.all<Record<string, unknown>>(
+        `SELECT audit.id, audit.actor_user_id, audit.actor_staff_id, u.display_name AS actor_display_name, st.staff_code AS actor_staff_code, r.code AS actor_role_code, r.name AS actor_role_name,
+          audit.action, audit.entity_type, audit.entity_id, audit.metadata_json, audit.ip_hash, audit.user_agent, audit.created_at
+         ${joined}
+         ORDER BY audit.id DESC LIMIT ? OFFSET ?`,
+        ...binds,
+        limit,
+        offset
+      ),
+      this.repo.first<{ total: number }>(`SELECT COUNT(*) AS total ${joined}`, ...binds)
+    ]);
     await this.repo.audit(actor.id, actor.staffId, "admin.audit_logs.accessed", "audit_log", null);
-    return this.repo.all(`SELECT id, actor_user_id, actor_staff_id, action, entity_type, entity_id, metadata_json, created_at FROM audit_logs ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY id DESC LIMIT ? OFFSET ?`, ...binds, limit, offset);
+    return { results: (rows.results ?? []).map((row) => this.sanitizeAuditRow(row)), total: Number(total?.total ?? 0) };
+  }
+
+  async auditLog(actor: AuthUser, id: number) {
+    const row = await this.repo.first<Record<string, unknown>>(
+      `SELECT audit.id, audit.actor_user_id, audit.actor_staff_id, u.display_name AS actor_display_name, st.staff_code AS actor_staff_code, r.code AS actor_role_code, r.name AS actor_role_name,
+        audit.action, audit.entity_type, audit.entity_id, audit.metadata_json, audit.ip_hash, audit.user_agent, audit.created_at
+       FROM audit_logs audit
+       LEFT JOIN users u ON u.id = audit.actor_user_id
+       LEFT JOIN staff st ON st.id = audit.actor_staff_id
+       LEFT JOIN roles r ON r.id = st.role_id
+       WHERE audit.id = ?`,
+      id
+    );
+    if (!row) throw new Error("Audit log not found");
+    await this.repo.audit(actor.id, actor.staffId, "admin.audit_logs.detail_accessed", "audit_log", id);
+    return this.sanitizeAuditRow(row);
+  }
+
+  private sanitizeAuditRow(row: Record<string, unknown>) {
+    const metadata = this.parseAuditMetadata(row.metadata_json);
+    return { ...row, metadata_json: metadata == null ? null : JSON.stringify(metadata), metadata };
+  }
+
+  private parseAuditMetadata(value: unknown): unknown {
+    if (typeof value !== "string" || !value.trim()) return null;
+    try {
+      return this.redactAuditMetadata(JSON.parse(value));
+    } catch {
+      return "[Unparseable metadata]";
+    }
+  }
+
+  private redactAuditMetadata(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map((item) => this.redactAuditMetadata(item));
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+      key,
+      this.isSensitiveAuditKey(key) ? "[REDACTED]" : this.redactAuditMetadata(child)
+    ]));
+  }
+
+  private isSensitiveAuditKey(key: string) {
+    const normalized = key.replace(/[-\s]/g, "_");
+    return sensitiveAuditKeys.has(key) || sensitiveAuditKeys.has(normalized) || normalized.toLowerCase().includes("password") || normalized.toLowerCase().includes("token") || normalized.toLowerCase().includes("secret") || normalized.toLowerCase().includes("authorization") || normalized.toLowerCase().includes("otp");
   }
 
   private requiredConfirmationAmount(total: number, setting: { requirement_type: string; fixed_amount_minor: number | null; percentage_basis_points: number | null }) {

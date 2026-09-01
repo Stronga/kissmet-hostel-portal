@@ -178,6 +178,12 @@ Staff-management permissions added after Phase 10L:
 
 Role changes, staff-status changes, account-status changes, and password resets revoke the affected staff user's active sessions. This forces changed permissions and deactivations to take effect immediately instead of waiting for session expiry.
 
+Audit-log access after Phase 10M:
+
+- `audit:read`: list and view audit log history.
+
+`super_admin` and `manager` have audit read access in the current permission map. `reception`, `accounts`, `maintenance`, and `resident` do not. Audit log APIs are read-only and expose no update, delete, archive, purge, restore, or manual-create operation.
+
 ## Security Decisions
 
 - Plaintext passwords are never stored.
@@ -193,6 +199,7 @@ Role changes, staff-status changes, account-status changes, and password resets 
 - Passwords, OTPs, and session tokens are not logged.
 - Staff-management responses do not expose password hashes, session token hashes, OTP hashes, or other secret material.
 - Initial and reset staff passwords are returned once by the backend and are not recoverable from D1.
+- Audit log metadata is redacted in API responses for sensitive keys such as passwords, password hashes, temporary passwords, session tokens, OTP values, authorization headers, secrets, API keys, Cloudflare tokens, SMS secrets, and storage secrets.
 
 ## Endpoints
 

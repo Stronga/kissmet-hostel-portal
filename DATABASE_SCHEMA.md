@@ -419,6 +419,11 @@ Stores append-only operational audit events.
 - Entity reference: `entity_type`, `entity_id`.
 - Optional context: `metadata_json`, `ip_hash`, `user_agent`.
 - Actor deletion uses `ON DELETE SET NULL` so historical logs remain.
+- Audit logs are read-only operational/security history in the Admin Portal.
+- The read API joins current actor display name, staff code, and role where available while preserving stored actor IDs for historical integrity.
+- Supported read filters include search, actor user ID, actor staff ID, action, entity type, and created-at date range.
+- API responses redact sensitive metadata keys such as passwords, password hashes, temporary passwords, session tokens, OTP values, authorization headers, secrets, API keys, Cloudflare tokens, SMS secrets, and storage secrets. Historical rows are not rewritten.
+- No schema migration was required for the Phase 10M audit viewer.
 
 ## Important Indexes
 
