@@ -10,7 +10,7 @@ const accounts: AuthUser = { ...manager, role: "accounts" };
 class OpsRepo {
   rows: Record<string, Record<string, unknown>[]> = {
     maintenance_requests: [],
-    staff: [{ id: 1, status: "active", role_code: "maintenance" }],
+    staff: [{ id: 1, user_id: 30, role_id: 1, staff_code: "KSM-STF-0001", status: "active", role_code: "maintenance" }],
     announcements: [],
     announcement_channels: [],
     announcement_delivery_attempts: [],
@@ -19,14 +19,24 @@ class OpsRepo {
     message_recipient_snapshots: [],
     message_delivery_attempts: [],
     portal_message_deliveries: [],
-    users: [{ id: 20, display_name: "Ama Mensah", phone: "233200000000", email: "ama@test", status: "active" }, { id: 21, display_name: "Kofi Owusu", phone: null, email: "kofi@test", status: "active" }],
-    residents: [{ id: 7, user_id: 20, resident_code: "KSM-RES-0007", student_id: "UG-100", institution_id: 1, status: "resident" }, { id: 8, user_id: 21, resident_code: "KSM-RES-0008", student_id: "UG-101", institution_id: 1, status: "applicant" }],
+    users: [
+      { id: 20, display_name: "Ama Mensah", phone: "233200000000", email: "ama@test", status: "active" },
+      { id: 21, display_name: "Kofi Owusu", phone: null, email: "kofi@test", status: "active" },
+      { id: 22, display_name: "Esi Boateng", phone: "233244000000", email: null, status: "active" },
+      { id: 30, display_name: "Maintenance Lead", phone: "233277000000", email: "maint@test", status: "active" }
+    ],
+    residents: [
+      { id: 7, user_id: 20, resident_code: "KSM-RES-0007", student_id: "UG-100", institution_id: 1, status: "resident" },
+      { id: 8, user_id: 21, resident_code: "KSM-RES-0008", student_id: "UG-101", institution_id: 1, status: "applicant" },
+      { id: 9, user_id: 22, resident_code: "KSM-RES-0009", student_id: "UG-102", institution_id: 1, status: "resident" }
+    ],
     institutions: [{ id: 1, name: "University of Ghana" }],
+    roles: [{ id: 1, code: "maintenance" }],
     audit_logs: [],
-    beds: [{ id: 1, room_id: 1, status: "available" }, { id: 2, room_id: 1, status: "available" }, { id: 3, room_id: 2, status: "maintenance" }],
+    beds: [{ id: 1, room_id: 1, status: "available" }, { id: 2, room_id: 1, status: "available" }, { id: 3, room_id: 2, status: "maintenance" }, { id: 4, room_id: 2, status: "available" }],
     rooms: [{ id: 1, room_code: "R1", capacity: 2, gender_policy: "female", status: "available" }, { id: 2, room_code: "R2", capacity: 1, gender_policy: "any", status: "available" }],
     room_rates: [{ room_id: 1, academic_session_id: 1, amount_minor: 250000, status: "active" }],
-    allocations: [{ id: 1, bed_id: 1, academic_session_id: 1, status: "active" }],
+    allocations: [{ id: 1, resident_id: 7, bed_id: 1, academic_session_id: 1, status: "active" }, { id: 2, resident_id: 9, bed_id: 4, academic_session_id: 1, status: "active" }],
     applications: [{ id: 1, academic_session_id: 1, status: "submitted" }, { id: 2, academic_session_id: 1, status: "approved" }],
     bookings: [{ id: 1, academic_session_id: 1, status: "confirmed", total_amount_minor: 250000, payment_attention_required: 1 }, { id: 2, academic_session_id: 1, status: "pending", total_amount_minor: 250000 }],
     payments: [{ id: 1, booking_id: 1, status: "verified", amount_minor: 250000 }, { id: 2, booking_id: 2, status: "verified", amount_minor: 100000 }, { id: 3, booking_id: 2, status: "refunded", amount_minor: 50000 }]
@@ -40,6 +50,8 @@ class OpsRepo {
     if (sql.includes("FROM audit_logs")) return { results: this.rows.audit_logs as T[] };
     if (sql.includes("FROM announcement_channels")) return { results: this.rows.announcement_channels.filter((r) => r.announcement_id === binds[0]).map((r) => ({ channel: r.channel })) as T[] };
     if (sql.includes("FROM announcement_delivery_attempts")) return { results: this.rows.announcement_delivery_attempts.filter((r) => r.announcement_id === binds[0]) as T[] };
+    if (sql.includes("FROM users u JOIN residents r")) return { results: [{ id: 20, kind: "resident" }] as T[] };
+    if (sql.includes("FROM users u JOIN staff s")) return { results: [{ id: 30, kind: "staff" }] as T[] };
     if (sql.includes("FROM users u JOIN")) return { results: [{ id: 10, kind: sql.includes("'resident'") ? "resident" : "staff" }] as T[] };
     if (sql.includes("FROM messages m")) return { results: this.rows.messages as T[] };
     if (sql.includes("FROM message_channels")) return { results: this.rows.message_channels.filter((r) => r.message_id === binds[0]).map((r) => ({ channel: r.channel })) as T[] };
@@ -48,18 +60,43 @@ class OpsRepo {
     if (sql.includes("FROM portal_message_deliveries")) return { results: this.rows.portal_message_deliveries.filter((r) => r.message_id === binds[0]) as T[] };
     if (sql.includes("FROM residents r")) {
       const ids = binds.map(Number);
-      return { results: this.rows.residents.filter((r) => !ids.length || ids.includes(Number(r.id))).map((r) => {
+      return { results: this.rows.residents.filter((r) => {
+        if (ids.length && !ids.includes(Number(r.id))) return false;
+        if (sql.includes("r.status = 'resident'") && r.status !== "resident") return false;
+        if (sql.includes("r.status = 'applicant'") && r.status !== "applicant") return false;
+        if (sql.includes("r.status <> 'archived'") && r.status === "archived") return false;
+        return true;
+      }).map((r) => {
         const user = this.rows.users.find((u) => u.id === r.user_id)!;
         return { user_id: user.id, resident_id: r.id, recipient_kind: "resident", display_name: user.display_name, resident_code: r.resident_code, student_id: r.student_id, institution_name: "University of Ghana", sms_eligible: user.phone ? 1 : 0, email_eligible: user.email ? 1 : 0, portal_eligible: 1 };
       }) as T[] };
     }
     if (sql.includes("FROM allocations a") && sql.includes("room.id IN")) {
+      const roomIds = binds.map(Number);
+      return { results: this.rows.allocations.filter((a) => a.status === "active").map((a) => {
+        const bed = this.rows.beds.find((b) => b.id === a.bed_id)!;
+        if (!roomIds.includes(Number(bed.room_id))) return null;
+        const room = this.rows.rooms.find((r) => r.id === bed.room_id)!;
+        const resident = this.rows.residents.find((r) => r.id === a.resident_id)!;
+        const user = this.rows.users.find((u) => u.id === resident.user_id)!;
+        return { user_id: user.id, resident_id: resident.id, recipient_kind: "resident", display_name: user.display_name, resident_code: resident.resident_code, student_id: resident.student_id, institution_name: "University of Ghana", room_id: room.id, room_code: room.room_code, sms_eligible: 1, email_eligible: 1, portal_eligible: 1 };
+      }).filter(Boolean) as T[] };
+    }
+    if (sql.includes("FROM allocations a")) {
       return { results: this.rows.allocations.filter((a) => a.status === "active").map((a) => {
         const bed = this.rows.beds.find((b) => b.id === a.bed_id)!;
         const room = this.rows.rooms.find((r) => r.id === bed.room_id)!;
-        const resident = this.rows.residents[0];
-        const user = this.rows.users[0];
-        return { user_id: user.id, resident_id: resident.id, recipient_kind: "resident", display_name: user.display_name, resident_code: resident.resident_code, student_id: resident.student_id, institution_name: "University of Ghana", room_id: room.id, room_code: room.room_code, sms_eligible: 1, email_eligible: 1, portal_eligible: 1 };
+        const resident = this.rows.residents.find((r) => r.id === a.resident_id)!;
+        const user = this.rows.users.find((u) => u.id === resident.user_id)!;
+        return { user_id: user.id, resident_id: resident.id, recipient_kind: "resident", display_name: user.display_name, resident_code: resident.resident_code, student_id: resident.student_id, institution_name: "University of Ghana", room_id: room.id, room_code: room.room_code, sms_eligible: user.phone ? 1 : 0, email_eligible: user.email ? 1 : 0, portal_eligible: 1 };
+      }) as T[] };
+    }
+    if (sql.includes("FROM staff s JOIN users")) {
+      const staffIds = sql.includes("s.id IN") ? binds.filter((bind) => typeof bind === "number").map(Number) : [];
+      const roleCodes = binds.filter((bind) => typeof bind === "string").map(String);
+      return { results: this.rows.staff.filter((s) => (!staffIds.length || staffIds.includes(Number(s.id))) && (!roleCodes.length || roleCodes.includes(String(s.role_code)))).map((s) => {
+        const user = this.rows.users.find((u) => u.id === s.user_id)!;
+        return { user_id: user.id, staff_id: s.id, recipient_kind: "staff", display_name: user.display_name, staff_code: s.staff_code, sms_eligible: user.phone ? 1 : 0, email_eligible: user.email ? 1 : 0, portal_eligible: 0 };
       }) as T[] };
     }
     if (sql.includes("FROM rooms r")) {
@@ -127,7 +164,13 @@ class OpsRepo {
     if (sql.startsWith("UPDATE messages")) {
       const id = Number(binds.at(-1));
       const row = this.rows.messages.find((r) => r.id === id);
-      if (row) row.status = sql.includes("status = 'queued'") ? "queued" : sql.includes("status = 'archived'") ? "archived" : binds[0];
+      if (row) {
+        row.status = sql.includes("status = 'queued'") ? "queued" : sql.includes("status = 'archived'") ? "archived" : binds[0];
+        if (sql.includes("sent_by_staff_id")) {
+          row.sent_by_staff_id = binds[1];
+          row.sent_at = "2026-08-28T03:37:35.599Z";
+        }
+      }
     }
     return { meta: { last_row_id: 1, changes: 1 } };
   }
@@ -191,6 +234,46 @@ describe("operations and reporting", () => {
     const { svc } = service();
     await expect(svc.previewMessageTarget({ targetType: "selected_residents", targetIds: [7, 7, 8] })).resolves.toMatchObject({ totalRecipients: 2, smsEligible: 1, emailEligible: 2 });
     await expect(svc.previewMessageTarget({ targetType: "room", targetIds: [1] })).resolves.toMatchObject({ totalRecipients: 1, targetLabel: "Room R1" });
+  });
+
+  it("rejects selected-target message previews without explicit target ids", async () => {
+    const { svc } = service();
+    await expect(svc.previewMessageTarget({ targetType: "individual_resident", targetIds: [] })).rejects.toThrow("A resident must be selected");
+    await expect(svc.previewMessageTarget({ targetType: "individual_resident", targetIds: [7, 8] })).rejects.toThrow("Exactly one resident must be selected");
+    await expect(svc.previewMessageTarget({ targetType: "room", targetIds: [] })).rejects.toThrow("A room must be selected");
+    await expect(svc.previewMessageTarget({ targetType: "room", targetIds: [1, 2] })).rejects.toThrow("Exactly one room must be selected");
+  });
+
+  it("resolves all message target modes with bounded and deduplicated recipients", async () => {
+    const { svc } = service();
+    const individual = await svc.previewMessageTarget({ targetType: "individual_resident", targetIds: [7] });
+    expect(individual).toMatchObject({ targetLabel: "Ama Mensah", totalRecipients: 1, smsEligible: 1, emailEligible: 1, portalEligible: 1 });
+    expect(individual.smsEligible).toBeLessThanOrEqual(individual.totalRecipients);
+    expect(individual.emailEligible).toBeLessThanOrEqual(individual.totalRecipients);
+    expect(individual.portalEligible).toBeLessThanOrEqual(individual.totalRecipients);
+    await expect(svc.previewMessageTarget({ targetType: "selected_residents", targetIds: [7, 7, 9] })).resolves.toMatchObject({ totalRecipients: 2, smsEligible: 2, emailEligible: 1 });
+    await expect(svc.previewMessageTarget({ targetType: "room", targetIds: [1] })).resolves.toMatchObject({ totalRecipients: 1, targetLabel: "Room R1" });
+    await expect(svc.previewMessageTarget({ targetType: "selected_rooms", targetIds: [1, 1, 2] })).resolves.toMatchObject({ totalRecipients: 2, targetLabel: "Selected rooms: 2" });
+    await expect(svc.previewMessageTarget({ targetType: "all_residents" })).resolves.toMatchObject({ totalRecipients: 3 });
+    await expect(svc.previewMessageTarget({ targetType: "staff", staffRoleCodes: ["maintenance"] })).resolves.toMatchObject({ totalRecipients: 1, smsEligible: 1, emailEligible: 1, portalEligible: 0 });
+  });
+
+  it("uses the same selected-resident rules at send time and records the sender", async () => {
+    const { svc, repo } = service();
+    await svc.createMessage(manager, { subject: "Direct", body: "Hello Ama", targetType: "individual_resident", targetIds: [7], channels: ["portal"] });
+    repo.rows.residents.push({ id: 10, user_id: 21, resident_code: "KSM-RES-0010", student_id: "UG-110", institution_id: 1, status: "resident" });
+    await svc.sendMessage(manager, 1, { idempotencyKey: "direct-send-1" });
+    expect(repo.rows.message_recipient_snapshots).toHaveLength(1);
+    expect(repo.rows.message_recipient_snapshots[0].resident_id).toBe(7);
+    expect(repo.rows.messages[0]).toMatchObject({ status: "sent", sent_by_staff_id: manager.staffId, sent_at: expect.any(String) });
+  });
+
+  it("rejects stale message target configs without ids at send time", async () => {
+    const { svc, repo } = service();
+    repo.rows.messages.push({ id: 1, subject: "Bad draft", body: "Body", target_type: "individual_resident", target_label: "Bad", target_config_json: "{\"targetIds\":[]}", status: "draft" });
+    repo.rows.message_channels.push({ id: 1, message_id: 1, channel: "portal", status: "enabled" });
+    await expect(svc.sendMessage(manager, 1, { idempotencyKey: "bad-send-1" })).rejects.toThrow("A resident must be selected");
+    expect(repo.rows.message_recipient_snapshots).toHaveLength(0);
   });
 
   it("does not automatically add SMS for group messages", async () => {

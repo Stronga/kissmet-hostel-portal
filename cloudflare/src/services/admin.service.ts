@@ -1076,7 +1076,7 @@ export class AdminService {
 
   private messageTargetLabel(targetType: MessageTargetType, recipients: Array<Record<string, unknown>>, data: Record<string, unknown>) {
     if (targetType === "room" && recipients[0]?.room_code) return `Room ${recipients[0].room_code}`;
-    if (targetType === "selected_rooms") return `Selected rooms: ${(data.targetIds as unknown[] | undefined)?.length ?? 0}`;
+    if (targetType === "selected_rooms") return `Selected rooms: ${this.uniqueMessageTargetIdCount(data.targetIds as number[] | undefined)}`;
     if (targetType === "group") return String(data.group ?? "Group");
     if (targetType === "staff") return "Staff";
     if (targetType === "all_residents") return "All residents";
@@ -1085,11 +1085,21 @@ export class AdminService {
   }
 
   private async resolveMessageRecipients(data: { targetType: MessageTargetType; targetIds?: number[]; group?: string | null; academicSessionId?: number | null; staffRoleCodes?: string[]; staffIds?: number[] }) {
-    if (data.targetType === "individual_resident" || data.targetType === "selected_residents") {
-      return this.residentRecipients("r.id", data.targetIds ?? []);
+    if (data.targetType === "individual_resident") {
+      const ids = this.requiredMessageTargetIds(data.targetIds, "A resident must be selected");
+      if (ids.length !== 1) throw new Error("Exactly one resident must be selected");
+      return this.residentRecipients("r.id", ids);
     }
-    if (data.targetType === "room" || data.targetType === "selected_rooms") {
-      return this.roomRecipients(data.targetIds ?? []);
+    if (data.targetType === "selected_residents") {
+      return this.residentRecipients("r.id", this.requiredMessageTargetIds(data.targetIds, "At least one resident must be selected"));
+    }
+    if (data.targetType === "room") {
+      const ids = this.requiredMessageTargetIds(data.targetIds, "A room must be selected");
+      if (ids.length !== 1) throw new Error("Exactly one room must be selected");
+      return this.roomRecipients(ids);
+    }
+    if (data.targetType === "selected_rooms") {
+      return this.roomRecipients(this.requiredMessageTargetIds(data.targetIds, "At least one room must be selected"));
     }
     if (data.targetType === "all_residents") {
       return this.residentRecipients("r.status <> 'archived'");
@@ -1107,6 +1117,16 @@ export class AdminService {
       if (group === "outstanding_balance") return this.outstandingBalanceRecipients();
     }
     return [];
+  }
+
+  private requiredMessageTargetIds(ids: number[] | undefined, message: string) {
+    const unique = Array.from(new Set((ids ?? []).map(Number).filter((id) => Number.isInteger(id) && id > 0)));
+    if (!unique.length) throw new Error(message);
+    return unique;
+  }
+
+  private uniqueMessageTargetIdCount(ids: number[] | undefined) {
+    return new Set((ids ?? []).map(Number).filter((id) => Number.isInteger(id) && id > 0)).size;
   }
 
   private async residentRecipients(where: string, ids?: number[]) {

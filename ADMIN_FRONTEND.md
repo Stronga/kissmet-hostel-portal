@@ -844,8 +844,11 @@ Target definitions:
 Recipient snapshot behavior:
 
 - The backend resolves recipients again at send time and persists the exact snapshot in `message_recipient_snapshots`.
+- Individual resident and single-room targeting require exactly one explicit selected ID. Selected-resident and selected-room targeting require at least one explicit selected ID.
+- Missing or empty selected-target IDs are rejected by the backend for both preview and send-time resolution instead of falling back to a broad resident or room population.
 - Room and selected-room messages use active allocations, not bookings.
 - A later room transfer or status change does not change historical recipients for an already sent message.
+- Schema-verification fixture message `Verification Message` is directly inserted with status `sent` and no `sent_by_staff_id`, so it can display `Sent By: Not sent`. Production send workflow sets `sent_by_staff_id` and `sent_at` when a draft is sent.
 
 Channels and delivery:
 

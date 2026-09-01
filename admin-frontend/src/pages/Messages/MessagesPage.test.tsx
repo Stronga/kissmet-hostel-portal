@@ -62,12 +62,29 @@ describe("MessagesPage", () => {
     await userEvent.click(screen.getByLabelText("SMS"));
     await userEvent.click(screen.getByRole("button", { name: "Preview Recipients" }));
     expect(await screen.findByText("SMS eligible: 1")).toBeInTheDocument();
+    await waitFor(() => {
+      const preview = vi.mocked(globalThis.fetch).mock.calls.find(([url]) => String(url).endsWith("/admin/messages/preview"));
+      expect(String(preview?.[1]?.body)).toContain("\"targetIds\":[7]");
+      expect(String(preview?.[1]?.body)).toContain("\"targetType\":\"individual_resident\"");
+    });
     await userEvent.click(screen.getByRole("button", { name: "Create Draft" }));
     await waitFor(() => {
       const post = vi.mocked(globalThis.fetch).mock.calls.find(([url, init]) => String(url).endsWith("/admin/messages") && init?.method === "POST");
       expect(String(post?.[1]?.body)).toContain("\"channels\":[\"portal\",\"sms\"]");
+      expect(String(post?.[1]?.body)).toContain("\"targetIds\":[7]");
       expect(String(post?.[1]?.body)).not.toContain("phone");
     });
+  });
+
+  it("shows individual recipient preview counts without exceeding the total", async () => {
+    renderMessages();
+    await userEvent.click(await screen.findByRole("button", { name: "New Message" }));
+    await userEvent.click(screen.getByText(/KSM-RES-0007/));
+    await userEvent.click(screen.getByRole("button", { name: "Preview Recipients" }));
+    expect(await screen.findByText("Total recipients: 1")).toBeInTheDocument();
+    expect(screen.getByText("SMS eligible: 1")).toBeInTheDocument();
+    expect(screen.getByText("Email eligible: 1")).toBeInTheDocument();
+    expect(screen.getByText("Portal eligible: 1")).toBeInTheDocument();
   });
 
   it("sends a draft only after confirmation with an idempotency key", async () => {
