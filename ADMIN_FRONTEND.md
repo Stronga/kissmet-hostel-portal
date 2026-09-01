@@ -99,10 +99,10 @@ Implemented routes:
 - `/maintenance`
 - `/announcements`
 - `/messages`
+- `/reports`
 
 Prepared placeholder routes:
 
-- `/reports`
 - `/staff`
 - `/audit-logs`
 - `/settings`
@@ -1085,12 +1085,11 @@ Latest validation:
 
 ```text
 admin-frontend: npm.cmd run typecheck passed
-admin-frontend: npm.cmd test passed, 15 files / 103 tests
+admin-frontend: npm.cmd test passed, 16 files / 109 tests
 admin-frontend: npm.cmd run build passed
 cloudflare: npm.cmd run typecheck passed
-cloudflare: npm.cmd test passed, 5 files / 75 tests
-cloudflare: npm.cmd run db:migrations:apply:local passed for 0010_messages_communications.sql
-cloudflare: npm.cmd run db:verify:local passed
+cloudflare: npm.cmd test passed, 5 files / 83 tests
+cloudflare: npm.cmd run db:verify:local passed, 54 commands executed successfully
 ```
 
 ## Running Locally
