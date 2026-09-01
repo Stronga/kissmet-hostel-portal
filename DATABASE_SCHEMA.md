@@ -22,6 +22,7 @@ cloudflare/migrations/0007_operations_reporting.sql
 cloudflare/migrations/0008_booking_priced_room.sql
 cloudflare/migrations/0009_announcements_alerts.sql
 cloudflare/migrations/0010_messages_communications.sql
+cloudflare/migrations/0011_system_settings.sql
 ```
 
 Development seed data is:
@@ -238,6 +239,20 @@ Stores the active booking confirmation requirement.
 - `fixed`: verified payments must meet `fixed_amount_minor`, capped at the booking total.
 - `percentage`: verified payments must meet `percentage_basis_points` of the booking total.
 - The default row requires full payment in `GHS`.
+- Phase 10N exposes narrow read/update settings APIs for this table.
+- Updating the row changes future manual booking-confirmation eligibility checks only. It does not automatically confirm bookings, alter payments, alter receipts, rewrite booking totals, rewrite room rates, or clear existing payment-attention states.
+
+### `system_settings`
+
+Stores singleton non-secret global hostel/profile settings.
+
+- Single-row table: `id = 1`.
+- Important fields: `organization_name`, `admin_portal_title`, `resident_portal_title`, `support_email`, `support_phone`, `address_text`, `default_currency`.
+- Default currency remains `GHS`.
+- Timestamps: `created_at`, `updated_at`.
+- Settings are one-hostel scoped.
+- Secrets are not stored here. Cloudflare credentials, SMS/email provider secrets, R2 credentials, password hashes, session tokens, and OTP values remain outside ordinary D1 settings.
+- Updating general settings writes `admin.settings.general_updated`.
 
 ### `receipts`
 

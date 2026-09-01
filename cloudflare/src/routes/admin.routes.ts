@@ -102,6 +102,33 @@ routes.get("/reports/maintenance", requirePermission("report:read"), async (c) =
   return c.json(ok(await service(c).reportMaintenance({ dateFrom: filters.dateFrom, dateTo: filters.dateTo })));
 });
 
+routes.get("/settings", requirePermission("settings:read"), async (c) => c.json(ok(await service(c).settingsOverview())));
+routes.patch("/settings/general", requireRole("super_admin"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).updateGeneralSettings(c.get("authUser"), {
+      organizationName: stringField(input, "organizationName", true, 160)!,
+      adminPortalTitle: stringField(input, "adminPortalTitle", true, 160)!,
+      residentPortalTitle: stringField(input, "residentPortalTitle", true, 160)!,
+      supportEmail: stringField(input, "supportEmail", false, 160),
+      supportPhone: stringField(input, "supportPhone", false, 64),
+      addressText: stringField(input, "addressText", false, 500),
+      defaultCurrency: stringField(input, "defaultCurrency", false, 3)
+    })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.patch("/settings/payment-confirmation", requireRole("super_admin"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).updatePaymentConfirmationSettings(c.get("authUser"), {
+      requirementType: stringField(input, "requirementType")!,
+      fixedAmountMinor: intField(input, "fixedAmountMinor", false),
+      percentageBasisPoints: intField(input, "percentageBasisPoints", false),
+      currency: stringField(input, "currency", false, 3)
+    })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+
 routes.post("/academic-sessions", requirePermission("admin:write"), async (c) => {
   try {
     const input = await body(c);

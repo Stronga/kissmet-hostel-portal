@@ -102,10 +102,11 @@ Implemented routes:
 - `/reports`
 - `/staff`
 - `/audit-logs`
+- `/settings`
 
 Prepared placeholder routes:
 
-- `/settings`
+- None.
 
 Placeholders intentionally do not fake CRUD behavior.
 
@@ -1049,6 +1050,84 @@ Known backend/API limitations:
 - Actor details are joined from current `users`, `staff`, and `roles` where available. If a referenced actor was removed or is unavailable, the historical actor IDs remain visible.
 - The API returns total count for audit pagination, but it does not expose separate summary-card aggregates yet.
 
+## Settings
+
+The Settings interface uses narrowly scoped backend settings APIs:
+
+- `GET /admin/settings`
+- `PATCH /admin/settings/general`
+- `PATCH /admin/settings/payment-confirmation`
+
+Implemented functionality:
+
+- `/settings` admin route
+- grouped sections for General, Academic, Payments, Communications, and Security / System
+- editable general profile settings for Super Admin users
+- payment confirmation policy management for Super Admin users
+- read-only Academic overview showing the active academic session
+- honest Communications provider state showing development/mock SMS and email providers
+- read-only Security / System information for runtime, framework, database, private R2 storage, auth model, and audit logging
+- payment-policy confirmation dialog explaining that existing financial history is not rewritten
+- loading, success, API-error, validation-error, read-only, and external-configuration states
+
+Editable settings:
+
+- Organization name
+- Admin portal title
+- Resident portal title
+- Support email
+- Support phone
+- Address/location text
+- Default currency, still defaulting to `GHS`
+- Payment confirmation requirement: `full`, `fixed`, or `percentage`
+
+Read-only settings:
+
+- Active academic session summary; full session CRUD remains in the existing academic-session admin API.
+- Security/system architecture information.
+- Current communication provider mode.
+
+Externally configured settings:
+
+- Live SMS provider credentials.
+- Live email provider credentials.
+- Cloudflare credentials/tokens.
+- R2 credentials.
+
+These belong in Cloudflare environment configuration or secrets, not ordinary D1 settings, and are never exposed to the frontend.
+
+Payment confirmation behavior:
+
+- `full` requires verified payments to meet the full captured booking total.
+- `fixed` accepts GHS major units in the UI and converts to integer minor units before calling the backend.
+- `percentage` accepts a human-readable percentage and converts to basis points before calling the backend.
+- Changing the policy does not automatically confirm bookings, alter payments, alter receipts, rewrite captured booking totals, rewrite room rates, or clear payment-attention states.
+- Backend confirmation checks remain authoritative.
+
+Settings storage:
+
+- General/branding settings are stored in singleton `system_settings`.
+- Payment confirmation settings remain in the existing `payment_confirmation_settings` table.
+- Settings do not store secrets or arbitrary JSON blobs.
+
+RBAC behavior:
+
+- `super_admin`: read and update settings.
+- `manager`: read settings only.
+- Other roles do not see Settings navigation and backend authorization remains authoritative.
+
+Audit behavior:
+
+- General settings updates write `admin.settings.general_updated`.
+- Payment confirmation updates write `admin.settings.payment_confirmation_updated`.
+- Audit metadata contains non-secret operational values only.
+
+Known backend/API limitations:
+
+- The Settings page does not apply branding values to the live shell yet; it stores durable values for future portal/runtime use.
+- No logo upload, theme designer, email template builder, provider-key editor, or maintenance dependency was added.
+- Settings has no delete/reset endpoint.
+
 ## Design System
 
 Design tokens are defined as CSS variables in `src/styles/index.css` and mapped into Tailwind:
@@ -1204,6 +1283,16 @@ Frontend tests cover:
 - audit sensitive metadata redaction
 - audit pagination
 - unauthorized Audit Logs navigation hiding
+- settings route rendering
+- settings navigation visibility by role
+- Super Admin general settings update
+- manager read-only settings behavior
+- payment confirmation full/fixed/percentage controls
+- fixed payment amount conversion to integer minor units
+- percentage conversion to basis points
+- settings validation and API error states
+- communication provider state without secret exposure
+- security/system section without sensitive values
 - money parser validation
 - currency formatting
 - status formatting
@@ -1213,11 +1302,11 @@ Latest validation:
 
 ```text
 admin-frontend: npm.cmd run typecheck passed
-admin-frontend: npm.cmd test passed, 18 files / 121 tests
+admin-frontend: npm.cmd test passed, 19 files / 128 tests
 admin-frontend: npm.cmd run build passed
 cloudflare: npm.cmd run typecheck passed
-cloudflare: npm.cmd test passed, 5 files / 90 tests
-cloudflare: npm.cmd run db:verify:local passed, 54 commands executed successfully
+cloudflare: npm.cmd test passed, 5 files / 94 tests
+cloudflare: npm.cmd run db:verify:local passed, 55 commands executed successfully
 ```
 
 ## Running Locally

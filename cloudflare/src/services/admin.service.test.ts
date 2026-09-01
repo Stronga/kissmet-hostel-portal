@@ -12,6 +12,8 @@ const otherSuperAdmin: AuthUser = { ...superAdmin, id: 2, staffId: 2 };
 class FakeRepo {
   rows: Record<string, Record<string, unknown>[]> = {
     academic_sessions: [{ id: 1, code: "2026", status: "active" }],
+    system_settings: [{ id: 1, organization_name: "Kissmet Hostel", admin_portal_title: "Kissmet Admin Portal", resident_portal_title: "Kissmet Resident Portal", support_email: null, support_phone: null, address_text: null, default_currency: "GHS" }],
+    payment_confirmation_settings: [{ id: 1, requirement_type: "full", fixed_amount_minor: null, percentage_basis_points: null, currency: "GHS", status: "active" }],
     institutions: [],
     rooms: [{ id: 1, room_code: "R1", capacity: 2 }],
     beds: [],
@@ -39,7 +41,8 @@ class FakeRepo {
       { id: 1, user_id: 3, status: "active" },
       { id: 2, user_id: 2, status: "active" }
     ],
-    allocations: []
+    allocations: [],
+    bookings: [{ id: 1, status: "pending", total_amount_minor: 250000 }]
   };
   audits: string[] = [];
   nextResidentCode = 1;
@@ -47,7 +50,6 @@ class FakeRepo {
   async list(table: string) { return { results: this.rows[table] ?? [] }; }
   async get(table: string, id: number) { return (this.rows[table] ?? []).find((r) => r.id === id) ?? null; }
   async first<T>(sql: string, ...binds: unknown[]): Promise<T | null> {
-    if (sql.includes("SELECT id, code FROM roles WHERE id")) return (this.rows.roles.find((role) => role.id === binds[0]) ?? null) as T | null;
     if (sql.includes("COUNT(*) AS count") && sql.includes("r.code = 'super_admin'")) {
       return { count: this.rows.staff.filter((staff) => {
         const user = this.rows.users.find((item) => item.id === staff.user_id);
@@ -67,6 +69,10 @@ class FakeRepo {
       }) ?? null) as T | null;
     }
     if (sql.includes("total_residents")) return { total_residents: 1, active_residents: 1, total_rooms: 1, total_active_beds: 2, occupied_beds: 1, available_beds: 1, active_academic_session: "2026", active_staff_count: 1 } as T;
+    if (sql.includes("SELECT id, code FROM roles WHERE id")) return (this.rows.roles.find((role) => role.id === binds[0]) ?? null) as T | null;
+    if (sql.includes("FROM system_settings WHERE id = 1")) return (this.rows.system_settings[0] ?? null) as T | null;
+    if (sql.includes("FROM payment_confirmation_settings WHERE id = 1")) return (this.rows.payment_confirmation_settings[0] ?? null) as T | null;
+    if (sql.includes("FROM academic_sessions WHERE status = 'active'")) return (this.rows.academic_sessions.find((row) => row.status === "active") ?? null) as T | null;
     return null;
   }
   async all<T>(sql?: string) {
@@ -150,6 +156,14 @@ class FakeRepo {
     if (sql.startsWith("UPDATE sessions SET status = 'revoked'")) {
       this.rows.sessions.filter((session) => session.user_id === binds[1] && session.status === "active").forEach((session) => { session.status = "revoked"; session.revocation_reason = binds[0]; });
       return { meta: { last_row_id: 0 } };
+    }
+    if (sql.startsWith("INSERT INTO system_settings")) {
+      this.rows.system_settings[0] = { id: 1, organization_name: binds[0], admin_portal_title: binds[1], resident_portal_title: binds[2], support_email: binds[3], support_phone: binds[4], address_text: binds[5], default_currency: binds[6] };
+      return { meta: { last_row_id: 1 } };
+    }
+    if (sql.startsWith("UPDATE payment_confirmation_settings")) {
+      this.rows.payment_confirmation_settings[0] = { ...this.rows.payment_confirmation_settings[0], requirement_type: binds[0], fixed_amount_minor: binds[1], percentage_basis_points: binds[2], currency: binds[3], status: "active" };
+      return { meta: { last_row_id: 1 } };
     }
     if (sql.startsWith("UPDATE beds SET status")) {
       const bed = this.rows.beds.find((item) => item.id === binds[1]);
@@ -349,6 +363,39 @@ describe("admin service", () => {
   it("returns dashboard summary counts", async () => {
     const { service: svc } = service();
     await expect(svc.dashboard()).resolves.toMatchObject({ total_residents: 1, available_beds: 1 });
+  });
+
+  it("reads settings without exposing communication or system secrets", async () => {
+    const { service: svc } = service();
+    const settings = await svc.settingsOverview();
+    expect(settings.general).toMatchObject({ organization_name: "Kissmet Hostel", default_currency: "GHS" });
+    expect(settings.paymentConfirmation).toMatchObject({ requirement_type: "full" });
+    expect(settings.communications).toMatchObject({ smsProvider: "Development / Mock", emailProvider: "Development / Mock" });
+    expect(JSON.stringify(settings)).not.toMatch(/password_hash|apiKey|cloudflareToken|smsSecret|r2Secret/i);
+  });
+
+  it("updates general settings and records an audit event", async () => {
+    const { service: svc, repo } = service();
+    const result = await svc.updateGeneralSettings(superAdmin, { organizationName: "Kissmet Group", adminPortalTitle: "Kissmet Admin", residentPortalTitle: "Kissmet Resident", supportEmail: "support@kissmetgroup.org", supportPhone: "+233000000000", addressText: "", defaultCurrency: "GHS" });
+    expect(result).toMatchObject({ organization_name: "Kissmet Group", admin_portal_title: "Kissmet Admin" });
+    expect(repo.audits).toContain("admin.settings.general_updated");
+  });
+
+  it("updates payment confirmation settings without mutating bookings", async () => {
+    const { service: svc, repo } = service();
+    const before = JSON.stringify(repo.rows.bookings);
+    await expect(svc.updatePaymentConfirmationSettings(superAdmin, { requirementType: "full", currency: "GHS" })).resolves.toMatchObject({ requirement_type: "full", fixed_amount_minor: null, percentage_basis_points: null });
+    await expect(svc.updatePaymentConfirmationSettings(superAdmin, { requirementType: "fixed", fixedAmountMinor: 100000, currency: "GHS" })).resolves.toMatchObject({ requirement_type: "fixed", fixed_amount_minor: 100000 });
+    await expect(svc.updatePaymentConfirmationSettings(superAdmin, { requirementType: "percentage", percentageBasisPoints: 5000, currency: "GHS" })).resolves.toMatchObject({ requirement_type: "percentage", percentage_basis_points: 5000 });
+    expect(JSON.stringify(repo.rows.bookings)).toBe(before);
+    expect(repo.audits).toContain("admin.settings.payment_confirmation_updated");
+  });
+
+  it("rejects invalid payment confirmation settings", async () => {
+    const { service: svc } = service();
+    await expect(svc.updatePaymentConfirmationSettings(superAdmin, { requirementType: "bad", currency: "GHS" })).rejects.toThrow("Invalid payment confirmation requirement");
+    await expect(svc.updatePaymentConfirmationSettings(superAdmin, { requirementType: "fixed", fixedAmountMinor: 0, currency: "GHS" })).rejects.toThrow("Fixed amount must be positive");
+    await expect(svc.updatePaymentConfirmationSettings(superAdmin, { requirementType: "percentage", percentageBasisPoints: 10001, currency: "GHS" })).rejects.toThrow("Percentage must be between");
   });
 });
 

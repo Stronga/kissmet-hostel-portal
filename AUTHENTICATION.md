@@ -184,6 +184,12 @@ Audit-log access after Phase 10M:
 
 `super_admin` and `manager` have audit read access in the current permission map. `reception`, `accounts`, `maintenance`, and `resident` do not. Audit log APIs are read-only and expose no update, delete, archive, purge, restore, or manual-create operation.
 
+Settings access after Phase 10N:
+
+- `settings:read`: view system settings.
+
+`super_admin` has read/write settings access. `manager` has read-only settings access in the current permission map. Other roles do not have Settings navigation or backend settings access by default. Settings mutation routes use Super Admin role checks and write audit events.
+
 ## Security Decisions
 
 - Plaintext passwords are never stored.
@@ -200,6 +206,7 @@ Audit-log access after Phase 10M:
 - Staff-management responses do not expose password hashes, session token hashes, OTP hashes, or other secret material.
 - Initial and reset staff passwords are returned once by the backend and are not recoverable from D1.
 - Audit log metadata is redacted in API responses for sensitive keys such as passwords, password hashes, temporary passwords, session tokens, OTP values, authorization headers, secrets, API keys, Cloudflare tokens, SMS secrets, and storage secrets.
+- Settings APIs expose only non-secret operational configuration. Cloudflare tokens, SMS/email provider secrets, R2 credentials, password hashes, session tokens, and OTP values remain outside D1 settings and are not returned to the frontend.
 
 ## Endpoints
 

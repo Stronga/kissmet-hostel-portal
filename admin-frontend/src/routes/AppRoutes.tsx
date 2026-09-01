@@ -10,11 +10,11 @@ import { LoginPage } from "../pages/Login/LoginPage";
 import { MaintenancePage } from "../pages/Maintenance/MaintenancePage";
 import { MessagesPage } from "../pages/Messages/MessagesPage";
 import { PaymentsPage } from "../pages/Payments/PaymentsPage";
-import { PlaceholderPage } from "../pages/PlaceholderPage";
 import { ReceiptsPage } from "../pages/Receipts/ReceiptsPage";
 import { ReportsPage } from "../pages/Reports/ReportsPage";
 import { ResidentsPage } from "../pages/Residents/ResidentsPage";
 import { RoomsPage } from "../pages/Rooms/RoomsPage";
+import { SettingsPage } from "../pages/Settings/SettingsPage";
 import { StaffPage } from "../pages/Staff/StaffPage";
 import { ProtectedRoute } from "./ProtectedRoute";
 
@@ -39,7 +39,7 @@ export function AppRoutes() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/staff" element={<StaffPage />} />
           <Route path="/audit-logs" element={<AuditLogsPage />} />
-          <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -30,6 +30,7 @@ const staffStatuses = new Set(["active", "inactive", "archived"]);
 const userStatuses = new Set(["active", "inactive", "suspended", "archived"]);
 const staffRoleCodes = new Set(["super_admin", "manager", "reception", "accounts", "maintenance"]);
 const sensitiveAuditKeys = new Set(["password", "password_hash", "temporary_password", "temporaryPassword", "initialPassword", "token", "session_token", "sessionToken", "session_token_hash", "authorization", "authorization_header", "otp", "otp_code", "code_hash", "otp_hash", "secret", "api_key", "apiKey", "cloudflare_token", "sms_secret", "r2_secret"]);
+const confirmationTypes = new Set(["full", "fixed", "percentage"]);
 
 export class AdminService {
   constructor(
@@ -1002,6 +1003,85 @@ export class AdminService {
       this.repo.all<Record<string, unknown>>(`SELECT priority, COUNT(*) AS count FROM maintenance_requests ${clause} GROUP BY priority ORDER BY priority`, ...binds)
     ]);
     return { summary, byCategory: byCategory.results ?? [], byPriority: byPriority.results ?? [] };
+  }
+
+  async settingsOverview() {
+    const [general, payment, activeSession] = await Promise.all([
+      this.repo.first<Record<string, unknown>>("SELECT id, organization_name, admin_portal_title, resident_portal_title, support_email, support_phone, address_text, default_currency, created_at, updated_at FROM system_settings WHERE id = 1"),
+      this.repo.first<Record<string, unknown>>("SELECT id, requirement_type, fixed_amount_minor, percentage_basis_points, currency, status, created_at, updated_at FROM payment_confirmation_settings WHERE id = 1"),
+      this.repo.first<Record<string, unknown>>("SELECT id, code, name, starts_on, ends_on, status FROM academic_sessions WHERE status = 'active' ORDER BY id DESC LIMIT 1")
+    ]);
+    return {
+      general: general ?? {
+        id: 1,
+        organization_name: "Kissmet Hostel",
+        admin_portal_title: "Kissmet Admin Portal",
+        resident_portal_title: "Kissmet Resident Portal",
+        support_email: null,
+        support_phone: null,
+        address_text: null,
+        default_currency: "GHS"
+      },
+      academic: { activeSession },
+      paymentConfirmation: payment,
+      communications: {
+        smsProvider: "Development / Mock",
+        emailProvider: "Development / Mock",
+        secretsManagedIn: "Cloudflare environment secrets"
+      },
+      system: {
+        runtime: "Cloudflare Workers",
+        framework: "Hono",
+        database: "Cloudflare D1",
+        documentStorage: "Private Cloudflare R2",
+        authentication: "Staff password sessions and resident institution/student ID OTP",
+        auditLogging: "Enabled"
+      }
+    };
+  }
+
+  async updateGeneralSettings(actor: AuthUser, data: { organizationName: string; adminPortalTitle: string; residentPortalTitle: string; supportEmail?: string | null; supportPhone?: string | null; addressText?: string | null; defaultCurrency?: string | null }) {
+    const currency = (data.defaultCurrency ?? "GHS").toUpperCase();
+    if (!/^[A-Z]{3}$/.test(currency)) throw new Error("Default currency must be a three-letter code");
+    await this.repo.run(
+      `INSERT INTO system_settings (id, organization_name, admin_portal_title, resident_portal_title, support_email, support_phone, address_text, default_currency)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET organization_name = excluded.organization_name, admin_portal_title = excluded.admin_portal_title, resident_portal_title = excluded.resident_portal_title, support_email = excluded.support_email, support_phone = excluded.support_phone, address_text = excluded.address_text, default_currency = excluded.default_currency, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+      data.organizationName,
+      data.adminPortalTitle,
+      data.residentPortalTitle,
+      data.supportEmail ?? null,
+      data.supportPhone ?? null,
+      data.addressText ?? null,
+      currency
+    );
+    await this.repo.audit(actor.id, actor.staffId, "admin.settings.general_updated", "system_settings", 1, { defaultCurrency: currency });
+    return (await this.settingsOverview()).general;
+  }
+
+  async updatePaymentConfirmationSettings(actor: AuthUser, data: { requirementType: string; fixedAmountMinor?: number | null; percentageBasisPoints?: number | null; currency?: string | null }) {
+    if (!confirmationTypes.has(data.requirementType)) throw new Error("Invalid payment confirmation requirement");
+    const currency = (data.currency ?? "GHS").toUpperCase();
+    if (!/^[A-Z]{3}$/.test(currency)) throw new Error("Currency must be a three-letter code");
+    let fixed: number | null = null;
+    let percentage: number | null = null;
+    if (data.requirementType === "fixed") {
+      if (!Number.isInteger(data.fixedAmountMinor) || Number(data.fixedAmountMinor) <= 0) throw new Error("Fixed amount must be positive");
+      fixed = Number(data.fixedAmountMinor);
+    }
+    if (data.requirementType === "percentage") {
+      if (!Number.isInteger(data.percentageBasisPoints) || Number(data.percentageBasisPoints) <= 0 || Number(data.percentageBasisPoints) > 10000) throw new Error("Percentage must be between 0.01 and 100");
+      percentage = Number(data.percentageBasisPoints);
+    }
+    await this.repo.run(
+      "UPDATE payment_confirmation_settings SET requirement_type = ?, fixed_amount_minor = ?, percentage_basis_points = ?, currency = ?, status = 'active', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = 1",
+      data.requirementType,
+      fixed,
+      percentage,
+      currency
+    );
+    await this.repo.audit(actor.id, actor.staffId, "admin.settings.payment_confirmation_updated", "payment_confirmation_settings", 1, { requirementType: data.requirementType, fixedAmountMinor: fixed, percentageBasisPoints: percentage, currency });
+    return (await this.settingsOverview()).paymentConfirmation;
   }
 
   async auditLogs(actor: AuthUser, filters: { search?: string | null; action?: string | null; entityType?: string | null; actorUserId?: number | null; actorStaffId?: number | null; dateFrom?: string | null; dateTo?: string | null }, limit = 25, offset = 0) {

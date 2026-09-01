@@ -147,6 +147,7 @@ SELECT
 FROM receipt_number_sequence
 WHERE id = 1;
 SELECT 'payment_confirmation_settings' AS table_name, COUNT(*) AS row_count FROM payment_confirmation_settings;
+SELECT 'system_settings' AS table_name, COUNT(*) AS row_count FROM system_settings;
 SELECT
   'application_number_sequence' AS table_name,
   next_value AS row_count

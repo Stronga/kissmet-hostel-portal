@@ -512,6 +512,38 @@ export interface AuditLog {
   created_at: string;
 }
 
+export interface SystemSettingsGeneral {
+  id: number;
+  organization_name: string;
+  admin_portal_title: string;
+  resident_portal_title: string;
+  support_email?: string | null;
+  support_phone?: string | null;
+  address_text?: string | null;
+  default_currency: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PaymentConfirmationSetting {
+  id: number;
+  requirement_type: "full" | "fixed" | "percentage";
+  fixed_amount_minor?: number | null;
+  percentage_basis_points?: number | null;
+  currency: string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SettingsOverview {
+  general: SystemSettingsGeneral;
+  academic: { activeSession?: AcademicSession | null };
+  paymentConfirmation: PaymentConfirmationSetting | null;
+  communications: { smsProvider: string; emailProvider: string; secretsManagedIn: string };
+  system: { runtime: string; framework: string; database: string; documentStorage: string; authentication: string; auditLogging: string };
+}
+
 export interface Institution {
   id: number;
   code: string;
