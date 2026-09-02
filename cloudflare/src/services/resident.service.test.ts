@@ -18,6 +18,7 @@ class Sms {
 class Repo {
   rows: Record<string, Record<string, unknown>[]> = {
     institutions: [{ id: 1, code: "ug", name: "University of Ghana", status: "active" }, { id: 2, code: "old", name: "Old", status: "inactive" }],
+    academic_sessions: [{ id: 1, code: "2026", name: "2026 Academic Year", status: "active" }, { id: 2, code: "2025", name: "2025 Academic Year", status: "closed" }],
     users: [{ id: 1, phone: "+2331", email: "ama@test", display_name: "Ama" }, { id: 2, phone: "+2332", email: "kojo@test", display_name: "Kojo" }],
     residents: [{ id: 1, user_id: 1, institution_id: 1, resident_code: "KSM-RES-0001", student_id: "S1", first_name: "Ama", middle_name: null, last_name: "A", status: "applicant", phone_verified_at: "now" }, { id: 2, user_id: 2, institution_id: 1, resident_code: "KSM-RES-0002", student_id: "S2", first_name: "Kojo", last_name: "K", status: "applicant", phone_verified_at: "now" }],
     otp_codes: [],
@@ -47,6 +48,8 @@ class Repo {
   }
   async first<T>(sql: string, ...binds: unknown[]): Promise<T | null> {
     if (sql.includes("FROM institutions")) return (this.rows.institutions.find((i) => String(i.code).toLowerCase() === String(binds[0]).toLowerCase() && i.status === "active") ?? null) as T;
+    if (sql.includes("FROM academic_sessions WHERE status = 'active'")) return (this.rows.academic_sessions.find((s) => s.status === "active") ?? null) as T;
+    if (sql.includes("FROM academic_sessions WHERE id")) return (this.rows.academic_sessions.find((s) => s.id === binds[0] && s.status === "active") ?? null) as T;
     if (sql.includes("FROM residents WHERE institution_id")) return (this.rows.residents.find((r) => r.institution_id === binds[0] && r.student_id === binds[1]) ?? null) as T;
     if (sql.includes("FROM otp_codes WHERE purpose")) return (this.rows.otp_codes.at(-1) ?? null) as T;
     if (sql.includes("FROM residents r JOIN users")) return this.profile(binds[0] as number) as T;
@@ -133,6 +136,7 @@ describe("resident onboarding", () => {
   it("lists only active public institutions", async () => {
     const { svc } = make();
     await expect(svc.activeInstitutions()).resolves.toMatchObject({ results: [{ code: "ug" }] });
+    await expect(svc.activeAcademicSession()).resolves.toMatchObject({ code: "2026", status: "active" });
   });
 
   it("requests registration OTP and rejects invalid OTP", async () => {
@@ -182,6 +186,7 @@ describe("resident onboarding", () => {
     expect(app.application_number).toBe("KSM-APP-0001");
     await expect(svc.updateApplication(resident, Number(app.id), { notes: "Quiet room preferred" })).resolves.toMatchObject({ decision_notes: "Quiet room preferred" });
     await expect(svc.createApplication(resident, 1)).rejects.toThrow("UNIQUE");
+    await expect(svc.createApplication(resident, 2)).rejects.toThrow("Active academic session not found");
     await expect(svc.submitApplication(resident, Number(app.id))).resolves.toMatchObject({ status: "submitted" });
   });
 

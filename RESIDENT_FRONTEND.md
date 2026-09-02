@@ -4,6 +4,7 @@ Phase R1 added a separate Resident Portal frontend at `resident-frontend/`.
 Phase R2 replaces the auth placeholders with real resident registration and OTP authentication against the existing Cloudflare/Hono backend.
 Phase R3 replaces the neutral Home and Profile placeholders with real resident-owned dashboard and profile views.
 Phase R4 replaces the Documents placeholder with real Student Card and Ghana Card upload management.
+Phase R5 replaces the Application placeholder with the real resident draft/submission workflow.
 
 ## Stack
 
@@ -109,6 +110,7 @@ No production UI uses mock residents or fake API responses.
 
 Resident auth API wrappers live in `src/api/residentAuth.ts`, public institution loading lives in `src/api/institutions.ts`, and resident-owned dashboard/profile API wrappers live in `src/api/resident.ts`.
 Identity document upload uses authenticated `FormData` through the same API client. The client does not manually set multipart boundaries.
+Resident application creation/submission also uses `src/api/resident.ts` and never calls admin application endpoints.
 
 ## Shell And Navigation
 
@@ -217,6 +219,61 @@ The current resident backend exposes metadata but not document file content. R4 
 
 The backend was hardened so `GET /resident/me/documents/:id` no longer returns `r2_key` in resident metadata responses.
 
+## Application
+
+`/application` is a real resident application workflow page backed by resident-owned endpoints only:
+
+- `GET /resident/me`
+- `GET /resident/me/documents`
+- `GET /resident/me/applications`
+- `GET /resident/me/academic-session`
+- `POST /resident/me/applications`
+- `POST /resident/me/applications/:id/submit`
+
+The frontend does not send `resident_id`, `user_id`, `application_number`, review status, `reviewed_by_staff_id`, or ownership fields. Resident identity is derived from the authenticated session, and application numbers remain backend-generated in the `KSM-APP-xxxx` format.
+
+R5 added `GET /resident/me/academic-session` because the existing resident create endpoint required an `academicSessionId` and there was no resident-safe way to discover the active session. The backend rejects resident draft creation for non-active sessions.
+
+The Application page supports:
+
+- no-application state with Start application action
+- draft application state
+- submitted state
+- under review state
+- approved state
+- rejected state
+- archived/cancelled history display when exposed by the backend
+- application history list when multiple resident-owned records are returned
+
+Draft creation creates a backend-owned draft for the active academic session only. The generated application number is shown after the backend confirms creation. Duplicate active applications remain blocked by backend constraints and surfaced as API errors.
+
+The readiness checklist derives from resident-owned profile and document data when no dedicated backend readiness endpoint is available. Submission still relies on backend validation. Current readiness items are:
+
+- phone verified
+- profile complete: structured name, institution, and student ID
+- Student Card uploaded
+- Ghana Card uploaded
+
+Documents with `uploaded` or `verified` status count as submission-ready. Rejected or missing documents block readiness. Staff verification is separate and is not required for resident submission under the current backend rule.
+
+Submitting a draft requires confirmation, prevents duplicate submit clicks, waits for backend confirmation before updating state, and refreshes resident application data afterward. Failed submission leaves the displayed status unchanged and shows the backend error.
+
+Lifecycle labels preserve backend semantics:
+
+- `draft` -> Draft
+- `submitted` -> Submitted
+- `under_review` -> Under Review
+- `approved` -> Approved
+- `rejected` -> Rejected
+- `cancelled` -> Cancelled
+- `archived` -> Archived
+
+Approval is presented as eligibility for the next booking stage only. R5 does not create a booking, assign a room, mark payment complete, or collapse application/booking/payment/allocation into one status.
+
+The timeline renders only real backend timestamps: `created_at`, `submitted_at`, and `reviewed_at`. Missing timestamps are not fabricated.
+
+Rejected applications show `decision_notes` only because that field is already exposed by the resident endpoint. If it is absent, the UI shows a neutral fallback message.
+
 ## Reusable Components And Utilities
 
 R1 adds:
@@ -263,9 +320,8 @@ Auth errors are mapped to resident-safe messages. The UI does not expose SQL err
 
 ## Known Limitations
 
-R4 completes Student Card and Ghana Card upload management. The following remain later phases:
+R5 completes the resident application workflow. The following remain later phases:
 
-- application workflow
 - booking UI
 - payments and receipts
 - maintenance requests
@@ -278,11 +334,13 @@ Resident-safe verified payment totals remain unavailable. The dashboard intentio
 
 Resident document viewing/download remains unavailable until a backend endpoint can stream private R2 content through authenticated resident ownership checks.
 
+The Application page has no cancellation action because the current resident backend does not expose a cancellation endpoint. Booking creation/actions remain outside R5.
+
 Static Kissmet branding remains in use. The Resident Portal still does not call admin-only settings endpoints.
 
 ## Validation
 
-Phase R1/R2/R3/R4 tests cover:
+Phase R1/R2/R3/R4/R5 tests cover:
 
 - app rendering
 - unauthenticated `/` redirect to `/login`
@@ -340,13 +398,31 @@ Phase R1/R2/R3/R4 tests cover:
 - no fabricated resident View or Download action
 - no R2 object key, storage path, or Ghana Card number display
 - Home next-action behavior for missing and partially uploaded documents
+- protected Application route
+- Application loading and retryable error state
+- no-application state
+- draft creation against the active session
+- generated application number display
+- duplicate active application error handling
+- no frontend-sent `application_number`, `resident_id`, or staff review fields
+- readiness checklist for phone, profile, Student Card, and Ghana Card
+- uploaded and verified documents counting as submission-ready
+- rejected/missing documents blocking readiness
+- submit confirmation
+- submit success and failure
+- duplicate submit prevention
+- lifecycle display for draft, submitted, under_review, approved, rejected, and archived states
+- timeline rendering only real timestamps
+- approved application not displaying room/payment/allocation completion
+- resident-safe rejection reason and fallback behavior
+- no admin application API usage
 
-Latest Phase R4 validation:
+Latest Phase R5 validation:
 
 - resident-frontend typecheck: passed
-- resident-frontend tests: 7 files / 63 tests passed
+- resident-frontend tests: 8 files / 74 tests passed
 - resident-frontend build: passed
 - cloudflare typecheck: passed
 - cloudflare tests: 5 files / 94 tests passed
 
-No D1 migrations were required for Phase R4. Backend code changed only to remove `r2_key` from the resident-owned document metadata response.
+No D1 migrations were required for Phase R5. Backend code changed only to expose the resident-safe active academic session and reject resident draft creation for non-active sessions.

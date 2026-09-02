@@ -33,9 +33,19 @@ export interface ResidentApplication {
   application_number: string;
   academic_session_id: number;
   status: ApplicationStatus;
+  created_at?: string | null;
   submitted_at?: string | null;
   reviewed_at?: string | null;
   decision_notes?: string | null;
+}
+
+export interface AcademicSession {
+  id: number;
+  code: string;
+  name: string;
+  starts_on?: string | null;
+  ends_on?: string | null;
+  status: string;
 }
 
 export interface ResidentBooking {

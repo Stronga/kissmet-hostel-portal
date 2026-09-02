@@ -27,6 +27,10 @@ export class ResidentService {
     return this.repo.all("SELECT code, name FROM institutions WHERE status = 'active' ORDER BY name");
   }
 
+  activeAcademicSession() {
+    return this.repo.first("SELECT id, code, name, starts_on, ends_on, status FROM academic_sessions WHERE status = 'active' ORDER BY id DESC LIMIT 1");
+  }
+
   async requestRegistrationOtp(data: { firstName: string; middleName?: string | null; lastName: string; phone: string; email?: string | null; institutionCode: string; studentId: string }) {
     const institution = await this.repo.first<{ id: number; code: string }>("SELECT id, code FROM institutions WHERE lower(code) = lower(?) AND status = 'active'", data.institutionCode);
     const generic = { ok: true, message: "If registration can proceed, an OTP has been sent." };
@@ -133,6 +137,8 @@ export class ResidentService {
 
   async createApplication(actor: AuthUser, academicSessionId: number) {
     if (!actor.residentId) throw new Error("Resident session required");
+    const session = await this.repo.first("SELECT id FROM academic_sessions WHERE id = ? AND status = 'active'", academicSessionId);
+    if (!session) throw new Error("Active academic session not found");
     const number = await this.repo.allocateApplicationNumber();
     const res = await this.repo.run("INSERT INTO applications (resident_id, academic_session_id, application_number, status) VALUES (?, ?, ?, 'draft')", actor.residentId, academicSessionId, number);
     await this.repo.audit(actor.id, null, "resident.application.created", "application", res.meta.last_row_id);
@@ -141,12 +147,12 @@ export class ResidentService {
 
   applications(actor: AuthUser) {
     if (!actor.residentId) throw new Error("Resident session required");
-    return this.repo.all("SELECT id, application_number, academic_session_id, status, submitted_at, reviewed_at, decision_notes FROM applications WHERE resident_id = ? ORDER BY id DESC", actor.residentId);
+    return this.repo.all("SELECT id, application_number, academic_session_id, status, created_at, submitted_at, reviewed_at, decision_notes FROM applications WHERE resident_id = ? ORDER BY id DESC", actor.residentId);
   }
 
   async ownApplication(actor: AuthUser, id: number) {
     if (!actor.residentId) throw new Error("Resident session required");
-    const app = await this.repo.first<Record<string, unknown>>("SELECT id, application_number, academic_session_id, status, submitted_at, reviewed_at, decision_notes FROM applications WHERE id = ? AND resident_id = ?", id, actor.residentId);
+    const app = await this.repo.first<Record<string, unknown>>("SELECT id, application_number, academic_session_id, status, created_at, submitted_at, reviewed_at, decision_notes FROM applications WHERE id = ? AND resident_id = ?", id, actor.residentId);
     if (!app) throw new Error("Application not found");
     return app;
   }

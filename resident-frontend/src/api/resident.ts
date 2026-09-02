@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-import type { ResidentAllocation, ResidentApplication, ResidentBooking, ResidentDocument, ResidentProfile } from "../types/resident";
+import type { AcademicSession, ResidentAllocation, ResidentApplication, ResidentBooking, ResidentDocument, ResidentProfile } from "../types/resident";
 
 export function fetchResidentProfile() {
   return apiRequest<{ ok: true; data: ResidentProfile }>("/resident/me");
@@ -25,6 +25,32 @@ export function uploadResidentIdentityDocument(type: "student_card" | "ghana_car
 
 export function fetchResidentApplications() {
   return apiRequest<{ ok: true; data: ResidentApplication[] }>("/resident/me/applications");
+}
+
+export function fetchActiveAcademicSession() {
+  return apiRequest<{ ok: true; data: AcademicSession | null }>("/resident/me/academic-session");
+}
+
+export function createResidentApplication(academicSessionId: number) {
+  return apiRequest<{ ok: true; data: ResidentApplication }>("/resident/me/applications", {
+    method: "POST",
+    body: JSON.stringify({ academicSessionId })
+  });
+}
+
+export function fetchResidentApplication(id: number) {
+  return apiRequest<{ ok: true; data: ResidentApplication }>(`/resident/me/applications/${id}`);
+}
+
+export function updateResidentApplication(id: number, notes?: string | null) {
+  return apiRequest<{ ok: true; data: ResidentApplication }>(`/resident/me/applications/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ notes })
+  });
+}
+
+export function submitResidentApplication(id: number) {
+  return apiRequest<{ ok: true; data: ResidentApplication }>(`/resident/me/applications/${id}/submit`, { method: "POST" });
 }
 
 export function fetchResidentBookings() {

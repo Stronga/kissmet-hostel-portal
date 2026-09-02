@@ -70,6 +70,7 @@ residentRoutes.get("/me/documents/:id", async (c) => {
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 
+residentRoutes.get("/me/academic-session", async (c) => c.json(ok(await service(c).activeAcademicSession())));
 residentRoutes.get("/me/applications", async (c) => c.json(ok((await service(c).applications(c.get("authUser"))).results ?? [])));
 residentRoutes.post("/me/applications", async (c) => {
   try { const input = await body(c); return c.json(ok(await service(c).createApplication(c.get("authUser"), intField(input, "academicSessionId")!)), 201); }
