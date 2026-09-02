@@ -6,6 +6,7 @@ Phase R3 replaces the neutral Home and Profile placeholders with real resident-o
 Phase R4 replaces the Documents placeholder with real Student Card and Ghana Card upload management.
 Phase R5 replaces the Application placeholder with the real resident draft/submission workflow.
 Phase R6 replaces the Booking placeholder with a real read-only resident booking lifecycle view.
+Phase R7 replaces the Payments placeholder with resident-owned payment submission, payment slip upload, and receipt history.
 
 ## Stack
 
@@ -113,6 +114,7 @@ Resident auth API wrappers live in `src/api/residentAuth.ts`, public institution
 Identity document upload uses authenticated `FormData` through the same API client. The client does not manually set multipart boundaries.
 Resident application creation/submission also uses `src/api/resident.ts` and never calls admin application endpoints.
 Resident booking display uses the same API layer and remains read-only.
+Resident payments, payment slip uploads, payment summaries, and receipt history use the same API layer and never call admin payment or receipt endpoints.
 
 ## Shell And Navigation
 
@@ -134,6 +136,7 @@ The shell uses a lighter resident visual treatment: light background, white card
 - `GET /resident/me/applications`
 - `GET /resident/me/bookings`
 - `GET /resident/me/allocation`
+- `GET /resident/me/payments/summary`
 
 The profile request is required for the dashboard to render. Documents, applications, bookings, and allocation are loaded independently so partial failures show a warning without hiding the resident identity and available sections.
 
@@ -144,12 +147,12 @@ The dashboard shows:
 - accommodation journey stages: account, documents, application, booking, payment, and room assignment
 - latest application summary from resident application records
 - latest booking summary from resident booking records
-- limited payment summary derived from booking status and total amount only
+- resident-safe payment summary from verified payment totals
 - active room assignment only from `GET /resident/me/allocation`
 
 Room assignment never comes from application, booking, or payment records. A room is shown only when the backend reports an active allocation.
 
-Resident-safe verified payment totals are not exposed by the current backend. The dashboard does not call admin payment APIs and does not fabricate verified-payment progress. It displays the captured booking amount and marks verified payment totals as unavailable until a resident-safe payment summary endpoint exists.
+Payment progress uses the resident-safe summary endpoint. Verified totals, outstanding balance, confirmation requirement, and payment-attention state are derived by the backend from the authenticated resident session. Submitted and pending payments are shown separately from verified totals and do not reduce the outstanding balance until staff verification.
 
 ## Profile
 
@@ -285,6 +288,7 @@ The page uses resident-owned endpoints only:
 - `GET /resident/me/bookings`
 - `GET /resident/me/applications`
 - `GET /resident/me/allocation`
+- `GET /resident/me/payments/summary`
 
 The frontend does not call admin booking, room, payment, or allocation APIs. It never sends or exposes arbitrary `resident_id`, `user_id`, booking owner fields, `priced_room_rate_id`, staff IDs, or audit metadata.
 
@@ -313,13 +317,39 @@ Booking lifecycle labels preserve backend semantics:
 
 The captured financial basis is always the booking's stored `total_amount_minor` and `currency`. The Resident Portal does not recalculate booking amounts from current room rates and does not fetch newer room rates to overwrite historical booking obligations.
 
-Payment-stage wording is intentionally limited. R6 shows the captured amount due and links to `/payments`, but it does not implement payment submission or verified payment totals. The known resident-safe payment-summary gap remains; the Booking page does not show `GHS 0.00` as a fake verified amount.
+Payment-stage totals come from the resident-safe payment summary endpoint. The page shows captured amount due, verified payments, and outstanding balance without calling admin payment APIs or fabricating `GHS 0.00` values.
 
 `payment_attention_required` may appear on confirmed bookings. This is valid because refunds can flag attention without automatically de-confirming a booking. The UI shows a resident-friendly warning when the field is present.
 
 Actual room/bed assignment comes only from `GET /resident/me/allocation`. A confirmed booking without allocation shows that no room or bed has been assigned yet. A priced room alone is never treated as an allocation.
 
 Booking history is shown when multiple resident-owned bookings are returned. Pending/confirmed bookings are treated as current; cancelled, expired, completed, archived, and older records are shown as history.
+
+## Payments And Receipts
+
+`/payments` is a real resident payment page backed by resident-owned endpoints only:
+
+- `GET /resident/me/payments/summary`
+- `GET /resident/me/payments`
+- `POST /resident/me/payments`
+- `POST /resident/me/payments/:id/submit`
+- `POST /resident/me/payments/:id/slip`
+- `GET /resident/me/receipts`
+- `GET /resident/me/receipts/:id`
+
+The payment summary displays booking total, verified total, outstanding balance, submitted total, draft/pending total, refunded total, required amount before booking confirmation, and remaining amount needed for eligibility. Calculations are resident-safe and backend-owned. Only `verified` payments reduce outstanding balance. `submitted` and `pending` payments are visible but remain unverified. Refunded payments are shown for history and do not reduce the outstanding balance.
+
+Part payments are supported. The frontend accepts a GHS decimal amount for usability, converts it to integer minor units before submission, and never persists money as floating point. Payment creation sends only the selected resident-owned booking ID, integer amount, currency, method, and optional note. The frontend never sends `resident_id`, `payment_reference`, status, staff verification fields, or receipt fields. Payment references remain backend-generated.
+
+Allowed resident payment methods are `cash`, `bank_transfer`, `mobile_money`, `card`, and `other`. The backend remains authoritative for method validation, booking ownership, currency matching, amount limits, and workflow transitions.
+
+Payment slip upload is private. The frontend sends authenticated `FormData` with field name `file` and accepts only PDF, JPEG, PNG, and WebP files up to 5 MB. R2 object keys, bucket names, and public storage URLs are never displayed or constructed in the frontend. Slip content viewing/downloading is not exposed by the current resident backend.
+
+Residents can submit a `pending` payment for staff verification. Submission changes the payment to `submitted`; it does not verify payment, issue a receipt, or confirm the booking. Staff-only verification and booking confirmation remain backend/admin operations. Rejected payments can be viewed historically; residents create a new payment record rather than bypassing backend status rules with a frontend-only resubmission path.
+
+Receipt history is read-only for residents. The page lists issued and voided receipt metadata tied to resident-owned payments. Residents cannot issue, void, refund, verify, or mutate receipts from the portal. Receipt PDF/content download remains unavailable until a resident-safe backend streaming endpoint is added.
+
+Payment attention can appear on confirmed bookings after refunds or other staff payment actions. The portal shows this as a resident-facing warning without changing booking status or verified payment history.
 
 ## Reusable Components And Utilities
 
@@ -367,28 +397,29 @@ Auth errors are mapped to resident-safe messages. The UI does not expose SQL err
 
 ## Known Limitations
 
-R6 completes the resident booking view. The following remain later phases:
+R7 completes resident payment submission, payment slip upload, payment summaries, and receipt history. The following remain later phases:
 
-- payments and receipts
 - maintenance requests
 - announcements
 - resident message inbox
 
 Profile phone, institution, and student ID self-service changes are not implemented because the backend does not currently expose those operations for residents.
 
-Resident-safe verified payment totals remain unavailable. The dashboard intentionally avoids admin payment APIs and only shows booking-owned totals until a resident-safe endpoint is added.
-
 Resident document viewing/download remains unavailable until a backend endpoint can stream private R2 content through authenticated resident ownership checks.
 
 The Application page has no cancellation action because the current resident backend does not expose a cancellation endpoint. Booking creation/actions remain outside R5.
 
-The Booking page has no resident create, confirm, or cancel action because the current resident backend does not expose those operations. Payment submission and verified payment summaries remain R7.
+The Booking page has no resident create, confirm, or cancel action because the current resident backend does not expose those operations.
+
+Payment slip and receipt content viewing/downloading remain unavailable until backend endpoints can stream private R2 content through authenticated resident ownership checks.
+
+There is no automated payment gateway integration. Residents submit payment records and slips for staff verification.
 
 Static Kissmet branding remains in use. The Resident Portal still does not call admin-only settings endpoints.
 
 ## Validation
 
-Phase R1/R2/R3/R4/R5/R6 tests cover:
+Phase R1/R2/R3/R4/R5/R6/R7 tests cover:
 
 - app rendering
 - unauthenticated `/` redirect to `/login`
@@ -425,7 +456,7 @@ Phase R1/R2/R3/R4/R5/R6 tests cover:
 - accommodation journey status derivation
 - next-action routing for documents, application, booking, payments, and room assignment states
 - application and booking summaries using resident-owned records
-- payment summary behavior without a resident-safe verified-payment endpoint
+- resident-safe payment summary behavior
 - active allocation display from allocation data only
 - no-allocation room pending behavior
 - protected Profile route rendering
@@ -479,13 +510,28 @@ Phase R1/R2/R3/R4/R5/R6 tests cover:
 - payment-attention display on confirmed bookings
 - allocation shown only from active allocation data
 - no resident booking creation action
+- protected Payments route
+- Payments loading, retryable error, and no-current-booking states
+- resident-safe payment summary totals
+- part-payment display
+- payment creation with backend-generated references
+- no frontend-sent `resident_id`, `payment_reference`, status, or staff fields
+- payment amount validation and overpayment error handling
+- private payment slip upload through authenticated `FormData`
+- unsupported and oversized payment slip rejection
+- pending payment submission for staff verification
+- submitted payment not displayed as verified
+- payment status labels for pending, submitted, verified, rejected, refunded, cancelled, and archived states
+- payment attention display on confirmed bookings
+- resident receipt history display for issued and voided receipts
+- no resident issue, void, verify, refund, admin payment, or admin receipt API usage
 
-Latest Phase R6 validation:
+Latest Phase R7 validation:
 
 - resident-frontend typecheck: passed
-- resident-frontend tests: 9 files / 86 tests passed
+- resident-frontend tests: 10 files / 99 tests passed
 - resident-frontend build: passed
 - cloudflare typecheck: passed
-- cloudflare tests: 5 files / 94 tests passed
+- cloudflare tests: 5 files / 98 tests passed
 
-No D1 migrations were required for Phase R6. Backend code changed only to enrich the resident-owned booking list response with safe labels, timestamps, priced-room display fields, and payment-attention fields.
+No D1 migrations were required for Phase R7. Backend code added resident-owned payment summary, payment listing, payment creation, payment submission, private payment slip upload, and receipt read endpoints using the existing payments, receipts, documents, bookings, and payment confirmation settings schema.

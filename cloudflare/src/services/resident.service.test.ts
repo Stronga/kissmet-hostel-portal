@@ -26,6 +26,9 @@ class Repo {
     documents: [],
     applications: [],
     bookings: [{ id: 1, resident_id: 1, academic_session_id: 1, application_id: 1, booking_number: "KSM-BKG-0001", status: "pending", total_amount_minor: 250000, currency: "GHS", priced_room_id: 1, payment_attention_required: 0 }],
+    payments: [],
+    receipts: [],
+    payment_confirmation_settings: [{ id: 1, requirement_type: "full", fixed_amount_minor: null, percentage_basis_points: null, status: "active" }],
     allocations: [{ id: 1, resident_id: 1, status: "active", bed_id: 1, academic_session_id: 1 }],
     beds: [{ id: 1, room_id: 1, bed_code: "R1-A", label: "A" }],
     rooms: [{ id: 1, room_code: "R1", room_name: "Room 1" }],
@@ -36,6 +39,7 @@ class Repo {
   residentSeq = 3;
   appSeq = 1;
   mntSeq = 3;
+  paySeq = 1;
 
   async all<T>(sql: string, ...binds: unknown[]) {
     if (sql.includes("FROM institutions")) return { results: this.rows.institutions.filter((i) => i.status === "active").map(({ code, name }) => ({ code, name })) as T[] };
@@ -49,6 +53,8 @@ class Repo {
         return { ...b, academic_session_code: session?.code, academic_session_name: session?.name, application_number: app?.application_number, priced_room_code: room?.room_code, priced_room_name: room?.room_name };
       }) as T[]
     };
+    if (sql.includes("FROM payments")) return { results: this.rows.payments.filter((p) => p.resident_id === binds[0]).map((p) => ({ ...p, booking_number: this.rows.bookings.find((b) => b.id === p.booking_id)?.booking_number })) as T[] };
+    if (sql.includes("FROM receipts")) return { results: this.rows.receipts.filter((r) => this.rows.payments.find((p) => p.id === r.payment_id)?.resident_id === binds[0]).map((r) => ({ ...r, ...this.rows.payments.find((p) => p.id === r.payment_id) })) as T[] };
     if (sql.includes("FROM maintenance_requests")) return { results: this.rows.maintenance_requests.filter((m) => m.resident_id === binds[0]) as T[] };
     if (sql.includes("FROM announcements")) return { results: this.rows.announcements.filter((a) => ["all", "residents"].includes(String(a.audience)) && a.status === "published" && (!a.expires_at || String(a.expires_at) > new Date().toISOString())) as T[] };
     return { results: [] as T[] };
@@ -63,6 +69,24 @@ class Repo {
     if (sql.includes("COUNT(*) AS count FROM documents")) return { count: this.rows.documents.filter((d) => d.resident_id === binds[0] && ["student_card", "ghana_card"].includes(String(d.document_type))).length } as T;
     if (sql.includes("FROM applications WHERE id")) return (this.rows.applications.find((a) => a.id === binds[0] && a.resident_id === binds[1]) ?? null) as T;
     if (sql.includes("FROM documents WHERE id")) return (this.rows.documents.find((d) => d.id === binds[0] && d.resident_id === binds[1]) ?? null) as T;
+    if (sql.includes("FROM bookings WHERE resident_id")) return (this.rows.bookings.find((b) => b.resident_id === binds[0] && ["pending", "confirmed"].includes(String(b.status))) ?? null) as T;
+    if (sql.includes("FROM bookings WHERE id")) return (this.rows.bookings.find((b) => b.id === binds[0] && b.resident_id === binds[1] && ["pending", "confirmed"].includes(String(b.status))) ?? null) as T;
+    if (sql.includes("verified_minor")) {
+      const rows = this.rows.payments.filter((p) => p.booking_id === binds[0] && p.resident_id === binds[1]);
+      return {
+        verified_minor: rows.filter((p) => p.status === "verified").reduce((sum, p) => sum + Number(p.amount_minor), 0),
+        submitted_minor: rows.filter((p) => p.status === "submitted").reduce((sum, p) => sum + Number(p.amount_minor), 0),
+        pending_minor: rows.filter((p) => p.status === "pending").reduce((sum, p) => sum + Number(p.amount_minor), 0),
+        refunded_minor: rows.filter((p) => p.status === "refunded").reduce((sum, p) => sum + Number(p.amount_minor), 0)
+      } as T;
+    }
+    if (sql.includes("FROM payment_confirmation_settings")) return this.rows.payment_confirmation_settings[0] as T;
+    if (sql.includes("FROM payments WHERE id")) return (this.rows.payments.find((p) => p.id === binds[0] && p.resident_id === binds[1]) ?? null) as T;
+    if (sql.includes("FROM receipts rec")) {
+      const row = this.rows.receipts.find((r) => r.id === binds[0]);
+      const payment = this.rows.payments.find((p) => p.id === row?.payment_id && p.resident_id === binds[1]);
+      return row && payment ? { ...row, ...payment } as T : null;
+    }
     if (sql.includes("FROM allocations")) {
       const allocation = this.rows.allocations.find((a) => a.resident_id === binds[0] && a.status === "active");
       const bed = this.rows.beds.find((b) => b.id === allocation?.bed_id);
@@ -77,6 +101,7 @@ class Repo {
   async allocateResidentCode() { return `KSM-RES-${String(this.residentSeq++).padStart(4, "0")}`; }
   async allocateApplicationNumber() { return `KSM-APP-${String(this.appSeq++).padStart(4, "0")}`; }
   async allocateMaintenanceRequestNumber() { return `KSM-MNT-${String(this.mntSeq++).padStart(4, "0")}`; }
+  async allocatePaymentReference() { return `KSM-PAY-${String(this.paySeq++).padStart(4, "0")}`; }
   async run(sql: string, ...binds: unknown[]) {
     if (sql.startsWith("INSERT INTO otp_codes")) {
       const id = this.rows.otp_codes.length + 1;
@@ -97,7 +122,16 @@ class Repo {
     if (sql.startsWith("INSERT INTO sessions")) this.rows.sessions.push({ id: 1, user_id: binds[0], token_hash: binds[1] });
     if (sql.startsWith("INSERT INTO documents")) {
       const id = this.rows.documents.length + 1;
-      this.rows.documents.push({ id, owner_user_id: binds[0], resident_id: binds[1], document_type: binds[2], status: "uploaded", r2_key: binds[3], original_filename: binds[4], content_type: binds[5], size_bytes: binds[6] });
+      if (sql.includes("'payment_slip'")) {
+        this.rows.documents.push({ id, owner_user_id: binds[0], resident_id: binds[1], booking_id: binds[2], payment_id: binds[3], document_type: "payment_slip", status: "uploaded", r2_key: binds[4], original_filename: binds[5], content_type: binds[6], size_bytes: binds[7] });
+      } else {
+        this.rows.documents.push({ id, owner_user_id: binds[0], resident_id: binds[1], document_type: binds[2], status: "uploaded", r2_key: binds[3], original_filename: binds[4], content_type: binds[5], size_bytes: binds[6] });
+      }
+      return { meta: { last_row_id: id, changes: 1 } };
+    }
+    if (sql.startsWith("INSERT INTO payments")) {
+      const id = this.rows.payments.length + 1;
+      this.rows.payments.push({ id, booking_id: binds[0], resident_id: binds[1], payment_reference: binds[2], status: "pending", amount_minor: binds[3], currency: binds[4], method: binds[5], paid_at: binds[6], notes: binds[7] });
       return { meta: { last_row_id: id, changes: 1 } };
     }
     if (sql.startsWith("INSERT INTO applications")) {
@@ -120,6 +154,10 @@ class Repo {
     if (sql.startsWith("UPDATE otp_codes")) {
       const row = this.rows.otp_codes.find((o) => o.id === binds.at(-1));
       if (row) row.status = "used";
+    }
+    if (sql.startsWith("UPDATE payments")) {
+      const row = this.rows.payments.find((p) => p.id === binds.at(-1));
+      if (row && sql.includes("status = 'submitted'")) row.status = "submitted";
     }
     return { meta: { last_row_id: 1, changes: 1 } };
   }
@@ -235,5 +273,55 @@ describe("resident onboarding", () => {
     await expect(svc.announcement(resident, 3)).rejects.toThrow("Announcement not found");
     await expect(svc.announcement(resident, 4)).rejects.toThrow("Announcement not found");
     await expect(svc.announcement(resident, 5)).rejects.toThrow("Announcement not found");
+  });
+
+  it("creates resident-owned payments with backend references and matching currency", async () => {
+    const { svc, repo } = make();
+    const payment = await svc.createPayment(resident, { bookingId: 1, amountMinor: 100000, currency: "GHS", method: "mobile_money" }) as Record<string, unknown>;
+    expect(payment.payment_reference).toBe("KSM-PAY-0001");
+    expect(payment.status).toBe("pending");
+    await expect(svc.createPayment(otherResident, { bookingId: 1, amountMinor: 100000, currency: "GHS", method: "cash" })).rejects.toThrow("Booking not found");
+    await expect(svc.createPayment(resident, { bookingId: 1, amountMinor: 100000, currency: "USD", method: "cash" })).rejects.toThrow("Payment currency must match booking currency");
+    await expect(svc.createPayment(resident, { bookingId: 1, amountMinor: 0, currency: "GHS", method: "cash" })).rejects.toThrow("Payment amount must be positive");
+    expect(repo.audits).toContain("resident.payment.created");
+  });
+
+  it("summarizes verified submitted pending and refunded resident payments", async () => {
+    const { svc, repo } = make();
+    repo.rows.payments.push(
+      { id: 1, booking_id: 1, resident_id: 1, payment_reference: "KSM-PAY-0001", status: "verified", amount_minor: 100000, currency: "GHS" },
+      { id: 2, booking_id: 1, resident_id: 1, payment_reference: "KSM-PAY-0002", status: "submitted", amount_minor: 50000, currency: "GHS" },
+      { id: 3, booking_id: 1, resident_id: 1, payment_reference: "KSM-PAY-0003", status: "refunded", amount_minor: 25000, currency: "GHS" }
+    );
+    await expect(svc.paymentSummary(resident)).resolves.toMatchObject({
+      bookingTotalMinor: 250000,
+      verifiedTotalMinor: 100000,
+      submittedTotalMinor: 50000,
+      refundedTotalMinor: 25000,
+      outstandingMinor: 150000,
+      confirmationRequirementMet: false
+    });
+  });
+
+  it("submits payments without verifying them and uploads private slips", async () => {
+    const { svc, repo, puts } = make();
+    const payment = await svc.createPayment(resident, { bookingId: 1, amountMinor: 50000, currency: "GHS", method: "bank_transfer" }) as Record<string, unknown>;
+    await expect(svc.submitPayment(resident, Number(payment.id))).resolves.toMatchObject({ status: "submitted" });
+    await svc.uploadPaymentSlip(resident, Number(payment.id), new File(["x"], "slip.pdf", { type: "application/pdf" }));
+    expect(puts[0]).toContain("payment-slips/KSM-PAY-0001/");
+    expect(repo.rows.documents.at(-1)).toMatchObject({ document_type: "payment_slip", resident_id: 1, payment_id: payment.id });
+    await expect(svc.uploadPaymentSlip(otherResident, Number(payment.id), new File(["x"], "slip.pdf", { type: "application/pdf" }))).rejects.toThrow("Payment not found");
+    await expect(svc.uploadPaymentSlip(resident, Number(payment.id), new File(["x"], "bad.txt", { type: "text/plain" }))).rejects.toThrow("Unsupported payment slip file type");
+    expect(repo.audits).toContain("resident.payment.submitted");
+    expect(repo.audits).toContain("resident.payment.slip_uploaded");
+  });
+
+  it("lists and retrieves only resident-owned receipts", async () => {
+    const { svc, repo } = make();
+    repo.rows.payments.push({ id: 1, booking_id: 1, resident_id: 1, payment_reference: "KSM-PAY-0001", status: "verified", amount_minor: 100000, currency: "GHS" });
+    repo.rows.receipts.push({ id: 1, payment_id: 1, receipt_number: "KSM-RCP-0001", status: "issued" });
+    await expect(svc.receipts(resident)).resolves.toMatchObject({ results: [expect.objectContaining({ receipt_number: "KSM-RCP-0001", payment_reference: "KSM-PAY-0001" })] });
+    await expect(svc.receipt(resident, 1)).resolves.toMatchObject({ receipt_number: "KSM-RCP-0001" });
+    await expect(svc.receipt(otherResident, 1)).rejects.toThrow("Receipt not found");
   });
 });

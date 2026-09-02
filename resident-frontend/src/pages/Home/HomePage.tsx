@@ -118,8 +118,9 @@ export function HomePage() {
           {booking ? (
             <div className="mt-3 space-y-3">
               <Detail label="Booking total" value={formatMoneyMinor(booking.total_amount_minor, booking.currency)} />
-              <Detail label="Verified payment" value="Not available" />
-              <p className="text-xs text-text-secondary">Resident-safe payment totals are not exposed by the current backend.</p>
+              <Detail label="Verified payments" value={data.paymentSummary ? formatMoneyMinor(data.paymentSummary.verifiedTotalMinor, data.paymentSummary.currency) : "Unavailable"} />
+              <Detail label="Outstanding" value={data.paymentSummary ? formatMoneyMinor(data.paymentSummary.outstandingMinor, data.paymentSummary.currency) : "Unavailable"} />
+              {data.paymentSummary?.paymentAttentionRequired ? <p className="text-xs font-semibold text-danger">Payment attention required.</p> : null}
             </div>
           ) : <EmptyState title="No payment summary" message="Payment details will appear after a booking exists and resident-safe payment data is available." />}
         </Card>

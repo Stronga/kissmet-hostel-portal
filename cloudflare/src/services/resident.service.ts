@@ -7,6 +7,7 @@ import type { SmsProvider } from "./sms.service";
 
 const OTP_MINUTES = 10;
 const SESSION_HOURS = 8;
+const paymentMethods = new Set(["cash", "bank_transfer", "mobile_money", "card", "other"]);
 
 function futureIso(minutes: number) {
   return new Date(Date.now() + minutes * 60_000).toISOString();
@@ -192,6 +193,160 @@ export class ResidentService {
       WHERE b.resident_id = ?
       ORDER BY b.id DESC
     `, actor.residentId);
+  }
+
+  payments(actor: AuthUser) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    return this.repo.all(`
+      SELECT p.id, p.booking_id, p.payment_reference, p.status, p.amount_minor, p.currency,
+             p.method, p.paid_at, p.submitted_at, p.verified_at, p.created_at,
+             b.booking_number,
+             d.id AS slip_document_id, d.original_filename AS slip_filename,
+             d.content_type AS slip_content_type, d.size_bytes AS slip_size_bytes
+      FROM payments p
+      LEFT JOIN bookings b ON b.id = p.booking_id
+      LEFT JOIN documents d ON d.payment_id = p.id AND d.document_type = 'payment_slip' AND d.status <> 'archived'
+      WHERE p.resident_id = ?
+      ORDER BY p.id DESC
+    `, actor.residentId);
+  }
+
+  async paymentSummary(actor: AuthUser) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    const booking = await this.repo.first<Record<string, unknown>>("SELECT * FROM bookings WHERE resident_id = ? AND status IN ('pending', 'confirmed') ORDER BY id DESC LIMIT 1", actor.residentId);
+    if (!booking) return null;
+    const totals = await this.repo.first<{ verified_minor: number; submitted_minor: number; pending_minor: number; refunded_minor: number }>(`
+      SELECT
+        COALESCE(SUM(CASE WHEN status = 'verified' THEN amount_minor ELSE 0 END), 0) AS verified_minor,
+        COALESCE(SUM(CASE WHEN status = 'submitted' THEN amount_minor ELSE 0 END), 0) AS submitted_minor,
+        COALESCE(SUM(CASE WHEN status = 'pending' THEN amount_minor ELSE 0 END), 0) AS pending_minor,
+        COALESCE(SUM(CASE WHEN status = 'refunded' THEN amount_minor ELSE 0 END), 0) AS refunded_minor
+      FROM payments
+      WHERE booking_id = ? AND resident_id = ?
+    `, booking.id, actor.residentId);
+    const setting = await this.repo.first<{ requirement_type: string; fixed_amount_minor: number | null; percentage_basis_points: number | null }>("SELECT requirement_type, fixed_amount_minor, percentage_basis_points FROM payment_confirmation_settings WHERE id = 1 AND status = 'active'");
+    const total = Number(booking.total_amount_minor);
+    const verified = Number(totals?.verified_minor ?? 0);
+    const required = this.requiredConfirmationAmount(total, setting ?? { requirement_type: "full", fixed_amount_minor: null, percentage_basis_points: null });
+    return {
+      bookingId: booking.id,
+      bookingNumber: booking.booking_number,
+      bookingStatus: booking.status,
+      bookingTotalMinor: total,
+      verifiedTotalMinor: verified,
+      outstandingMinor: Math.max(total - verified, 0),
+      submittedTotalMinor: Number(totals?.submitted_minor ?? 0),
+      pendingTotalMinor: Number(totals?.pending_minor ?? 0),
+      refundedTotalMinor: Number(totals?.refunded_minor ?? 0),
+      requiredConfirmationAmountMinor: required,
+      remainingToConfirmationMinor: Math.max(required - verified, 0),
+      confirmationRequirementMet: verified >= required,
+      currency: booking.currency ?? "GHS",
+      paymentAttentionRequired: Boolean(booking.payment_attention_required),
+      paymentAttentionReason: booking.payment_attention_reason ?? null
+    };
+  }
+
+  private requiredConfirmationAmount(total: number, setting: { requirement_type: string; fixed_amount_minor: number | null; percentage_basis_points: number | null }) {
+    if (setting.requirement_type === "fixed") return Math.min(Number(setting.fixed_amount_minor ?? total), total);
+    if (setting.requirement_type === "percentage") return Math.ceil(total * Number(setting.percentage_basis_points ?? 10000) / 10000);
+    return total;
+  }
+
+  async createPayment(actor: AuthUser, data: { bookingId: number; amountMinor: number; currency: string; method: string; paidAt?: string | null; notes?: string | null }) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    if (!paymentMethods.has(data.method)) throw new Error("Invalid payment method");
+    if (data.amountMinor <= 0) throw new Error("Payment amount must be positive");
+    const booking = await this.repo.first<Record<string, unknown>>("SELECT * FROM bookings WHERE id = ? AND resident_id = ? AND status IN ('pending', 'confirmed')", data.bookingId, actor.residentId);
+    if (!booking) throw new Error("Booking not found");
+    if (String(data.currency).toUpperCase() !== String(booking.currency).toUpperCase()) throw new Error("Payment currency must match booking currency");
+    const totals = await this.repo.first<{ verified_minor: number }>("SELECT COALESCE(SUM(amount_minor), 0) AS verified_minor FROM payments WHERE booking_id = ? AND resident_id = ? AND status = 'verified'", data.bookingId, actor.residentId);
+    const outstandingMinor = Math.max(Number(booking.total_amount_minor) - Number(totals?.verified_minor ?? 0), 0);
+    if (data.amountMinor > outstandingMinor) throw new Error("Payment would exceed booking total");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const paymentReference = await this.repo.allocatePaymentReference();
+      try {
+        const res = await this.repo.run(
+          "INSERT INTO payments (booking_id, resident_id, payment_reference, status, amount_minor, currency, method, paid_at, notes) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)",
+          data.bookingId,
+          actor.residentId,
+          paymentReference,
+          data.amountMinor,
+          data.currency,
+          data.method,
+          data.paidAt ?? null,
+          data.notes ?? null
+        );
+        await this.repo.audit(actor.id, null, "resident.payment.created", "payment", res.meta.last_row_id, { bookingId: data.bookingId, amountMinor: data.amountMinor });
+        return this.repo.get("payments", Number(res.meta.last_row_id));
+      } catch (error) {
+        if (String((error as Error).message).includes("payment_reference") && attempt < 2) continue;
+        throw error;
+      }
+    }
+    throw new Error("Unable to create payment with unique payment reference");
+  }
+
+  async submitPayment(actor: AuthUser, paymentId: number) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    const payment = await this.repo.first<Record<string, unknown>>("SELECT * FROM payments WHERE id = ? AND resident_id = ?", paymentId, actor.residentId);
+    if (!payment) throw new Error("Payment not found");
+    if (payment.status !== "pending") throw new Error("Invalid workflow transition");
+    await this.repo.run("UPDATE payments SET status = 'submitted', submitted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", paymentId);
+    await this.repo.audit(actor.id, null, "resident.payment.submitted", "payment", paymentId);
+    return this.repo.get("payments", paymentId);
+  }
+
+  async uploadPaymentSlip(actor: AuthUser, paymentId: number, file: File) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    if (!this.documents) throw new Error("Document storage is not configured");
+    const payment = await this.repo.first<Record<string, unknown>>("SELECT * FROM payments WHERE id = ? AND resident_id = ?", paymentId, actor.residentId);
+    if (!payment) throw new Error("Payment not found");
+    if (!["pending", "submitted"].includes(String(payment.status))) throw new Error("Invalid workflow transition");
+    const allowed = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+    if (!allowed.has(file.type)) throw new Error("Unsupported payment slip file type");
+    if (file.size > 5 * 1024 * 1024) throw new Error("Payment slip file too large");
+    const key = `payment-slips/${payment.payment_reference}/${crypto.randomUUID()}-${file.name.replace(/[^A-Za-z0-9_.-]/g, "_")}`;
+    await this.documents.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+    const res = await this.repo.run(
+      "INSERT INTO documents (owner_user_id, resident_id, booking_id, payment_id, document_type, status, r2_bucket, r2_key, original_filename, content_type, size_bytes, uploaded_by_user_id) VALUES (?, ?, ?, ?, 'payment_slip', 'uploaded', 'DOCUMENTS', ?, ?, ?, ?, ?)",
+      actor.id,
+      actor.residentId,
+      payment.booking_id,
+      paymentId,
+      key,
+      file.name,
+      file.type,
+      file.size,
+      actor.id
+    );
+    await this.repo.audit(actor.id, null, "resident.payment.slip_uploaded", "document", res.meta.last_row_id, { paymentId });
+    return this.repo.get("documents", Number(res.meta.last_row_id));
+  }
+
+  receipts(actor: AuthUser) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    return this.repo.all(`
+      SELECT rec.id, rec.receipt_number, rec.status, rec.issued_at, rec.voided_at,
+             p.payment_reference, p.amount_minor, p.currency, p.method, p.verified_at
+      FROM receipts rec
+      JOIN payments p ON p.id = rec.payment_id
+      WHERE p.resident_id = ?
+      ORDER BY rec.id DESC
+    `, actor.residentId);
+  }
+
+  async receipt(actor: AuthUser, id: number) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    const receipt = await this.repo.first(`
+      SELECT rec.id, rec.receipt_number, rec.status, rec.issued_at, rec.voided_at,
+             p.payment_reference, p.amount_minor, p.currency, p.method, p.verified_at
+      FROM receipts rec
+      JOIN payments p ON p.id = rec.payment_id
+      WHERE rec.id = ? AND p.resident_id = ?
+    `, id, actor.residentId);
+    if (!receipt) throw new Error("Receipt not found");
+    return receipt;
   }
 
   allocation(actor: AuthUser) {

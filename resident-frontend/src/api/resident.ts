@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-import type { AcademicSession, ResidentAllocation, ResidentApplication, ResidentBooking, ResidentDocument, ResidentProfile } from "../types/resident";
+import type { AcademicSession, ResidentAllocation, ResidentApplication, ResidentBooking, ResidentDocument, ResidentPayment, ResidentPaymentSummary, ResidentProfile, ResidentReceipt } from "../types/resident";
 
 export function fetchResidentProfile() {
   return apiRequest<{ ok: true; data: ResidentProfile }>("/resident/me");
@@ -55,6 +55,35 @@ export function submitResidentApplication(id: number) {
 
 export function fetchResidentBookings() {
   return apiRequest<{ ok: true; data: ResidentBooking[] }>("/resident/me/bookings");
+}
+
+export function fetchResidentPayments() {
+  return apiRequest<{ ok: true; data: ResidentPayment[] }>("/resident/me/payments");
+}
+
+export function fetchResidentPaymentSummary() {
+  return apiRequest<{ ok: true; data: ResidentPaymentSummary | null }>("/resident/me/payments/summary");
+}
+
+export function createResidentPayment(input: { bookingId: number; amountMinor: number; currency: string; method: string; paidAt?: string | null; notes?: string | null }) {
+  return apiRequest<{ ok: true; data: ResidentPayment }>("/resident/me/payments", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function submitResidentPayment(id: number) {
+  return apiRequest<{ ok: true; data: ResidentPayment }>(`/resident/me/payments/${id}/submit`, { method: "POST" });
+}
+
+export function uploadResidentPaymentSlip(id: number, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiRequest<{ ok: true; data: ResidentDocument }>(`/resident/me/payments/${id}/slip`, { method: "POST", body: formData });
+}
+
+export function fetchResidentReceipts() {
+  return apiRequest<{ ok: true; data: ResidentReceipt[] }>("/resident/me/receipts");
 }
 
 export function fetchResidentAllocation() {

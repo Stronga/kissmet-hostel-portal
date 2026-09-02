@@ -91,6 +91,37 @@ residentRoutes.post("/me/applications/:id/submit", async (c) => {
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 residentRoutes.get("/me/bookings", async (c) => c.json(ok((await service(c).bookings(c.get("authUser"))).results ?? [])));
+residentRoutes.get("/me/payments", async (c) => c.json(ok((await service(c).payments(c.get("authUser"))).results ?? [])));
+residentRoutes.get("/me/payments/summary", async (c) => c.json(ok(await service(c).paymentSummary(c.get("authUser")))));
+residentRoutes.post("/me/payments", async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).createPayment(c.get("authUser"), {
+      bookingId: intField(input, "bookingId")!,
+      amountMinor: intField(input, "amountMinor")!,
+      currency: stringField(input, "currency", true, 3)!,
+      method: stringField(input, "method")!,
+      paidAt: stringField(input, "paidAt", false, 64),
+      notes: stringField(input, "notes", false, 1000)
+    })), 201);
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+residentRoutes.post("/me/payments/:id/submit", async (c) => {
+  try { return c.json(ok(await service(c).submitPayment(c.get("authUser"), Number(c.req.param("id"))))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+residentRoutes.post("/me/payments/:id/slip", async (c) => {
+  try {
+    const file = (await c.req.formData()).get("file");
+    if (!file || typeof file !== "object" || !("stream" in file)) throw new Error("file is required");
+    return c.json(ok(await service(c).uploadPaymentSlip(c.get("authUser"), Number(c.req.param("id")), file)), 201);
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+residentRoutes.get("/me/receipts", async (c) => c.json(ok((await service(c).receipts(c.get("authUser"))).results ?? [])));
+residentRoutes.get("/me/receipts/:id", async (c) => {
+  try { return c.json(ok(await service(c).receipt(c.get("authUser"), Number(c.req.param("id"))))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
 residentRoutes.get("/me/allocation", async (c) => c.json(ok(await service(c).allocation(c.get("authUser")))));
 residentRoutes.get("/me/maintenance", async (c) => c.json(ok((await service(c).maintenance(c.get("authUser"))).results ?? [])));
 residentRoutes.post("/me/maintenance", async (c) => {

@@ -1,6 +1,8 @@
 export type ResidentStatus = "prospect" | "applicant" | "resident" | "past_resident" | "suspended" | "archived";
 export type ApplicationStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "cancelled" | "archived";
 export type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "archived";
+export type PaymentStatus = "pending" | "submitted" | "verified" | "rejected" | "refunded" | "cancelled" | "archived";
+export type ReceiptStatus = "issued" | "voided" | "archived";
 
 export interface ResidentProfile {
   id: number;
@@ -70,6 +72,56 @@ export interface ResidentBooking {
   priced_room_name?: string | null;
 }
 
+export interface ResidentPayment {
+  id: number;
+  booking_id: number;
+  payment_reference: string;
+  status: PaymentStatus;
+  amount_minor: number;
+  currency: string;
+  method: "cash" | "bank_transfer" | "mobile_money" | "card" | "other";
+  paid_at?: string | null;
+  submitted_at?: string | null;
+  verified_at?: string | null;
+  created_at?: string | null;
+  booking_number?: string | null;
+  slip_document_id?: number | null;
+  slip_filename?: string | null;
+  slip_content_type?: string | null;
+  slip_size_bytes?: number | null;
+}
+
+export interface ResidentPaymentSummary {
+  bookingId: number;
+  bookingNumber: string;
+  bookingStatus: BookingStatus;
+  bookingTotalMinor: number;
+  verifiedTotalMinor: number;
+  outstandingMinor: number;
+  submittedTotalMinor: number;
+  pendingTotalMinor: number;
+  refundedTotalMinor: number;
+  requiredConfirmationAmountMinor: number;
+  remainingToConfirmationMinor: number;
+  confirmationRequirementMet: boolean;
+  currency: string;
+  paymentAttentionRequired: boolean;
+  paymentAttentionReason?: string | null;
+}
+
+export interface ResidentReceipt {
+  id: number;
+  receipt_number: string;
+  status: ReceiptStatus;
+  issued_at?: string | null;
+  voided_at?: string | null;
+  payment_reference: string;
+  amount_minor: number;
+  currency: string;
+  method: string;
+  verified_at?: string | null;
+}
+
 export interface ResidentAllocation {
   id: number;
   bed_id: number;
@@ -88,5 +140,6 @@ export interface DashboardData {
   applications: ResidentApplication[];
   bookings: ResidentBooking[];
   allocation: ResidentAllocation | null;
+  paymentSummary: ResidentPaymentSummary | null;
   partialErrors: string[];
 }

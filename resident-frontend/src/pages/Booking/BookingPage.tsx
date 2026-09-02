@@ -7,16 +7,17 @@ import { ErrorState } from "../../components/common/ErrorState";
 import { LoadingState } from "../../components/common/LoadingState";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { PageHeader } from "../../components/layout/PageHeader";
-import { fetchResidentAllocation, fetchResidentApplications, fetchResidentBookings } from "../../api/resident";
+import { fetchResidentAllocation, fetchResidentApplications, fetchResidentBookings, fetchResidentPaymentSummary } from "../../api/resident";
 import { usePageTitle } from "../../hooks/usePageTitle";
-import type { ResidentAllocation, ResidentApplication, ResidentBooking } from "../../types/resident";
+import type { ResidentAllocation, ResidentApplication, ResidentBooking, ResidentPaymentSummary } from "../../types/resident";
 import { bookingAmount, bookingNextStep, bookingStatusDescription, bookingStatusLabel, currentBooking, historicalBookings, latestApplicationForBooking, noBookingMessage, pricedRoomLabel } from "../../utils/booking";
-import { formatDateTime } from "../../utils/format";
+import { formatDateTime, formatMoneyMinor } from "../../utils/format";
 
 interface BookingData {
   bookings: ResidentBooking[];
   applications: ResidentApplication[];
   allocation: ResidentAllocation | null;
+  paymentSummary: ResidentPaymentSummary | null;
 }
 
 function Detail({ label, value }: { label: string; value?: string | number | null }) {
@@ -75,12 +76,13 @@ export function BookingPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [bookings, applications, allocation] = await Promise.all([
+      const [bookings, applications, allocation, paymentSummary] = await Promise.all([
         fetchResidentBookings(),
         fetchResidentApplications(),
-        fetchResidentAllocation()
+        fetchResidentAllocation(),
+        fetchResidentPaymentSummary()
       ]);
-      setData({ bookings: bookings.data, applications: applications.data, allocation: allocation.data });
+      setData({ bookings: bookings.data, applications: applications.data, allocation: allocation.data, paymentSummary: paymentSummary.data });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load booking.");
     } finally {
@@ -130,7 +132,9 @@ export function BookingPage() {
             {booking ? (
               <div className="mt-3 space-y-3 text-sm text-text-secondary">
                 <Detail label="Captured amount due" value={bookingAmount(booking)} />
-                <p>Payment submission and verification are handled in the payment stage. Resident-safe verified payment totals are not exposed by the current backend.</p>
+                <Detail label="Verified payments" value={data.paymentSummary ? formatMoneyMinor(data.paymentSummary.verifiedTotalMinor, data.paymentSummary.currency) : "Unavailable"} />
+                <Detail label="Outstanding" value={data.paymentSummary ? formatMoneyMinor(data.paymentSummary.outstandingMinor, data.paymentSummary.currency) : "Unavailable"} />
+                <p>Payment submission and verification are handled in the payment stage. Meeting the payment threshold does not confirm the booking automatically.</p>
                 <Link to="/payments" className="inline-flex min-h-11 items-center rounded-token border border-border bg-surface px-4 py-2 text-sm font-semibold text-text-primary">Go to payments</Link>
               </div>
             ) : (

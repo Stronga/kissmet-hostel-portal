@@ -32,6 +32,7 @@ interface MockState {
   applications?: unknown[];
   bookings?: unknown[];
   allocation?: unknown | null;
+  paymentSummary?: unknown | null;
   failApplications?: boolean;
   failProfile?: boolean;
 }
@@ -47,6 +48,7 @@ function mockDashboard(state: MockState) {
     if (url.endsWith("/resident/me/applications")) return json({ ok: true, data: state.applications ?? [] });
     if (url.endsWith("/resident/me/bookings")) return json({ ok: true, data: state.bookings ?? [] });
     if (url.endsWith("/resident/me/allocation")) return json({ ok: true, data: state.allocation ?? null });
+    if (url.endsWith("/resident/me/payments/summary")) return json({ ok: true, data: state.paymentSummary ?? null });
     return json({ ok: true, data: [] });
   }));
 }
@@ -129,14 +131,59 @@ describe("resident home dashboard", () => {
     mockDashboard({
       documents: documentSet,
       applications: [{ id: 3, application_number: "KSM-APP-0003", status: "approved" }],
-      bookings: [{ id: 1, booking_number: "KSM-BOOK-0001", status: "pending", total_amount_minor: 120000, currency: "GHS" }]
+      bookings: [{ id: 1, booking_number: "KSM-BOOK-0001", status: "pending", total_amount_minor: 120000, currency: "GHS" }],
+      paymentSummary: {
+        bookingId: 1,
+        bookingNumber: "KSM-BOOK-0001",
+        bookingStatus: "pending",
+        bookingTotalMinor: 120000,
+        verifiedTotalMinor: 40000,
+        outstandingMinor: 80000,
+        submittedTotalMinor: 50000,
+        pendingTotalMinor: 0,
+        refundedTotalMinor: 0,
+        requiredConfirmationAmountMinor: 120000,
+        remainingToConfirmationMinor: 80000,
+        confirmationRequirementMet: false,
+        currency: "GHS",
+        paymentAttentionRequired: false
+      }
     });
     render(renderResidentApp(["/home"]));
 
-    expect(await screen.findByText("Complete or submit payment")).toBeInTheDocument();
+    expect(await screen.findByText("Review your booking and payment requirements")).toBeInTheDocument();
     expect(screen.getAllByText("GHS 1,200.00").length).toBeGreaterThan(0);
-    expect(screen.getByText("Resident-safe payment totals are not exposed by the current backend.")).toBeInTheDocument();
-    expect(screen.queryByText("Verified")).not.toBeInTheDocument();
+    expect(screen.getByText("GHS 400.00")).toBeInTheDocument();
+    expect(screen.getByText("GHS 800.00")).toBeInTheDocument();
+    expect(screen.queryByText(/Resident-safe payment totals are not exposed/i)).not.toBeInTheDocument();
+  });
+
+  it("does not auto-confirm a pending booking when the payment requirement is met", async () => {
+    mockDashboard({
+      documents: documentSet,
+      applications: [{ id: 3, application_number: "KSM-APP-0003", status: "approved" }],
+      bookings: [{ id: 1, booking_number: "KSM-BOOK-0001", status: "pending", total_amount_minor: 120000, currency: "GHS" }],
+      paymentSummary: {
+        bookingId: 1,
+        bookingNumber: "KSM-BOOK-0001",
+        bookingStatus: "pending",
+        bookingTotalMinor: 120000,
+        verifiedTotalMinor: 120000,
+        outstandingMinor: 0,
+        submittedTotalMinor: 0,
+        pendingTotalMinor: 0,
+        refundedTotalMinor: 0,
+        requiredConfirmationAmountMinor: 120000,
+        remainingToConfirmationMinor: 0,
+        confirmationRequirementMet: true,
+        currency: "GHS",
+        paymentAttentionRequired: false
+      }
+    });
+    render(renderResidentApp(["/home"]));
+
+    expect(await screen.findByText("Await booking confirmation")).toBeInTheDocument();
+    expect(screen.getAllByText("Pending").length).toBeGreaterThan(0);
   });
 
   it("shows confirmed booking progression as verified-payment-compatible state", async () => {

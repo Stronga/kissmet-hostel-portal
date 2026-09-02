@@ -1,6 +1,6 @@
 import type { DashboardData, ResidentApplication, ResidentBooking } from "../types/resident";
 import { isDocumentUploaded, latestIdentityDocuments } from "./documents";
-import { statusLabel } from "./format";
+import { formatMoneyMinor, statusLabel } from "./format";
 
 export interface JourneyStage {
   key: string;
@@ -48,7 +48,7 @@ export function buildJourney(data: DashboardData): JourneyStage[] {
     { key: "documents", label: "Documents", status: docsReady ? "complete" : "current", detail: docsReady ? "Required documents uploaded" : `${missingDocs.join(" and ")} required` },
     { key: "application", label: "Application", status: app ? app.status === "rejected" ? "attention" : appApproved ? "complete" : "current" : "pending", detail: app ? statusLabel(app.status) : "Not started" },
     { key: "booking", label: "Booking", status: bookingReady ? booking.status === "confirmed" || booking.status === "completed" ? "complete" : "current" : "pending", detail: booking ? statusLabel(booking.status) : "No active booking" },
-    { key: "payment", label: "Payment", status: booking?.status === "confirmed" || booking?.status === "completed" ? "complete" : booking?.status === "pending" ? "current" : "pending", detail: booking ? "Payment details limited in Resident Portal" : "Waiting for booking" },
+    { key: "payment", label: "Payment", status: data.paymentSummary?.confirmationRequirementMet ? "complete" : booking ? "current" : "pending", detail: data.paymentSummary ? `Verified ${formatMoneyMinor(data.paymentSummary.verifiedTotalMinor, data.paymentSummary.currency)}` : booking ? "Payment required" : "Waiting for booking" },
     { key: "room", label: "Room Assignment", status: data.allocation ? "complete" : "pending", detail: data.allocation ? `${data.allocation.room_code} / ${data.allocation.label ?? data.allocation.bed_code}` : "Room assignment pending" }
   ];
 }
@@ -66,7 +66,8 @@ export function nextAction(data: DashboardData): NextAction {
   if (app.status === "submitted" || app.status === "under_review") return { label: "Wait for application review", description: "Kissmet staff will review your submitted application.", href: "/application" };
   if (app.status === "rejected") return { label: "Review your application decision", description: "Check the application area for the latest decision information.", href: "/application" };
   if (app.status === "approved" && !booking) return { label: "Review your approved application", description: "Booking will follow approval through the hostel workflow.", href: "/booking" };
-  if (booking?.status === "pending") return { label: "Complete or submit payment", description: "A pending booking requires payment verification before confirmation.", href: "/payments" };
+  if (booking?.status === "pending" && data.paymentSummary?.confirmationRequirementMet) return { label: "Await booking confirmation", description: "Payment requirement is met. Booking confirmation remains a staff action.", href: "/booking" };
+  if (booking?.status === "pending") return { label: "Review your booking and payment requirements", description: "A pending booking requires payment verification before confirmation.", href: "/payments" };
   if (booking?.status === "confirmed" && !data.allocation) return { label: "Wait for room assignment", description: "Your booking is confirmed. Room assignment will appear after allocation.", href: "/room" };
   if (data.allocation) return { label: "View your room assignment", description: "Your current room and bed assignment is available.", href: "/room" };
   return { label: "Check your hostel status", description: "Your latest resident information is available in the portal.", href: "/profile" };

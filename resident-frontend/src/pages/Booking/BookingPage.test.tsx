@@ -30,6 +30,7 @@ interface MockState {
   bookings?: unknown[];
   applications?: unknown[];
   allocation?: unknown | null;
+  paymentSummary?: unknown | null;
   failBookings?: boolean;
 }
 
@@ -46,6 +47,7 @@ function mockBooking(state: MockState = {}) {
     }
     if (url.endsWith("/resident/me/applications")) return json({ ok: true, data: state.applications ?? [] });
     if (url.endsWith("/resident/me/allocation")) return json({ ok: true, data: state.allocation ?? null });
+    if (url.endsWith("/resident/me/payments/summary")) return json({ ok: true, data: state.paymentSummary ?? null });
     return residentEndpointResponse(url) ?? json({ ok: true, data: [] });
   }));
   return requests;
@@ -140,11 +142,31 @@ describe("resident booking", () => {
 
   it("shows payment stage without fake verified totals or admin payment calls", async () => {
     seedResidentToken();
-    const requests = mockBooking({ bookings: [pendingBooking] });
+    const requests = mockBooking({
+      bookings: [pendingBooking],
+      paymentSummary: {
+        bookingId: 10,
+        bookingNumber: "KSM-BKG-0010",
+        bookingStatus: "pending",
+        bookingTotalMinor: 250000,
+        verifiedTotalMinor: 100000,
+        outstandingMinor: 150000,
+        submittedTotalMinor: 50000,
+        pendingTotalMinor: 0,
+        refundedTotalMinor: 0,
+        requiredConfirmationAmountMinor: 250000,
+        remainingToConfirmationMinor: 150000,
+        confirmationRequirementMet: false,
+        currency: "GHS",
+        paymentAttentionRequired: false
+      }
+    });
     render(renderResidentApp(["/booking"]));
 
     expect(await screen.findByText("Payment stage")).toBeInTheDocument();
-    expect(screen.getByText(/Resident-safe verified payment totals are not exposed/i)).toBeInTheDocument();
+    expect(screen.getByText("GHS 1,000.00")).toBeInTheDocument();
+    expect(screen.getByText("GHS 1,500.00")).toBeInTheDocument();
+    expect(screen.getByText(/Meeting the payment threshold does not confirm the booking automatically/i)).toBeInTheDocument();
     expect(screen.queryByText(/Verified payment.*GHS 0.00/i)).not.toBeInTheDocument();
     expect(requests.some((request) => request.url.includes("/admin/payments"))).toBe(false);
   });
