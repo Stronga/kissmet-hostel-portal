@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-import type { AcademicSession, MaintenanceCategory, MaintenancePriority, ResidentAllocation, ResidentApplication, ResidentBooking, ResidentDocument, ResidentMaintenanceRequest, ResidentPayment, ResidentPaymentSummary, ResidentProfile, ResidentReceipt } from "../types/resident";
+import type { AcademicSession, MaintenanceCategory, MaintenancePriority, ResidentAllocation, ResidentAnnouncement, ResidentApplication, ResidentBooking, ResidentDocument, ResidentMaintenanceRequest, ResidentMessage, ResidentPayment, ResidentPaymentSummary, ResidentProfile, ResidentReceipt } from "../types/resident";
 
 export function fetchResidentProfile() {
   return apiRequest<{ ok: true; data: ResidentProfile }>("/resident/me");
@@ -107,4 +107,24 @@ export function createResidentMaintenance(input: { category: MaintenanceCategory
 
 export function fetchResidentMaintenanceRequest(id: number) {
   return apiRequest<{ ok: true; data: ResidentMaintenanceRequest }>(`/resident/me/maintenance/${id}`);
+}
+
+export function fetchResidentAnnouncements() {
+  return apiRequest<{ ok: true; data: ResidentAnnouncement[] }>("/resident/me/announcements");
+}
+
+export function fetchResidentAnnouncement(id: number) {
+  return apiRequest<{ ok: true; data: ResidentAnnouncement }>(`/resident/me/announcements/${id}`);
+}
+
+export function fetchResidentMessages() {
+  return apiRequest<{ ok: true; data: ResidentMessage[] }>("/resident/me/messages");
+}
+
+export function fetchResidentMessage(id: number) {
+  return apiRequest<{ ok: true; data: ResidentMessage }>(`/resident/me/messages/${id}`);
+}
+
+export function markResidentMessageRead(id: number) {
+  return apiRequest<{ ok: true; data: ResidentMessage }>(`/resident/me/messages/${id}/read`, { method: "POST" });
 }

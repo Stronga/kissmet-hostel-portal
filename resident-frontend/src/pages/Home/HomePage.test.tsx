@@ -33,7 +33,10 @@ interface MockState {
   bookings?: unknown[];
   allocation?: unknown | null;
   paymentSummary?: unknown | null;
+  announcements?: unknown[];
+  messages?: unknown[];
   failApplications?: boolean;
+  failMessages?: boolean;
   failProfile?: boolean;
 }
 
@@ -49,6 +52,9 @@ function mockDashboard(state: MockState) {
     if (url.endsWith("/resident/me/bookings")) return json({ ok: true, data: state.bookings ?? [] });
     if (url.endsWith("/resident/me/allocation")) return json({ ok: true, data: state.allocation ?? null });
     if (url.endsWith("/resident/me/payments/summary")) return json({ ok: true, data: state.paymentSummary ?? null });
+    if (url.endsWith("/resident/me/announcements")) return json({ ok: true, data: state.announcements ?? [] });
+    if (url.endsWith("/resident/me/messages") && state.failMessages) return json({ error: "Messages unavailable" }, 500);
+    if (url.endsWith("/resident/me/messages")) return json({ ok: true, data: state.messages ?? [] });
     return json({ ok: true, data: [] });
   }));
 }
@@ -218,6 +224,29 @@ describe("resident home dashboard", () => {
     expect(await screen.findByText("View your room assignment")).toBeInTheDocument();
     expect(screen.getByText("A1 - Room A1")).toBeInTheDocument();
     expect(screen.getByText("Bed 1")).toBeInTheDocument();
+  });
+
+  it("shows latest communication from real resident endpoints without changing journey state", async () => {
+    mockDashboard({
+      documents: documentSet,
+      announcements: [{ id: 1, title: "Water update", body: "Water is restored.", severity: "info", published_at: "2026-09-02T08:00:00.000Z" }],
+      messages: [{ id: 1, subject: "Accounts note", body: "Please visit accounts.", status: "unread", sent_at: "2026-09-02T09:00:00.000Z" }]
+    });
+    render(renderResidentApp(["/home"]));
+
+    expect(await screen.findByText("Updates")).toBeInTheDocument();
+    expect(screen.getByText("Water update")).toBeInTheDocument();
+    expect(screen.getByText("Accounts note")).toBeInTheDocument();
+    expect(screen.getByText("1 unread")).toBeInTheDocument();
+    expect(screen.getByText("Start your hostel application")).toBeInTheDocument();
+  });
+
+  it("keeps core dashboard available when communication loading fails", async () => {
+    mockDashboard({ documents: documentSet, failMessages: true });
+    render(renderResidentApp(["/home"]));
+
+    expect(await screen.findByText("Welcome, Ama Resident")).toBeInTheDocument();
+    expect(screen.getByText(/Messages: Messages unavailable/i)).toBeInTheDocument();
   });
 
   it("links document next action to the real documents page", async () => {

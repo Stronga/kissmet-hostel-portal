@@ -447,4 +447,64 @@ export class ResidentService {
     if (!row) throw new Error("Announcement not found");
     return row;
   }
+
+  messages(actor: AuthUser) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    return this.repo.all(`
+      SELECT d.id, d.status, d.delivered_at, d.read_at,
+             m.subject, m.body, m.sent_at,
+             CASE
+               WHEN m.status = 'sent' THEN 'sent'
+               WHEN m.status = 'partially_failed' THEN 'partially_failed'
+               ELSE 'delivered'
+             END AS message_status,
+             'Kissmet Hostel' AS sender_label
+      FROM portal_message_deliveries d
+      JOIN message_recipient_snapshots rs ON rs.id = d.recipient_snapshot_id
+      JOIN messages m ON m.id = d.message_id
+      WHERE d.user_id = ?
+        AND rs.user_id = ?
+        AND rs.recipient_kind = 'resident'
+        AND m.status IN ('sent', 'partially_failed')
+      ORDER BY COALESCE(m.sent_at, d.delivered_at) DESC, d.id DESC
+    `, actor.id, actor.id);
+  }
+
+  async message(actor: AuthUser, id: number) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    const row = await this.repo.first<Record<string, unknown>>(`
+      SELECT d.id, d.status, d.delivered_at, d.read_at,
+             m.subject, m.body, m.sent_at,
+             CASE
+               WHEN m.status = 'sent' THEN 'sent'
+               WHEN m.status = 'partially_failed' THEN 'partially_failed'
+               ELSE 'delivered'
+             END AS message_status,
+             'Kissmet Hostel' AS sender_label
+      FROM portal_message_deliveries d
+      JOIN message_recipient_snapshots rs ON rs.id = d.recipient_snapshot_id
+      JOIN messages m ON m.id = d.message_id
+      WHERE d.id = ?
+        AND d.user_id = ?
+        AND rs.user_id = ?
+        AND rs.recipient_kind = 'resident'
+        AND m.status IN ('sent', 'partially_failed')
+      LIMIT 1
+    `, id, actor.id, actor.id);
+    if (!row) throw new Error("Message not found");
+    return row;
+  }
+
+  async markMessageRead(actor: AuthUser, id: number) {
+    await this.message(actor, id);
+    await this.repo.run(`
+      UPDATE portal_message_deliveries
+      SET status = 'read',
+          read_at = COALESCE(read_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE id = ? AND user_id = ?
+    `, id, actor.id);
+    await this.repo.audit(actor.id, null, "resident.message.read", "portal_message_delivery", id);
+    return this.message(actor, id);
+  }
 }

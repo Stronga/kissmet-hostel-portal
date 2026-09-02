@@ -9,6 +9,7 @@ Phase R6 replaces the Booking placeholder with a real read-only resident booking
 Phase R7 replaces the Payments placeholder with resident-owned payment submission, payment slip upload, and receipt history.
 Phase R8 replaces the My Room placeholder with a real active-allocation room and bed view.
 Phase R9 replaces the Maintenance placeholder with resident-owned maintenance request creation and tracking.
+Phase R10 replaces the Announcements and Messages placeholders with read-only resident communications.
 
 ## Stack
 
@@ -119,6 +120,7 @@ Resident booking display uses the same API layer and remains read-only.
 Resident payments, payment slip uploads, payment summaries, and receipt history use the same API layer and never call admin payment or receipt endpoints.
 Resident room assignment uses resident-owned allocation endpoints and never calls admin allocation APIs.
 Resident maintenance requests use the same API layer and never call admin maintenance APIs.
+Resident announcements and private messages use the same API layer and never call admin announcement or messaging APIs.
 
 ## Shell And Navigation
 
@@ -439,6 +441,60 @@ Residents can report and track maintenance only. They cannot assign, start, reso
 
 The My Room page links to `/maintenance` with a Report an issue action, but it does not create a request automatically.
 
+## Announcements
+
+`/announcements` is a real resident announcements page backed by resident-owned endpoints only:
+
+- `GET /resident/me/announcements`
+- `GET /resident/me/announcements/:id`
+
+The backend is authoritative for visibility. Residents can see only announcements that are published, current by `starts_at` and `expires_at`, audience `all` or `residents`, and enabled for the `resident_portal` channel. Draft, staff-only, archived, expired, unpublished, and non-portal announcements are excluded or rejected by the backend.
+
+The page shows a responsive list/detail layout with loading, retryable error, empty, list, and detail states. Detail uses the resident endpoint and keeps the list visible if a hidden/expired announcement is rejected.
+
+Resident-visible severity values are mapped textually as well as visually:
+
+- `info` and unknown values -> Information
+- `warning` -> Important
+- `critical` and `high_alert` -> Urgent
+
+High-alert announcements are displayed as urgent resident-visible notices only. The Resident Portal does not expose staff confirmation state, provider details, SMS/email internals, or delivery secrets.
+
+Channels are not displayed as delivery proof. The page only shows the portal-visible announcement and does not imply SMS or email delivery occurred.
+
+The frontend does not display internal announcement IDs, staff creator/updater IDs, audit metadata, target configuration, or internal channel configuration.
+
+## Messages
+
+`/messages` is a real private resident inbox backed by resident-owned endpoints only:
+
+- `GET /resident/me/messages`
+- `GET /resident/me/messages/:id`
+- `POST /resident/me/messages/:id/read`
+
+The backend derives inbox ownership from the authenticated resident session and the durable `portal_message_deliveries` row. The frontend never submits arbitrary `resident_id`, `user_id`, recipient IDs, room IDs, target configuration, or staff IDs.
+
+Inbox membership is based on the send-time `message_recipient_snapshots` records. A resident who received a room-targeted message keeps that message after transferring rooms. A resident who transfers into that room later does not retroactively receive older room-targeted messages.
+
+The inbox shows subject, body preview, sent timestamp, read/unread state, neutral sender label, and generalized message delivery status. It does not expose other recipients, recipient counts, resident names, phone numbers, email addresses, staff target lists, target rules, provider metadata, or audit metadata.
+
+Opening an unread message marks only that resident's portal delivery as read through `POST /resident/me/messages/:id/read`. The operation updates the delivery row, not the global message, and does not affect other recipients. Read marking is idempotent.
+
+Sender display uses the neutral backend label `Kissmet Hostel`. The portal does not expose individual staff identity because the resident contract does not provide a separate resident-safe sender profile.
+
+R10 remains read-only for residents. The Resident Portal does not add Reply, New Message, Forward, Chat, or Message Staff actions.
+
+## Home Updates
+
+`/home` now includes a compact Updates section backed by:
+
+- `GET /resident/me/announcements`
+- `GET /resident/me/messages`
+
+It shows the latest visible announcement, latest private message, and unread message count only from real resident-owned data. Communication loading failures are partial dashboard warnings and do not break the accommodation dashboard or alter journey state.
+
+Navigation does not show unread badges in R10 because the shell does not yet have a global data-backed badge mechanism. The unread count is shown inside Home and Messages from backend delivery state.
+
 ## Reusable Components And Utilities
 
 R1 adds:
@@ -485,10 +541,10 @@ Auth errors are mapped to resident-safe messages. The UI does not expose SQL err
 
 ## Known Limitations
 
-R9 completes resident maintenance request creation and tracking. The following remain later phases:
+R10 completes resident announcements and private message inbox. The following remain later phases:
 
-- announcements
-- resident message inbox
+- resident communication UX hardening
+- full end-to-end validation pass
 
 Profile phone, institution, and student ID self-service changes are not implemented because the backend does not currently expose those operations for residents.
 
@@ -504,9 +560,11 @@ There is no automated payment gateway integration. Residents submit payment reco
 
 Static Kissmet branding remains in use. The Resident Portal still does not call admin-only settings endpoints.
 
+Resident messages are read-only. Resident-to-admin replies and chat are not implemented because there is no approved resident-safe backend contract for two-way messaging.
+
 ## Validation
 
-Phase R1/R2/R3/R4/R5/R6/R7/R8/R9 tests cover:
+Phase R1/R2/R3/R4/R5/R6/R7/R8/R9/R10 tests cover:
 
 - app rendering
 - unauthenticated `/` redirect to `/login`
@@ -634,13 +692,30 @@ Phase R1/R2/R3/R4/R5/R6/R7/R8/R9 tests cover:
 - general hostel issue display when no room/bed label exists
 - no resident staff workflow mutation actions
 - My Room Report an issue navigation without automatic request creation
+- protected Announcements route
+- Announcement loading, retryable error, empty, list, and detail states
+- published resident and all-audience announcements shown
+- draft, staff-only, expired, archived, unpublished, and hidden announcement rejection through backend visibility rules
+- resident-friendly severity presentation for information, important, and urgent announcements
+- no admin announcement API usage or staff/audit/target metadata display
+- protected Messages route
+- Message loading, retryable error, empty inbox, list, and detail states
+- chronological private inbox display from resident-owned delivery records
+- unread/read state from `portal_message_deliveries`
+- opening an unread message marks only the selected resident delivery read
+- read-state persistence after refresh through backend data
+- send-time recipient snapshot behavior independent of current room allocation
+- no other-recipient names, phones, emails, target rules, room IDs, resident IDs, provider metadata, or admin messaging API usage
+- Home Updates summary from real announcement/message endpoints
+- communication partial failures not breaking the core accommodation dashboard
+- communication summary not altering accommodation journey state
 
-Latest Phase R9 validation:
+Latest Phase R10 validation:
 
 - resident-frontend typecheck: passed
-- resident-frontend tests: 12 files / 121 tests passed
+- resident-frontend tests: 14 files / 134 tests passed
 - resident-frontend build: passed
 - cloudflare typecheck: passed
-- cloudflare tests: 5 files / 101 tests passed
+- cloudflare tests: 5 files / 103 tests passed
 
-No D1 migrations were required for Phase R9. Backend code enriched resident-owned maintenance reads with safe room/bed labels, repaired active-allocation association after the R8 allocation response was made resident-safe, and kept maintenance lifecycle mutation staff/admin-only.
+No D1 migrations were required for Phase R10. Backend code added resident-owned private message reads and idempotent read marking using the existing `messages`, `message_recipient_snapshots`, and `portal_message_deliveries` schema. Announcements use the existing resident-safe published/audience/expiry/channel filters.

@@ -6,19 +6,15 @@ import { DocumentsPage } from "../pages/Documents/DocumentsPage";
 import { HomePage } from "../pages/Home/HomePage";
 import { LoginPage } from "../pages/Login/LoginPage";
 import { MaintenancePage } from "../pages/Maintenance/MaintenancePage";
+import { AnnouncementsPage } from "../pages/Announcements/AnnouncementsPage";
+import { MessagesPage } from "../pages/Messages/MessagesPage";
 import { PaymentsPage } from "../pages/Payments/PaymentsPage";
-import { PlaceholderPage } from "../pages/Placeholder/PlaceholderPage";
 import { ProfilePage } from "../pages/Profile/ProfilePage";
 import { RegisterPage } from "../pages/Register/RegisterPage";
 import { RoomPage } from "../pages/Room/RoomPage";
 import { VerifyOtpPage } from "../pages/VerifyOtp/VerifyOtpPage";
 import { ProtectedRoute } from "./ProtectedRoute";
 import { RootRedirect } from "./RootRedirect";
-
-const placeholders = [
-  { path: "/messages", title: "Messages", description: "Resident portal message inbox support will appear here." },
-  { path: "/announcements", title: "Announcements", description: "Published resident announcements will appear here." }
-] as const;
 
 export function AppRoutes() {
   return (
@@ -37,9 +33,8 @@ export function AppRoutes() {
           <Route path="/payments" element={<PaymentsPage />} />
           <Route path="/room" element={<RoomPage />} />
           <Route path="/maintenance" element={<MaintenancePage />} />
-          {placeholders.map((route) => (
-            <Route key={route.path} path={route.path} element={<PlaceholderPage title={route.title} description={route.description} />} />
-          ))}
+          <Route path="/messages" element={<MessagesPage />} />
+          <Route path="/announcements" element={<AnnouncementsPage />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

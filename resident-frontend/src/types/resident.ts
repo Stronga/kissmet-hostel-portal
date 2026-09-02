@@ -6,6 +6,8 @@ export type ReceiptStatus = "issued" | "voided" | "archived";
 export type MaintenanceStatus = "open" | "assigned" | "in_progress" | "resolved" | "closed" | "cancelled" | "archived";
 export type MaintenanceCategory = "plumbing" | "electrical" | "furniture" | "cleaning" | "security" | "other";
 export type MaintenancePriority = "low" | "normal" | "high" | "urgent";
+export type AnnouncementSeverity = "info" | "warning" | "critical" | "high_alert" | string;
+export type PortalMessageStatus = "unread" | "read";
 
 export interface ResidentProfile {
   id: number;
@@ -162,6 +164,29 @@ export interface ResidentMaintenanceRequest {
   bed_label?: string | null;
 }
 
+export interface ResidentAnnouncement {
+  id: number;
+  title: string;
+  body?: string | null;
+  audience?: "all" | "residents" | string | null;
+  severity?: AnnouncementSeverity | null;
+  published_at?: string | null;
+  starts_at?: string | null;
+  expires_at?: string | null;
+}
+
+export interface ResidentMessage {
+  id: number;
+  subject: string;
+  body: string;
+  status: PortalMessageStatus;
+  delivered_at?: string | null;
+  read_at?: string | null;
+  sent_at?: string | null;
+  message_status?: "sent" | "partially_failed" | "delivered" | string | null;
+  sender_label?: string | null;
+}
+
 export interface DashboardData {
   profile: ResidentProfile;
   documents: ResidentDocument[];
@@ -169,5 +194,7 @@ export interface DashboardData {
   bookings: ResidentBooking[];
   allocation: ResidentAllocation | null;
   paymentSummary: ResidentPaymentSummary | null;
+  announcements: ResidentAnnouncement[];
+  messages: ResidentMessage[];
   partialErrors: string[];
 }

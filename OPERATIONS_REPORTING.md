@@ -57,6 +57,9 @@ Resident routes:
 - `GET /resident/me/maintenance/:id`
 - `GET /resident/me/announcements`
 - `GET /resident/me/announcements/:id`
+- `GET /resident/me/messages`
+- `GET /resident/me/messages/:id`
+- `POST /resident/me/messages/:id/read`
 
 Admin routes:
 
@@ -120,6 +123,16 @@ Financial reporting returns:
 Application and booking reporting returns counts by status, optionally scoped to an academic session.
 
 Maintenance reporting returns counts for open, assigned, in-progress, resolved, closed, and urgent non-final requests.
+
+## Resident Communications
+
+Resident announcement reads use `GET /resident/me/announcements` and `GET /resident/me/announcements/:id`. The backend requires resident authentication and returns only announcements that are published, current by `starts_at`/`expires_at`, audience `all` or `residents`, and enabled for the `resident_portal` channel. Draft, staff-only, archived, expired, and non-portal announcements are rejected or excluded by the backend.
+
+Resident message reads use durable `portal_message_deliveries` joined to `message_recipient_snapshots` and `messages`. Inbox membership is therefore based on the send-time recipient snapshot. Residents who later transfer rooms keep messages delivered to them at send time, and residents who transfer into a room later do not gain historical room-targeted messages.
+
+Resident message endpoints expose only resident-safe fields: delivery id, subject, body, sent/delivered/read timestamps, read/unread status, message delivery status, and a neutral sender label. They do not expose target configuration, other recipients, recipient counts, resident IDs, room IDs, phone numbers, email addresses, staff IDs, provider metadata, or audit metadata.
+
+`POST /resident/me/messages/:id/read` marks only the authenticated resident's portal delivery row as read. It is idempotent and does not mutate the global message or other recipients' delivery state.
 
 ## Audit Logging
 

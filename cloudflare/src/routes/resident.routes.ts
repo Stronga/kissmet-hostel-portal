@@ -145,6 +145,15 @@ residentRoutes.get("/me/announcements/:id", async (c) => {
   try { return c.json(ok(await service(c).announcement(c.get("authUser"), Number(c.req.param("id"))))); }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
+residentRoutes.get("/me/messages", async (c) => c.json(ok((await service(c).messages(c.get("authUser"))).results ?? [])));
+residentRoutes.get("/me/messages/:id", async (c) => {
+  try { return c.json(ok(await service(c).message(c.get("authUser"), Number(c.req.param("id"))))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+residentRoutes.post("/me/messages/:id/read", async (c) => {
+  try { return c.json(ok(await service(c).markMessageRead(c.get("authUser"), Number(c.req.param("id"))))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
 
 async function upload(c: Context<{ Bindings: Env; Variables: Variables }>, type: "student_card" | "ghana_card") {
   try {

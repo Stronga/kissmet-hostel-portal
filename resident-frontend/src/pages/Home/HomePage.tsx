@@ -9,6 +9,7 @@ import { PageHeader } from "../../components/layout/PageHeader";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { useResidentDashboard } from "../../hooks/useResidentDashboard";
 import { formatDateTime, formatMoneyMinor, statusLabel } from "../../utils/format";
+import { latestAnnouncement, latestMessage, messagePreview, unreadMessageCount } from "../../utils/communications";
 import { buildJourney, latestApplicationSummary, latestBookingSummary, nextAction } from "../../utils/journey";
 
 function Detail({ label, value }: { label: string; value?: string | number | null }) {
@@ -39,6 +40,9 @@ export function HomePage() {
   const action = nextAction(data);
   const application = latestApplicationSummary(data);
   const booking = latestBookingSummary(data);
+  const announcement = latestAnnouncement(data.announcements);
+  const message = latestMessage(data.messages);
+  const unread = unreadMessageCount(data.messages);
 
   return (
     <>
@@ -135,6 +139,42 @@ export function HomePage() {
           ) : <EmptyState title="Room assignment pending" message="A room is shown only when an active allocation exists." />}
         </Card>
       </div>
+      <Card className="mt-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-text-primary">Updates</h2>
+            <p className="mt-1 text-sm text-text-secondary">Latest resident-visible communication from Kissmet.</p>
+          </div>
+          {unread ? <span className="inline-flex w-fit rounded-full bg-muted px-3 py-1 text-xs font-semibold text-primary">{unread} unread</span> : null}
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <section className="rounded-token border border-border bg-white p-4">
+            <h3 className="text-base font-semibold text-text-primary">Latest announcement</h3>
+            {announcement ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-sm font-semibold text-text-primary">{announcement.title}</p>
+                <p className="text-sm text-text-secondary">{messagePreview({ body: announcement.body ?? "" }, 100) || "No announcement details provided."}</p>
+                <p className="text-xs font-semibold text-text-secondary">{formatDateTime(announcement.published_at ?? announcement.starts_at)}</p>
+                <Link to="/announcements" className="inline-flex min-h-10 items-center rounded-token bg-muted px-3 py-2 text-sm font-semibold text-primary">View announcements</Link>
+              </div>
+            ) : <EmptyState title="No announcements right now." message="Published resident notices will appear here." />}
+          </section>
+          <section className="rounded-token border border-border bg-white p-4">
+            <h3 className="text-base font-semibold text-text-primary">Latest message</h3>
+            {message ? (
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-text-primary">{message.subject}</p>
+                  {message.status === "unread" ? <span className="rounded-full bg-muted px-2 py-1 text-xs font-semibold text-primary">Unread</span> : null}
+                </div>
+                <p className="text-sm text-text-secondary">{messagePreview(message, 100) || "No message body provided."}</p>
+                <p className="text-xs font-semibold text-text-secondary">{formatDateTime(message.sent_at ?? message.delivered_at)}</p>
+                <Link to="/messages" className="inline-flex min-h-10 items-center rounded-token bg-muted px-3 py-2 text-sm font-semibold text-primary">View messages</Link>
+              </div>
+            ) : <EmptyState title="You don't have any messages yet." message="Private Kissmet messages delivered to you will appear here." />}
+          </section>
+        </div>
+      </Card>
     </>
   );
 }

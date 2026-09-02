@@ -50,6 +50,8 @@ export function residentEndpointResponse(url: string) {
   if (url.endsWith("/resident/me/allocations")) return Response.json({ ok: true, data: [] });
   if (url.endsWith("/resident/me/allocation")) return Response.json({ ok: true, data: null });
   if (url.endsWith("/resident/me/maintenance")) return Response.json({ ok: true, data: [] });
+  if (url.endsWith("/resident/me/announcements")) return Response.json({ ok: true, data: [] });
+  if (url.endsWith("/resident/me/messages")) return Response.json({ ok: true, data: [] });
   if (url.endsWith("/resident/me")) return Response.json({ ok: true, data: residentProfile });
   return null;
 }

@@ -393,13 +393,14 @@ Stores per-recipient external SMS/email delivery attempts.
 
 ### `portal_message_deliveries`
 
-Stores durable portal-message delivery state for future Resident Portal inbox support.
+Stores durable portal-message delivery state for the Resident Portal inbox.
 
 - Relationships: `portal_message_deliveries.message_id -> messages.id`, `recipient_snapshot_id -> message_recipient_snapshots.id`, `user_id -> users.id`.
 - Status values: `unread`, `read`.
 - Important fields: `delivered_at`, `read_at`.
 - Unique constraints: `(message_id, recipient_snapshot_id)`.
-- Phase 10J creates the backend foundation only; it does not build the Resident Portal inbox UI.
+- Phase R10 reads this table for resident inbox list/detail state and updates only the authenticated resident's delivery row when marking a message read.
+- Inbox membership is based on the send-time recipient snapshot, not the resident's current room, current group membership, or frontend filtering.
 
 ### `otp_codes`
 
@@ -458,7 +459,7 @@ Stores append-only operational audit events.
 - `idx_message_channels_message`: supports message channel filtering.
 - `idx_message_snapshots_message`: supports message detail recipient summaries.
 - `idx_message_delivery_summary`: supports delivery summaries by channel/status.
-- `idx_portal_message_user_status`: supports future resident portal inbox unread/read lookups.
+- `idx_portal_message_user_status`: supports resident portal inbox unread/read lookups.
 - Lookup indexes cover status, session, room/bed, resident/payment, OTP rate limiting, sessions, and audit queries.
 
 ## Verification

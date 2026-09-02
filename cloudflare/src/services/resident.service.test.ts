@@ -33,7 +33,11 @@ class Repo {
     beds: [{ id: 1, room_id: 1, bed_code: "R1-A", label: "A" }],
     rooms: [{ id: 1, room_code: "R1", room_name: "Room 1", gender_policy: "female", status: "available" }],
     maintenance_requests: [{ id: 1, request_number: "KSM-MNT-0001", resident_id: 1, room_id: 1, bed_id: 1, status: "open", title: "Leak", category: "plumbing", priority: "urgent", opened_at: "2026-09-01T00:00:00.000Z" }, { id: 2, request_number: "KSM-MNT-0002", resident_id: 2, status: "open", title: "Other", category: "cleaning", priority: "normal" }],
-    announcements: [{ id: 1, title: "Residents", audience: "residents", status: "published", expires_at: null }, { id: 2, title: "All", audience: "all", status: "published", expires_at: null }, { id: 3, title: "Staff", audience: "staff", status: "published", expires_at: null }, { id: 4, title: "Draft", audience: "all", status: "draft", expires_at: null }, { id: 5, title: "Expired", audience: "all", status: "published", expires_at: "2000-01-01T00:00:00.000Z" }]
+    announcements: [{ id: 1, title: "Residents", body: "Resident update", audience: "residents", severity: "info", status: "published", published_at: "2026-09-01T00:00:00.000Z", expires_at: null }, { id: 2, title: "All", body: "All update", audience: "all", severity: "high_alert", status: "published", published_at: "2026-09-02T00:00:00.000Z", expires_at: null }, { id: 3, title: "Staff", audience: "staff", status: "published", expires_at: null }, { id: 4, title: "Draft", audience: "all", status: "draft", expires_at: null }, { id: 5, title: "Expired", audience: "all", status: "published", expires_at: "2000-01-01T00:00:00.000Z" }],
+    announcement_channels: [{ announcement_id: 1, channel: "resident_portal", status: "enabled" }, { announcement_id: 2, channel: "resident_portal", status: "enabled" }, { announcement_id: 3, channel: "resident_portal", status: "enabled" }, { announcement_id: 4, channel: "resident_portal", status: "enabled" }, { announcement_id: 5, channel: "resident_portal", status: "enabled" }],
+    messages: [{ id: 1, subject: "Room update", body: "Maintenance team will inspect your room.", status: "sent", sent_at: "2026-09-02T10:00:00.000Z", target_type: "room", target_label: "Room R1", target_config_json: "{\"roomId\":1}" }, { id: 2, subject: "Private account note", body: "Please visit accounts.", status: "partially_failed", sent_at: "2026-09-01T10:00:00.000Z", target_type: "individual_resident", target_label: "Ama", target_config_json: "{\"targetIds\":[1]}" }, { id: 3, subject: "Draft hidden", body: "Hidden", status: "draft", sent_at: null, target_type: "all_residents" }],
+    message_recipient_snapshots: [{ id: 1, message_id: 1, user_id: 1, resident_id: 1, recipient_kind: "resident", display_name: "Ama", resident_code: "KSM-RES-0001", room_id: 1, room_code: "R1", sms_eligible: 1, email_eligible: 1, portal_eligible: 1 }, { id: 2, message_id: 1, user_id: 2, resident_id: 2, recipient_kind: "resident", display_name: "Kojo", resident_code: "KSM-RES-0002", room_id: 1, room_code: "R1", sms_eligible: 1, email_eligible: 1, portal_eligible: 1 }, { id: 3, message_id: 2, user_id: 1, resident_id: 1, recipient_kind: "resident", display_name: "Ama", resident_code: "KSM-RES-0001", sms_eligible: 1, email_eligible: 1, portal_eligible: 1 }],
+    portal_message_deliveries: [{ id: 1, message_id: 1, recipient_snapshot_id: 1, user_id: 1, status: "unread", delivered_at: "2026-09-02T10:01:00.000Z", read_at: null }, { id: 2, message_id: 1, recipient_snapshot_id: 2, user_id: 2, status: "unread", delivered_at: "2026-09-02T10:01:00.000Z", read_at: null }, { id: 3, message_id: 2, recipient_snapshot_id: 3, user_id: 1, status: "read", delivered_at: "2026-09-01T10:01:00.000Z", read_at: "2026-09-01T11:00:00.000Z" }]
   };
   audits: string[] = [];
   residentSeq = 3;
@@ -65,7 +69,8 @@ class Repo {
       }) as T[]
     };
     if (sql.includes("FROM maintenance_requests")) return { results: this.rows.maintenance_requests.filter((m) => m.resident_id === binds[0]).map((m) => this.maintenanceRow(m)) as T[] };
-    if (sql.includes("FROM announcements")) return { results: this.rows.announcements.filter((a) => ["all", "residents"].includes(String(a.audience)) && a.status === "published" && (!a.expires_at || String(a.expires_at) > new Date().toISOString())) as T[] };
+    if (sql.includes("FROM announcements")) return { results: this.visibleAnnouncements() as T[] };
+    if (sql.includes("FROM portal_message_deliveries")) return { results: this.messagesFor(binds[0] as number) as T[] };
     return { results: [] as T[] };
   }
   async first<T>(sql: string, ...binds: unknown[]): Promise<T | null> {
@@ -109,10 +114,27 @@ class Repo {
       const row = this.rows.maintenance_requests.find((m) => m.id === binds[0] && m.resident_id === binds[1]);
       return row ? this.maintenanceRow(row) as T : null;
     }
-    if (sql.includes("FROM announcements")) return (this.rows.announcements.find((a) => a.id === binds[0] && ["all", "residents"].includes(String(a.audience)) && a.status === "published" && (!a.expires_at || String(a.expires_at) > new Date().toISOString())) ?? null) as T;
+    if (sql.includes("FROM announcements")) return (this.visibleAnnouncements().find((a) => a.id === binds[0]) ?? null) as T;
+    if (sql.includes("FROM portal_message_deliveries")) return (this.messagesFor(binds.length === 3 ? binds[1] as number : binds[0] as number).find((m) => m.id === binds[0]) ?? null) as T;
     return null;
   }
   async get(table: string, id: number) { return (this.rows[table] ?? []).find((r) => r.id === id) ?? null; }
+  visibleAnnouncements() {
+    return this.rows.announcements
+      .filter((a) => ["all", "residents"].includes(String(a.audience)) && a.status === "published" && (!a.expires_at || String(a.expires_at) > new Date().toISOString()) && this.rows.announcement_channels.some((c) => c.announcement_id === a.id && c.channel === "resident_portal" && c.status === "enabled"))
+      .sort((a, b) => Number(b.id) - Number(a.id));
+  }
+  messagesFor(userId: number) {
+    return this.rows.portal_message_deliveries
+      .filter((d) => d.user_id === userId)
+      .map((d) => {
+        const snapshot = this.rows.message_recipient_snapshots.find((s) => s.id === d.recipient_snapshot_id && s.user_id === userId && s.recipient_kind === "resident");
+        const message = this.rows.messages.find((m) => m.id === d.message_id && ["sent", "partially_failed"].includes(String(m.status)));
+        return snapshot && message ? { id: d.id, status: d.status, delivered_at: d.delivered_at, read_at: d.read_at, subject: message.subject, body: message.body, sent_at: message.sent_at, message_status: message.status, sender_label: "Kissmet Hostel" } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => String((b as Record<string, unknown>).sent_at).localeCompare(String((a as Record<string, unknown>).sent_at))) as Record<string, unknown>[];
+  }
   maintenanceRow(m: Record<string, unknown>) {
     const room = this.rows.rooms.find((r) => r.id === m.room_id);
     const bed = this.rows.beds.find((b) => b.id === m.bed_id);
@@ -179,6 +201,13 @@ class Repo {
     if (sql.startsWith("UPDATE payments")) {
       const row = this.rows.payments.find((p) => p.id === binds.at(-1));
       if (row && sql.includes("status = 'submitted'")) row.status = "submitted";
+    }
+    if (sql.includes("UPDATE portal_message_deliveries")) {
+      const row = this.rows.portal_message_deliveries.find((d) => d.id === binds[0] && d.user_id === binds[1]);
+      if (row) {
+        row.status = "read";
+        row.read_at ??= "2026-09-02T12:00:00.000Z";
+      }
     }
     return { meta: { last_row_id: 1, changes: 1 } };
   }
@@ -319,10 +348,35 @@ describe("resident onboarding", () => {
   it("shows resident and all announcements but excludes staff draft and expired announcements", async () => {
     const { svc } = make();
     const rows = (await svc.announcements(resident)).results as Record<string, unknown>[];
-    expect(rows.map((row) => row.title)).toEqual(["Residents", "All"]);
+    expect(rows.map((row) => row.title)).toEqual(["All", "Residents"]);
+    expect(rows[0]).toMatchObject({ severity: "high_alert" });
     await expect(svc.announcement(resident, 3)).rejects.toThrow("Announcement not found");
     await expect(svc.announcement(resident, 4)).rejects.toThrow("Announcement not found");
     await expect(svc.announcement(resident, 5)).rejects.toThrow("Announcement not found");
+  });
+
+  it("lists resident-owned portal messages from send-time snapshots without exposing recipients", async () => {
+    const { svc, repo } = make();
+    repo.rows.allocations = [{ id: 5, booking_id: 1, resident_id: 1, status: "active", bed_id: 2, academic_session_id: 1 }];
+    repo.rows.rooms.push({ id: 2, room_code: "R2", room_name: "Room 2" });
+    repo.rows.beds.push({ id: 2, room_id: 2, bed_code: "R2-A", label: "A" });
+
+    const rows = (await svc.messages(resident)).results as Record<string, unknown>[];
+    expect(rows.map((row) => row.subject)).toEqual(["Room update", "Private account note"]);
+    expect(rows[0]).toMatchObject({ status: "unread", sender_label: "Kissmet Hostel" });
+    expect(JSON.stringify(rows)).not.toMatch(/Kojo|recipient|target_config|room_id|resident_id|phone|email|provider|created_by_staff_id/i);
+    await expect(svc.messages(otherResident)).resolves.toMatchObject({ results: [expect.objectContaining({ subject: "Room update" })] });
+  });
+
+  it("retrieves and marks only the resident's own portal message delivery as read", async () => {
+    const { svc, repo } = make();
+    await expect(svc.message(resident, 1)).resolves.toMatchObject({ subject: "Room update", status: "unread" });
+    await expect(svc.message(resident, 2)).rejects.toThrow("Message not found");
+    const read = await svc.markMessageRead(resident, 1) as Record<string, unknown>;
+    expect(read).toMatchObject({ id: 1, status: "read", read_at: "2026-09-02T12:00:00.000Z" });
+    expect(repo.rows.portal_message_deliveries.find((d) => d.id === 2)?.status).toBe("unread");
+    await expect(svc.markMessageRead(resident, 1)).resolves.toMatchObject({ status: "read" });
+    expect(repo.audits).toContain("resident.message.read");
   });
 
   it("creates resident-owned payments with backend references and matching currency", async () => {
