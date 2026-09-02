@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { renderResidentApp, residentUser, seedResidentToken } from "../testUtils";
+import { renderResidentApp, residentEndpointResponse, residentProfile, residentUser, seedResidentToken } from "../testUtils";
 
 function mockFetch(handler: (url: string) => Response) {
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => handler(String(input))));
@@ -36,7 +36,7 @@ describe("resident routes", () => {
 
   it("redirects authenticated / to /home", async () => {
     seedResidentToken();
-    mockFetch(() => Response.json({ user: residentUser }));
+    mockFetch((url) => residentEndpointResponse(url) ?? Response.json({ user: residentUser }));
     render(renderResidentApp(["/"]));
     expect(await screen.findByText(/Welcome, Ama Resident/i)).toBeInTheDocument();
   });
@@ -49,16 +49,16 @@ describe("resident routes", () => {
 
   it("renders the protected resident shell for a valid resident session", async () => {
     seedResidentToken();
-    mockFetch(() => Response.json({ user: residentUser }));
+    mockFetch((url) => residentEndpointResponse(url) ?? Response.json({ user: residentUser }));
     render(renderResidentApp(["/home"]));
 
-    expect(await screen.findByText(/resident portal identity/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Resident identity/i)).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Resident navigation" })).toBeInTheDocument();
   });
 
   it("renders expected mobile primary navigation items", async () => {
     seedResidentToken();
-    mockFetch(() => Response.json({ user: residentUser }));
+    mockFetch((url) => residentEndpointResponse(url) ?? Response.json({ user: residentUser }));
     render(renderResidentApp(["/home"]));
 
     expect(await screen.findByRole("navigation", { name: /Primary resident navigation/i })).toBeInTheDocument();
@@ -70,7 +70,7 @@ describe("resident routes", () => {
 
   it("renders desktop navigation correctly", async () => {
     seedResidentToken();
-    mockFetch(() => Response.json({ user: residentUser }));
+    mockFetch((url) => residentEndpointResponse(url) ?? Response.json({ user: residentUser }));
     render(renderResidentApp(["/home"]));
 
     expect(await screen.findByRole("navigation", { name: "Resident navigation" })).toBeInTheDocument();
@@ -79,16 +79,19 @@ describe("resident routes", () => {
 
   it("does not fabricate resident workflow data on Home", async () => {
     seedResidentToken();
-    mockFetch(() => Response.json({ user: residentUser }));
+    mockFetch((url) => residentEndpointResponse(url) ?? Response.json({ user: residentUser }));
     render(renderResidentApp(["/home"]));
 
-    expect(await screen.findByText(/Your hostel journey summary will appear here/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Approved|Paid|Confirmed|Room 101/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Your dashboard summarizes/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Paid|Confirmed|Room 101/i)).not.toBeInTheDocument();
   });
 
   it("shows the resident name supplied by auth context", async () => {
     seedResidentToken();
-    mockFetch(() => Response.json({ user: { ...residentUser, displayName: "Kojo Mensah" } }));
+    mockFetch((url) => {
+      if (url.endsWith("/resident/me")) return Response.json({ ok: true, data: { ...residentProfile, first_name: "Kojo", last_name: "Mensah" } });
+      return residentEndpointResponse(url) ?? Response.json({ user: { ...residentUser, displayName: "Kojo Mensah" } });
+    });
     render(renderResidentApp(["/home"]));
 
     expect(await screen.findByText(/Welcome, Kojo Mensah/i)).toBeInTheDocument();
@@ -96,7 +99,7 @@ describe("resident routes", () => {
 
   it("opens the mobile More menu with secondary resident routes", async () => {
     seedResidentToken();
-    mockFetch(() => Response.json({ user: residentUser }));
+    mockFetch((url) => residentEndpointResponse(url) ?? Response.json({ user: residentUser }));
     render(renderResidentApp(["/home"]));
 
     await screen.findByText(/Welcome, Ama Resident/i);

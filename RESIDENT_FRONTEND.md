@@ -2,6 +2,7 @@
 
 Phase R1 added a separate Resident Portal frontend at `resident-frontend/`.
 Phase R2 replaces the auth placeholders with real resident registration and OTP authentication against the existing Cloudflare/Hono backend.
+Phase R3 replaces the neutral Home and Profile placeholders with real resident-owned dashboard and profile views.
 
 ## Stack
 
@@ -105,7 +106,7 @@ The client centralizes:
 
 No production UI uses mock residents or fake API responses.
 
-Resident auth API wrappers live in `src/api/residentAuth.ts`, and public institution loading lives in `src/api/institutions.ts`.
+Resident auth API wrappers live in `src/api/residentAuth.ts`, public institution loading lives in `src/api/institutions.ts`, and resident-owned dashboard/profile API wrappers live in `src/api/resident.ts`.
 
 ## Shell And Navigation
 
@@ -118,16 +119,55 @@ The resident shell is mobile-first:
 
 The shell uses a lighter resident visual treatment: light background, white cards, teal accent, larger touch targets, and simple status chips.
 
-## Home Foundation
+## Home Dashboard
 
-`/home` is the only real protected page in R1. It shows:
+`/home` is a real resident dashboard backed by resident-owned endpoints only:
 
-- welcome header using the authenticated resident display name when available
-- resident identity area
-- neutral next-action placeholder
-- neutral placeholder cards for Application, Booking, Payment, and My Room
+- `GET /resident/me`
+- `GET /resident/me/documents`
+- `GET /resident/me/applications`
+- `GET /resident/me/bookings`
+- `GET /resident/me/allocation`
 
-The page deliberately does not fabricate statuses, amounts, room numbers, booking state, application decisions, or payment progress.
+The profile request is required for the dashboard to render. Documents, applications, bookings, and allocation are loaded independently so partial failures show a warning without hiding the resident identity and available sections.
+
+The dashboard shows:
+
+- resident identity summary: name, resident code, institution, student ID, phone, email, and status
+- next-action card derived from real journey state
+- accommodation journey stages: account, documents, application, booking, payment, and room assignment
+- latest application summary from resident application records
+- latest booking summary from resident booking records
+- limited payment summary derived from booking status and total amount only
+- active room assignment only from `GET /resident/me/allocation`
+
+Room assignment never comes from application, booking, or payment records. A room is shown only when the backend reports an active allocation.
+
+Resident-safe verified payment totals are not exposed by the current backend. The dashboard does not call admin payment APIs and does not fabricate verified-payment progress. It displays the captured booking amount and marks verified payment totals as unavailable until a resident-safe payment summary endpoint exists.
+
+## Profile
+
+`/profile` displays safe resident-owned information from `GET /resident/me`:
+
+- full name
+- resident code
+- status
+- institution
+- student ID
+- phone
+- email
+- phone verification date when present
+
+The page does not display database IDs, OTP/session hashes, Ghana Card numbers, staff-only notes, or document storage references.
+
+Profile editing uses the existing `PATCH /resident/me` contract and supports only:
+
+- first name
+- middle name
+- last name
+- email
+
+Resident code, institution, student ID, and phone remain read-only because they are identity/login fields and are not supported by the current resident self-service update endpoint. The frontend never generates or modifies `resident_code`.
 
 ## Reusable Components And Utilities
 
@@ -173,23 +213,25 @@ Auth errors are mapped to resident-safe messages. The UI does not expose SQL err
 
 ## Known Limitations
 
-R2 completes real login, registration OTP, and session establishment only. The following remain later phases:
+R3 completes the Home dashboard and Profile display/editing foundation. The following remain later phases:
 
-- profile editing
 - Student Card and Ghana Card uploads
 - application workflow
 - booking UI
 - payments and receipts
-- room allocation display
 - maintenance requests
 - announcements
 - resident message inbox
+
+Profile phone, institution, and student ID self-service changes are not implemented because the backend does not currently expose those operations for residents.
+
+Resident-safe verified payment totals remain unavailable. The dashboard intentionally avoids admin payment APIs and only shows booking-owned totals until a resident-safe endpoint is added.
 
 Static Kissmet branding remains in use. The Resident Portal still does not call admin-only settings endpoints.
 
 ## Validation
 
-Phase R1/R2 tests cover:
+Phase R1/R2/R3 tests cover:
 
 - app rendering
 - unauthenticated `/` redirect to `/login`
@@ -202,7 +244,6 @@ Phase R1/R2 tests cover:
 - logout backend call and redirect
 - mobile primary navigation
 - desktop navigation
-- Home page neutral data behavior
 - resident name display
 - reusable loading and error states
 - currency, date, and status formatter behavior
@@ -222,13 +263,27 @@ Phase R1/R2 tests cover:
 - missing verification context after refresh
 - already-authenticated public auth redirects
 - non-resident auth result rejection
+- Home page loading, error, retry, and partial failure states
+- resident identity dashboard display
+- accommodation journey status derivation
+- next-action routing for documents, application, booking, payments, and room assignment states
+- application and booking summaries using resident-owned records
+- payment summary behavior without a resident-safe verified-payment endpoint
+- active allocation display from allocation data only
+- no-allocation room pending behavior
+- protected Profile route rendering
+- Profile identity, institution, student ID, resident code, and contact display
+- Profile fallback display for optional contact data
+- Profile update through `PATCH /resident/me`
+- Profile validation for required names and email shape
+- sensitive/internal resident data not displayed
 
-Latest Phase R2 validation:
+Latest Phase R3 validation:
 
 - resident-frontend typecheck: passed
-- resident-frontend tests: 4 files / 36 tests passed
+- resident-frontend tests: 6 files / 53 tests passed
 - resident-frontend build: passed
 - cloudflare typecheck: passed
 - cloudflare tests: 5 files / 94 tests passed
 
-No backend code changes or D1 migrations were required for Phase R2.
+No backend code changes or D1 migrations were required for Phase R3.

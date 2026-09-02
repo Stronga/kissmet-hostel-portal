@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { requestResidentLoginOtp } from "../../api/residentAuth";
 import { Card } from "../../components/common/Card";
@@ -20,6 +20,7 @@ export function LoginPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitLock = useRef(false);
   usePageTitle("Login");
 
   const options = useMemo(() => institutions.map((item) => ({ value: item.code, label: item.name })), [institutions]);
@@ -28,6 +29,7 @@ export function LoginPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitLock.current) return;
     const nextErrors: Record<string, string> = {};
     if (!institutionCode) nextErrors.institutionCode = "Institution is required.";
     if (!studentId.trim()) nextErrors.studentId = "Student ID is required.";
@@ -35,6 +37,7 @@ export function LoginPage() {
     setSubmitError(null);
     if (Object.keys(nextErrors).length) return;
 
+    submitLock.current = true;
     setIsSubmitting(true);
     try {
       const selected = institutions.find((item) => item.code === institutionCode);
@@ -44,6 +47,7 @@ export function LoginPage() {
     } catch (error) {
       setSubmitError(safeAuthError(error));
     } finally {
+      submitLock.current = false;
       setIsSubmitting(false);
     }
   }

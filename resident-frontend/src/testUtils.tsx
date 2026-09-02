@@ -25,6 +25,30 @@ export const staffUser: AuthUser = {
   sessionId: 8
 };
 
+export const residentProfile = {
+  id: 3,
+  resident_code: "KSM-RES-0003",
+  first_name: "Ama",
+  middle_name: null,
+  last_name: "Resident",
+  status: "applicant",
+  phone_verified_at: "2026-08-28T03:37:35.599Z",
+  phone: "+233555111222",
+  email: "ama@example.com",
+  institution_code: "UG",
+  institution_name: "University of Ghana",
+  student_id: "UG-123"
+};
+
+export function residentEndpointResponse(url: string) {
+  if (url.endsWith("/resident/me/documents")) return Response.json({ ok: true, data: [] });
+  if (url.endsWith("/resident/me/applications")) return Response.json({ ok: true, data: [] });
+  if (url.endsWith("/resident/me/bookings")) return Response.json({ ok: true, data: [] });
+  if (url.endsWith("/resident/me/allocation")) return Response.json({ ok: true, data: null });
+  if (url.endsWith("/resident/me")) return Response.json({ ok: true, data: residentProfile });
+  return null;
+}
+
 export function renderResidentApp(initialEntries = ["/"]) {
   return (
     <MemoryRouter initialEntries={initialEntries}>

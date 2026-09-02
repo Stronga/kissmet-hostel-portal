@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESIDENT_TOKEN_KEY } from "../../auth/AuthContext";
 import { loginContext, registrationContext, saveVerificationContext } from "../../auth/verificationContext";
-import { renderResidentApp, residentUser, seedResidentToken, staffUser } from "../../testUtils";
+import { renderResidentApp, residentEndpointResponse, residentUser, seedResidentToken, staffUser } from "../../testUtils";
 
 const institutions = [{ code: "ug", name: "University of Ghana" }, { code: "knust", name: "KNUST" }];
 
@@ -95,8 +95,11 @@ describe("resident login and OTP authentication", () => {
 
     await userEvent.selectOptions(await screen.findByLabelText("Institution"), "ug");
     await userEvent.type(screen.getByLabelText("Student ID"), "ST-1");
-    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await userEvent.click(screen.getByRole("button", { name: "Sending OTP" }));
+    const button = screen.getByRole("button", { name: "Continue" });
+    const form = button.closest("form");
+    expect(form).toBeTruthy();
+    fireEvent.submit(form!);
+    fireEvent.submit(form!);
 
     await waitFor(() => expect(requestCount).toBe(1));
   });
@@ -119,6 +122,8 @@ describe("resident login and OTP authentication", () => {
     saveVerificationContext(loginContext({ institutionCode: "ug", studentId: "ST-1" }, "University of Ghana"));
     mockFetch((url) => {
       if (url.endsWith("/auth/resident/verify-otp")) return json({ token: "resident-token", expiresAt: "2026-09-01T12:00:00.000Z" });
+      const residentResponse = residentEndpointResponse(url);
+      if (residentResponse) return residentResponse;
       if (url.endsWith("/auth/me")) return json({ user: residentUser });
       return json({ ok: true });
     });
@@ -157,7 +162,7 @@ describe("resident login and OTP authentication", () => {
 
   it("redirects public auth routes to home when already authenticated", async () => {
     seedResidentToken();
-    mockFetch(() => json({ user: residentUser }));
+    mockFetch((url) => residentEndpointResponse(url) ?? json({ user: residentUser }));
     render(renderResidentApp(["/register"]));
 
     expect(await screen.findByText(/Welcome, Ama Resident/i)).toBeInTheDocument();
@@ -262,6 +267,8 @@ describe("resident registration OTP authentication", () => {
     }, "University of Ghana"));
     mockFetch((url) => {
       if (url.endsWith("/resident/register/verify-otp")) return json({ ok: true, data: { token: "new-resident-token", resident: {} } });
+      const residentResponse = residentEndpointResponse(url);
+      if (residentResponse) return residentResponse;
       if (url.endsWith("/auth/me")) return json({ user: residentUser });
       return json({ ok: true });
     });

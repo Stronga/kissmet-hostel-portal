@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ErrorState } from "../components/common/ErrorState";
 import { LoadingState } from "../components/common/LoadingState";
 import { RESIDENT_TOKEN_KEY } from "./AuthContext";
-import { renderResidentApp, residentUser, seedResidentToken, staffUser } from "../testUtils";
+import { renderResidentApp, residentEndpointResponse, residentUser, seedResidentToken, staffUser } from "../testUtils";
 
 function mockFetch(handler: (url: string, init?: RequestInit) => Promise<Response> | Response) {
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => handler(String(input), init)));
@@ -21,7 +21,7 @@ describe("resident auth provider", () => {
 
   it("restores a valid resident session from GET /auth/me", async () => {
     seedResidentToken();
-    mockFetch(() => Response.json({ user: residentUser }));
+    mockFetch((url) => residentEndpointResponse(url) ?? Response.json({ user: residentUser }));
     render(renderResidentApp(["/home"]));
 
     expect(await screen.findByText(/Welcome, Ama Resident/i)).toBeInTheDocument();
@@ -52,7 +52,7 @@ describe("resident auth provider", () => {
     seedResidentToken();
     mockFetch((url) => {
       if (url.endsWith("/auth/logout")) return Response.json({ ok: true });
-      return Response.json({ user: residentUser });
+      return residentEndpointResponse(url) ?? Response.json({ user: residentUser });
     });
     render(renderResidentApp(["/home"]));
 
