@@ -8,6 +8,8 @@ import type { SmsProvider } from "./sms.service";
 const OTP_MINUTES = 10;
 const SESSION_HOURS = 8;
 const paymentMethods = new Set(["cash", "bank_transfer", "mobile_money", "card", "other"]);
+const maintenanceCategories = new Set(["plumbing", "electrical", "furniture", "cleaning", "security", "other"]);
+const maintenancePriorities = new Set(["low", "normal", "high", "urgent"]);
 
 function futureIso(minutes: number) {
   return new Date(Date.now() + minutes * 60_000).toISOString();
@@ -386,9 +388,26 @@ export class ResidentService {
     `, actor.residentId);
   }
 
+  private maintenanceSelect(where: string) {
+    return `
+      SELECT m.id, m.request_number, m.category, m.priority, m.status, m.title, m.description,
+             m.opened_at, m.assigned_at, m.started_at, m.resolved_at, m.closed_at,
+             room.room_code, room.room_name,
+             b.bed_code, b.label AS bed_label
+      FROM maintenance_requests m
+      LEFT JOIN rooms room ON room.id = m.room_id
+      LEFT JOIN beds b ON b.id = m.bed_id
+      WHERE ${where}
+    `;
+  }
+
   async createMaintenance(actor: AuthUser, data: { category: string; priority?: string; title: string; description?: string | null }) {
     if (!actor.residentId) throw new Error("Resident session required");
-    const allocation = await this.allocation(actor) as Record<string, unknown> | null;
+    if (!maintenanceCategories.has(data.category)) throw new Error("Invalid maintenance category");
+    const priority = data.priority ?? "normal";
+    if (!maintenancePriorities.has(priority)) throw new Error("Invalid maintenance priority");
+    if (!data.title.trim()) throw new Error("title is required");
+    const allocation = await this.repo.first<{ bed_id: number }>("SELECT bed_id FROM allocations WHERE resident_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1", actor.residentId);
     const number = await this.repo.allocateMaintenanceRequestNumber();
     const res = await this.repo.run(
       "INSERT INTO maintenance_requests (request_number, resident_id, room_id, bed_id, category, priority, status, title, description) VALUES (?, ?, (SELECT room_id FROM beds WHERE id = ?), ?, ?, ?, 'open', ?, ?)",
@@ -397,22 +416,22 @@ export class ResidentService {
       allocation?.bed_id ?? null,
       allocation?.bed_id ?? null,
       data.category,
-      data.priority ?? "normal",
+      priority,
       data.title,
       data.description ?? null
     );
     await this.repo.audit(actor.id, null, "resident.maintenance.created", "maintenance_request", res.meta.last_row_id, { requestNumber: number });
-    return this.repo.get("maintenance_requests", Number(res.meta.last_row_id));
+    return this.ownMaintenance(actor, Number(res.meta.last_row_id));
   }
 
   maintenance(actor: AuthUser) {
     if (!actor.residentId) throw new Error("Resident session required");
-    return this.repo.all("SELECT id, request_number, category, priority, status, title, description, room_id, bed_id, opened_at, resolved_at, closed_at FROM maintenance_requests WHERE resident_id = ? ORDER BY id DESC", actor.residentId);
+    return this.repo.all(`${this.maintenanceSelect("m.resident_id = ?")} ORDER BY m.id DESC`, actor.residentId);
   }
 
   async ownMaintenance(actor: AuthUser, id: number) {
     if (!actor.residentId) throw new Error("Resident session required");
-    const row = await this.repo.first("SELECT id, request_number, category, priority, status, title, description, room_id, bed_id, opened_at, resolved_at, closed_at FROM maintenance_requests WHERE id = ? AND resident_id = ?", id, actor.residentId);
+    const row = await this.repo.first(`${this.maintenanceSelect("m.id = ? AND m.resident_id = ?")} LIMIT 1`, id, actor.residentId);
     if (!row) throw new Error("Maintenance request not found");
     return row;
   }

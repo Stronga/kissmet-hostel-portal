@@ -13,6 +13,9 @@ Maintenance requests use `maintenance_requests` and the new `maintenance_request
 - Request numbers are system-generated as `KSM-MNT-0001`, `KSM-MNT-0002`, and so on.
 - The D1 primary key remains separate from the request number.
 - Resident-created requests are linked to the resident and, when available, their active allocation's room and bed.
+- Resident portal maintenance creation derives ownership from the authenticated resident session. The resident request body does not accept arbitrary `resident_id`, `room_id`, `bed_id`, `allocation_id`, request number, status, or staff workflow fields.
+- Resident portal maintenance reads expose resident-safe request data with room and bed labels only. Internal owner IDs, staff assignment IDs, resolution notes, audit metadata, and storage references are not exposed to residents.
+- Room and bed labels are read from the maintenance request's stored room/bed references. They are not recalculated from the resident's current allocation, so request history remains stable after transfers.
 - Staff-created requests may optionally target a resident, room, and bed.
 - Lifecycle timestamps are `opened_at`, `assigned_at`, `started_at`, `resolved_at`, `closed_at`, and `archived_at`.
 

@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-import type { AcademicSession, ResidentAllocation, ResidentApplication, ResidentBooking, ResidentDocument, ResidentPayment, ResidentPaymentSummary, ResidentProfile, ResidentReceipt } from "../types/resident";
+import type { AcademicSession, MaintenanceCategory, MaintenancePriority, ResidentAllocation, ResidentApplication, ResidentBooking, ResidentDocument, ResidentMaintenanceRequest, ResidentPayment, ResidentPaymentSummary, ResidentProfile, ResidentReceipt } from "../types/resident";
 
 export function fetchResidentProfile() {
   return apiRequest<{ ok: true; data: ResidentProfile }>("/resident/me");
@@ -92,4 +92,19 @@ export function fetchResidentAllocation() {
 
 export function fetchResidentAllocations() {
   return apiRequest<{ ok: true; data: ResidentAllocation[] }>("/resident/me/allocations");
+}
+
+export function fetchResidentMaintenance() {
+  return apiRequest<{ ok: true; data: ResidentMaintenanceRequest[] }>("/resident/me/maintenance");
+}
+
+export function createResidentMaintenance(input: { category: MaintenanceCategory; priority: MaintenancePriority; title: string; description?: string | null }) {
+  return apiRequest<{ ok: true; data: ResidentMaintenanceRequest }>("/resident/me/maintenance", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function fetchResidentMaintenanceRequest(id: number) {
+  return apiRequest<{ ok: true; data: ResidentMaintenanceRequest }>(`/resident/me/maintenance/${id}`);
 }

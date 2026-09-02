@@ -3,6 +3,9 @@ export type ApplicationStatus = "draft" | "submitted" | "under_review" | "approv
 export type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "archived";
 export type PaymentStatus = "pending" | "submitted" | "verified" | "rejected" | "refunded" | "cancelled" | "archived";
 export type ReceiptStatus = "issued" | "voided" | "archived";
+export type MaintenanceStatus = "open" | "assigned" | "in_progress" | "resolved" | "closed" | "cancelled" | "archived";
+export type MaintenanceCategory = "plumbing" | "electrical" | "furniture" | "cleaning" | "security" | "other";
+export type MaintenancePriority = "low" | "normal" | "high" | "urgent";
 
 export interface ResidentProfile {
   id: number;
@@ -138,6 +141,25 @@ export interface ResidentAllocation {
   academic_session_code?: string | null;
   academic_session_name?: string | null;
   booking_number?: string | null;
+}
+
+export interface ResidentMaintenanceRequest {
+  id: number;
+  request_number: string;
+  category: MaintenanceCategory;
+  priority: MaintenancePriority;
+  status: MaintenanceStatus;
+  title: string;
+  description?: string | null;
+  opened_at?: string | null;
+  assigned_at?: string | null;
+  started_at?: string | null;
+  resolved_at?: string | null;
+  closed_at?: string | null;
+  room_code?: string | null;
+  room_name?: string | null;
+  bed_code?: string | null;
+  bed_label?: string | null;
 }
 
 export interface DashboardData {

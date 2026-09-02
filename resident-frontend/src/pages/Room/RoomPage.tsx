@@ -134,6 +134,7 @@ export function RoomPage() {
               <p><span className="font-semibold text-text-primary">Assignment source:</span> this room and bed come from your active allocation record.</p>
               <p className="mt-2"><span className="font-semibold text-text-primary">Room and bed:</span> your allocation is to a specific bed inside the room. Room capacity is not used here as a room assignment.</p>
             </div>
+            <Link to="/maintenance" className="mt-5 inline-flex min-h-11 items-center rounded-token bg-primary px-4 py-2 text-sm font-semibold text-white">Report an issue</Link>
           </Card>
 
           <div className="space-y-4">

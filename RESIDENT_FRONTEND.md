@@ -8,6 +8,7 @@ Phase R5 replaces the Application placeholder with the real resident draft/submi
 Phase R6 replaces the Booking placeholder with a real read-only resident booking lifecycle view.
 Phase R7 replaces the Payments placeholder with resident-owned payment submission, payment slip upload, and receipt history.
 Phase R8 replaces the My Room placeholder with a real active-allocation room and bed view.
+Phase R9 replaces the Maintenance placeholder with resident-owned maintenance request creation and tracking.
 
 ## Stack
 
@@ -117,6 +118,7 @@ Resident application creation/submission also uses `src/api/resident.ts` and nev
 Resident booking display uses the same API layer and remains read-only.
 Resident payments, payment slip uploads, payment summaries, and receipt history use the same API layer and never call admin payment or receipt endpoints.
 Resident room assignment uses resident-owned allocation endpoints and never calls admin allocation APIs.
+Resident maintenance requests use the same API layer and never call admin maintenance APIs.
 
 ## Shell And Navigation
 
@@ -394,6 +396,49 @@ Backend enrichment added safe allocation labels to resident allocation responses
 
 Gender-policy audit: `residents.gender` exists in the canonical schema, and admin allocation validation enforces room gender policy when a resident gender is present. Resident registration/profile self-service does not currently collect or update gender, so enforcement is conditional for residents created without that field. This is a production-hardening/onboarding gap for a later phase, not an R8 registration redesign.
 
+## Maintenance
+
+`/maintenance` is a real resident maintenance page backed by resident-owned endpoints only:
+
+- `GET /resident/me/maintenance`
+- `POST /resident/me/maintenance`
+- `GET /resident/me/maintenance/:id`
+
+The frontend submits only resident-entered issue details:
+
+- category
+- priority
+- title
+- optional description
+
+It never sends `resident_id`, `user_id`, `room_id`, `bed_id`, `allocation_id`, request number, status, staff assignment, lifecycle timestamps, resolution notes, or audit fields. Ownership, request-number generation, and optional room/bed association are derived by the backend from the authenticated resident session and the resident's active allocation at creation time.
+
+Maintenance request numbers remain backend-generated in the `KSM-MNT-xxxx` format. The D1 primary key remains separate from the human-readable request number.
+
+Resident-visible categories follow the backend schema:
+
+- plumbing
+- electrical
+- furniture
+- cleaning
+- security
+- other
+
+Resident-visible priorities follow the backend schema:
+
+- low
+- normal
+- high
+- urgent
+
+The page separates active requests from history. Active statuses are `open`, `assigned`, and `in_progress`. Historical statuses are `resolved`, `closed`, `cancelled`, and `archived`.
+
+Room and bed labels shown on a request are the room/bed captured on that maintenance request, not the resident's current allocation. This preserves request history after a later staff transfer. If the resident has no active allocation when a request is created, the request is treated as a general hostel issue.
+
+Residents can report and track maintenance only. They cannot assign, start, resolve, close, cancel, archive, transfer, or otherwise mutate maintenance workflow state from the Resident Portal. Staff/admin workflow remains controlled through the admin maintenance APIs and server-side RBAC.
+
+The My Room page links to `/maintenance` with a Report an issue action, but it does not create a request automatically.
+
 ## Reusable Components And Utilities
 
 R1 adds:
@@ -440,9 +485,8 @@ Auth errors are mapped to resident-safe messages. The UI does not expose SQL err
 
 ## Known Limitations
 
-R8 completes resident active room and bed display. The following remain later phases:
+R9 completes resident maintenance request creation and tracking. The following remain later phases:
 
-- maintenance requests
 - announcements
 - resident message inbox
 
@@ -462,7 +506,7 @@ Static Kissmet branding remains in use. The Resident Portal still does not call 
 
 ## Validation
 
-Phase R1/R2/R3/R4/R5/R6/R7 tests cover:
+Phase R1/R2/R3/R4/R5/R6/R7/R8/R9 tests cover:
 
 - app rendering
 - unauthenticated `/` redirect to `/login`
@@ -579,13 +623,24 @@ Phase R1/R2/R3/R4/R5/R6/R7 tests cover:
 - transferred/ended allocations excluded from current room
 - payment attention warning shown without hiding active allocation
 - no resident allocation mutation, admin allocation API use, arbitrary resident targeting, internal IDs, staff IDs, or audit metadata display
+- protected Maintenance route
+- Maintenance loading, retryable error, empty active, and empty history states
+- resident maintenance creation with backend-generated request number
+- no frontend-sent maintenance ownership fields, status, staff workflow fields, or request number
+- duplicate maintenance submission prevention
+- backend maintenance creation failure display
+- maintenance active/history separation
+- room and bed labels displayed from the maintenance request record, not current allocation
+- general hostel issue display when no room/bed label exists
+- no resident staff workflow mutation actions
+- My Room Report an issue navigation without automatic request creation
 
-Latest Phase R8 validation:
+Latest Phase R9 validation:
 
 - resident-frontend typecheck: passed
-- resident-frontend tests: 11 files / 111 tests passed
+- resident-frontend tests: 12 files / 121 tests passed
 - resident-frontend build: passed
 - cloudflare typecheck: passed
-- cloudflare tests: 5 files / 100 tests passed
+- cloudflare tests: 5 files / 101 tests passed
 
-No D1 migrations were required for Phase R8. Backend code enriched resident-owned allocation reads and added a resident-safe allocation history endpoint using the existing allocations, rooms, beds, bookings, and academic sessions schema.
+No D1 migrations were required for Phase R9. Backend code enriched resident-owned maintenance reads with safe room/bed labels, repaired active-allocation association after the R8 allocation response was made resident-safe, and kept maintenance lifecycle mutation staff/admin-only.

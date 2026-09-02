@@ -32,7 +32,7 @@ class Repo {
     allocations: [{ id: 1, booking_id: 1, resident_id: 1, status: "active", bed_id: 1, academic_session_id: 1, starts_on: "2026-09-01", ends_on: null }],
     beds: [{ id: 1, room_id: 1, bed_code: "R1-A", label: "A" }],
     rooms: [{ id: 1, room_code: "R1", room_name: "Room 1", gender_policy: "female", status: "available" }],
-    maintenance_requests: [{ id: 1, request_number: "KSM-MNT-0001", resident_id: 1, status: "open", title: "Leak", category: "plumbing", priority: "urgent" }, { id: 2, request_number: "KSM-MNT-0002", resident_id: 2, status: "open", title: "Other", category: "cleaning", priority: "normal" }],
+    maintenance_requests: [{ id: 1, request_number: "KSM-MNT-0001", resident_id: 1, room_id: 1, bed_id: 1, status: "open", title: "Leak", category: "plumbing", priority: "urgent", opened_at: "2026-09-01T00:00:00.000Z" }, { id: 2, request_number: "KSM-MNT-0002", resident_id: 2, status: "open", title: "Other", category: "cleaning", priority: "normal" }],
     announcements: [{ id: 1, title: "Residents", audience: "residents", status: "published", expires_at: null }, { id: 2, title: "All", audience: "all", status: "published", expires_at: null }, { id: 3, title: "Staff", audience: "staff", status: "published", expires_at: null }, { id: 4, title: "Draft", audience: "all", status: "draft", expires_at: null }, { id: 5, title: "Expired", audience: "all", status: "published", expires_at: "2000-01-01T00:00:00.000Z" }]
   };
   audits: string[] = [];
@@ -64,7 +64,7 @@ class Repo {
         return { id: allocation.id, status: allocation.status, starts_on: allocation.starts_on, ends_on: allocation.ends_on, assigned_at: allocation.assigned_at, released_at: allocation.released_at, bed_code: bed?.bed_code, label: bed?.label, room_code: room?.room_code, room_name: room?.room_name, room_gender_policy: room?.gender_policy, room_status: room?.status, academic_session_code: session?.code, academic_session_name: session?.name, booking_number: booking?.booking_number };
       }) as T[]
     };
-    if (sql.includes("FROM maintenance_requests")) return { results: this.rows.maintenance_requests.filter((m) => m.resident_id === binds[0]) as T[] };
+    if (sql.includes("FROM maintenance_requests")) return { results: this.rows.maintenance_requests.filter((m) => m.resident_id === binds[0]).map((m) => this.maintenanceRow(m)) as T[] };
     if (sql.includes("FROM announcements")) return { results: this.rows.announcements.filter((a) => ["all", "residents"].includes(String(a.audience)) && a.status === "published" && (!a.expires_at || String(a.expires_at) > new Date().toISOString())) as T[] };
     return { results: [] as T[] };
   }
@@ -96,6 +96,7 @@ class Repo {
       const payment = this.rows.payments.find((p) => p.id === row?.payment_id && p.resident_id === binds[1]);
       return row && payment ? { ...row, ...payment } as T : null;
     }
+    if (sql.includes("SELECT bed_id FROM allocations")) return (this.rows.allocations.find((a) => a.resident_id === binds[0] && a.status === "active") ?? null) as T;
     if (sql.includes("FROM allocations")) {
       const allocation = this.rows.allocations.find((a) => a.resident_id === binds[0] && a.status === "active");
       const bed = this.rows.beds.find((b) => b.id === allocation?.bed_id);
@@ -104,11 +105,19 @@ class Repo {
       const booking = this.rows.bookings.find((b) => b.id === allocation?.booking_id);
       return allocation ? { id: allocation.id, status: allocation.status, starts_on: allocation.starts_on, ends_on: allocation.ends_on, assigned_at: allocation.assigned_at, released_at: allocation.released_at, bed_code: bed?.bed_code, label: bed?.label, room_code: room?.room_code, room_name: room?.room_name, room_gender_policy: room?.gender_policy, room_status: room?.status, academic_session_code: session?.code, academic_session_name: session?.name, booking_number: booking?.booking_number } as T : null;
     }
-    if (sql.includes("FROM maintenance_requests")) return (this.rows.maintenance_requests.find((m) => m.id === binds[0] && m.resident_id === binds[1]) ?? null) as T;
+    if (sql.includes("FROM maintenance_requests")) {
+      const row = this.rows.maintenance_requests.find((m) => m.id === binds[0] && m.resident_id === binds[1]);
+      return row ? this.maintenanceRow(row) as T : null;
+    }
     if (sql.includes("FROM announcements")) return (this.rows.announcements.find((a) => a.id === binds[0] && ["all", "residents"].includes(String(a.audience)) && a.status === "published" && (!a.expires_at || String(a.expires_at) > new Date().toISOString())) ?? null) as T;
     return null;
   }
   async get(table: string, id: number) { return (this.rows[table] ?? []).find((r) => r.id === id) ?? null; }
+  maintenanceRow(m: Record<string, unknown>) {
+    const room = this.rows.rooms.find((r) => r.id === m.room_id);
+    const bed = this.rows.beds.find((b) => b.id === m.bed_id);
+    return { id: m.id, request_number: m.request_number, category: m.category, priority: m.priority, status: m.status, title: m.title, description: m.description, opened_at: m.opened_at, assigned_at: m.assigned_at, started_at: m.started_at, resolved_at: m.resolved_at, closed_at: m.closed_at, room_code: room?.room_code, room_name: room?.room_name, bed_code: bed?.bed_code, bed_label: bed?.label };
+  }
   async allocateResidentCode() { return `KSM-RES-${String(this.residentSeq++).padStart(4, "0")}`; }
   async allocateApplicationNumber() { return `KSM-APP-${String(this.appSeq++).padStart(4, "0")}`; }
   async allocateMaintenanceRequestNumber() { return `KSM-MNT-${String(this.mntSeq++).padStart(4, "0")}`; }
@@ -153,7 +162,8 @@ class Repo {
     }
     if (sql.startsWith("INSERT INTO maintenance_requests")) {
       const id = this.rows.maintenance_requests.length + 1;
-      this.rows.maintenance_requests.push({ id, request_number: binds[0], resident_id: binds[1], bed_id: binds[3], category: binds[4], priority: binds[5], status: "open", title: binds[6], description: binds[7] });
+      const bed = this.rows.beds.find((b) => b.id === binds[3]);
+      this.rows.maintenance_requests.push({ id, request_number: binds[0], resident_id: binds[1], room_id: bed?.room_id ?? null, bed_id: binds[3], category: binds[4], priority: binds[5], status: "open", title: binds[6], description: binds[7], opened_at: "2026-09-02T00:00:00.000Z" });
       return { meta: { last_row_id: id, changes: 1 } };
     }
     if (sql.startsWith("UPDATE applications")) {
@@ -285,9 +295,25 @@ describe("resident onboarding", () => {
     const { svc, repo } = make();
     const created = await svc.createMaintenance(resident, { category: "plumbing", priority: "urgent", title: "Leak", description: "Pipe leak" }) as Record<string, unknown>;
     expect(created.request_number).toBe("KSM-MNT-0003");
-    await expect(svc.maintenance(resident)).resolves.toMatchObject({ results: expect.arrayContaining([expect.objectContaining({ resident_id: 1 })]) });
+    expect(created).toMatchObject({ status: "open", room_code: "R1", bed_code: "R1-A", bed_label: "A" });
+    expect(JSON.stringify(created)).not.toMatch(/resident_id|room_id|bed_id|assigned_to_staff_id|staff/i);
+    await expect(svc.maintenance(resident)).resolves.toMatchObject({ results: expect.arrayContaining([expect.objectContaining({ request_number: "KSM-MNT-0003", room_code: "R1" })]) });
     await expect(svc.ownMaintenance(otherResident, Number(created.id))).rejects.toThrow("Maintenance request not found");
+    await expect(svc.createMaintenance(resident, { category: "invalid", title: "Bad" })).rejects.toThrow("Invalid maintenance category");
+    await expect(svc.createMaintenance(resident, { category: "plumbing", priority: "emergency", title: "Bad" })).rejects.toThrow("Invalid maintenance priority");
     expect(repo.audits).toContain("resident.maintenance.created");
+  });
+
+  it("allows general maintenance requests without active allocation and preserves original room labels", async () => {
+    const { svc, repo } = make();
+    repo.rows.allocations = [];
+    const general = await svc.createMaintenance(resident, { category: "security", title: "Gate light" }) as Record<string, unknown>;
+    expect(general).toMatchObject({ request_number: "KSM-MNT-0003", room_code: undefined, bed_code: undefined });
+    repo.rows.beds.push({ id: 2, room_id: 2, bed_code: "R2-A", label: "A" });
+    repo.rows.rooms.push({ id: 2, room_code: "R2", room_name: "Room 2", gender_policy: "female", status: "available" });
+    repo.rows.allocations = [{ id: 5, booking_id: 1, resident_id: 1, status: "active", bed_id: 2, academic_session_id: 1 }];
+    const existing = await svc.ownMaintenance(resident, 1) as Record<string, unknown>;
+    expect(existing).toMatchObject({ room_code: "R1", bed_code: "R1-A" });
   });
 
   it("shows resident and all announcements but excludes staff draft and expired announcements", async () => {
