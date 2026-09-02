@@ -3,6 +3,7 @@
 Phase R1 added a separate Resident Portal frontend at `resident-frontend/`.
 Phase R2 replaces the auth placeholders with real resident registration and OTP authentication against the existing Cloudflare/Hono backend.
 Phase R3 replaces the neutral Home and Profile placeholders with real resident-owned dashboard and profile views.
+Phase R4 replaces the Documents placeholder with real Student Card and Ghana Card upload management.
 
 ## Stack
 
@@ -107,6 +108,7 @@ The client centralizes:
 No production UI uses mock residents or fake API responses.
 
 Resident auth API wrappers live in `src/api/residentAuth.ts`, public institution loading lives in `src/api/institutions.ts`, and resident-owned dashboard/profile API wrappers live in `src/api/resident.ts`.
+Identity document upload uses authenticated `FormData` through the same API client. The client does not manually set multipart boundaries.
 
 ## Shell And Navigation
 
@@ -169,6 +171,52 @@ Profile editing uses the existing `PATCH /resident/me` contract and supports onl
 
 Resident code, institution, student ID, and phone remain read-only because they are identity/login fields and are not supported by the current resident self-service update endpoint. The frontend never generates or modifies `resident_code`.
 
+## Documents
+
+`/documents` is a real resident document page for the two required R4 identity document types:
+
+- Student Card: backend `document_type = student_card`
+- Ghana Card: backend `document_type = ghana_card`
+
+The page uses resident-owned endpoints only:
+
+- `GET /resident/me/documents`
+- `POST /resident/me/documents/student-card`
+- `POST /resident/me/documents/ghana-card`
+
+The page does not call admin document endpoints and does not accept or send arbitrary resident IDs. Ownership is derived by the backend from the authenticated resident session.
+
+Each document card shows resident-safe metadata when available:
+
+- current filename
+- content type
+- file size
+- uploaded timestamp
+- status
+
+Status labels are mapped for resident readability:
+
+- `uploaded` -> Awaiting verification
+- `verified` -> Verified
+- `rejected` -> Needs attention
+- missing document -> Not uploaded
+
+Upload completeness and staff verification are separate. The readiness summary says `0 of 2 uploaded`, `1 of 2 uploaded`, or `2 of 2 uploaded`; it does not claim identity verification merely because files exist.
+
+Resident-side upload validation matches the current backend contract:
+
+- allowed MIME types: `application/pdf`, `image/jpeg`, `image/png`, `image/webp`
+- maximum size: 5 MB
+- upload field name: `file`
+
+Frontend validation is for usability only. The Cloudflare backend remains authoritative for MIME validation, size enforcement, R2 object-key generation, ownership, and audit behavior.
+
+Replacement and re-upload behavior follows the current backend contract: uploading inserts a new private document record for the resident. The page uses the latest document per identity type for display. Missing documents show Upload, rejected documents show Re-upload, and existing uploaded/verified documents show Replace. The frontend never deletes old R2 objects and never mutates document verification state.
+
+The current resident backend exposes metadata but not document file content. R4 therefore does not show a View or Download action. It never constructs public R2 URLs, exposes R2 object keys, displays bucket names, extracts Ghana Card numbers, performs OCR, or stores identity numbers in frontend state.
+
+The backend was hardened so `GET /resident/me/documents/:id` no longer returns `r2_key` in resident metadata responses.
+
 ## Reusable Components And Utilities
 
 R1 adds:
@@ -209,13 +257,14 @@ The Resident Portal does not add:
 
 Student Card and Ghana Card files remain private R2 objects and require backend-mediated access in later phases.
 
+For R4, resident document content retrieval is intentionally unavailable because no resident-safe content endpoint exists. The UI shows metadata/upload state only.
+
 Auth errors are mapped to resident-safe messages. The UI does not expose SQL errors, stack traces, OTP hashes, session-token hashes, registration payload internals, or staff auth state.
 
 ## Known Limitations
 
-R3 completes the Home dashboard and Profile display/editing foundation. The following remain later phases:
+R4 completes Student Card and Ghana Card upload management. The following remain later phases:
 
-- Student Card and Ghana Card uploads
 - application workflow
 - booking UI
 - payments and receipts
@@ -227,11 +276,13 @@ Profile phone, institution, and student ID self-service changes are not implemen
 
 Resident-safe verified payment totals remain unavailable. The dashboard intentionally avoids admin payment APIs and only shows booking-owned totals until a resident-safe endpoint is added.
 
+Resident document viewing/download remains unavailable until a backend endpoint can stream private R2 content through authenticated resident ownership checks.
+
 Static Kissmet branding remains in use. The Resident Portal still does not call admin-only settings endpoints.
 
 ## Validation
 
-Phase R1/R2/R3 tests cover:
+Phase R1/R2/R3/R4 tests cover:
 
 - app rendering
 - unauthenticated `/` redirect to `/login`
@@ -277,13 +328,25 @@ Phase R1/R2/R3 tests cover:
 - Profile update through `PATCH /resident/me`
 - Profile validation for required names and email shape
 - sensitive/internal resident data not displayed
+- protected Documents route
+- Documents loading, retryable error, empty, one-document, both-document, and rejected states
+- Student Card upload success
+- Ghana Card upload success
+- unsupported file type rejection
+- oversized file rejection
+- backend upload failure
+- duplicate upload submission protection
+- upload refresh after success
+- no fabricated resident View or Download action
+- no R2 object key, storage path, or Ghana Card number display
+- Home next-action behavior for missing and partially uploaded documents
 
-Latest Phase R3 validation:
+Latest Phase R4 validation:
 
 - resident-frontend typecheck: passed
-- resident-frontend tests: 6 files / 53 tests passed
+- resident-frontend tests: 7 files / 63 tests passed
 - resident-frontend build: passed
 - cloudflare typecheck: passed
 - cloudflare tests: 5 files / 94 tests passed
 
-No backend code changes or D1 migrations were required for Phase R3.
+No D1 migrations were required for Phase R4. Backend code changed only to remove `r2_key` from the resident-owned document metadata response.

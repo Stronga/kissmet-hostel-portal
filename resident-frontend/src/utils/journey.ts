@@ -1,4 +1,5 @@
 import type { DashboardData, ResidentApplication, ResidentBooking } from "../types/resident";
+import { isDocumentUploaded, latestIdentityDocuments } from "./documents";
 import { statusLabel } from "./format";
 
 export interface JourneyStage {
@@ -23,8 +24,16 @@ function latestBooking(bookings: ResidentBooking[]) {
 }
 
 function hasRequiredIdentityDocuments(data: DashboardData) {
-  const activeDocs = data.documents.filter((doc) => ["uploaded", "verified"].includes(doc.status));
-  return activeDocs.some((doc) => doc.document_type === "student_card") && activeDocs.some((doc) => doc.document_type === "ghana_card");
+  const docs = latestIdentityDocuments(data.documents);
+  return isDocumentUploaded(docs.student_card) && isDocumentUploaded(docs.ghana_card);
+}
+
+function missingDocumentLabels(data: DashboardData) {
+  const docs = latestIdentityDocuments(data.documents);
+  return [
+    !isDocumentUploaded(docs.student_card) ? "Student Card" : null,
+    !isDocumentUploaded(docs.ghana_card) ? "Ghana Card" : null
+  ].filter(Boolean) as string[];
 }
 
 export function buildJourney(data: DashboardData): JourneyStage[] {
@@ -33,9 +42,10 @@ export function buildJourney(data: DashboardData): JourneyStage[] {
   const docsReady = hasRequiredIdentityDocuments(data);
   const appApproved = app?.status === "approved";
   const bookingReady = booking && ["pending", "confirmed", "completed"].includes(booking.status);
+  const missingDocs = missingDocumentLabels(data);
   return [
     { key: "account", label: "Account", status: "complete", detail: statusLabel(data.profile.status) },
-    { key: "documents", label: "Documents", status: docsReady ? "complete" : "current", detail: docsReady ? "Required documents uploaded" : "Required documents pending" },
+    { key: "documents", label: "Documents", status: docsReady ? "complete" : "current", detail: docsReady ? "Required documents uploaded" : `${missingDocs.join(" and ")} required` },
     { key: "application", label: "Application", status: app ? app.status === "rejected" ? "attention" : appApproved ? "complete" : "current" : "pending", detail: app ? statusLabel(app.status) : "Not started" },
     { key: "booking", label: "Booking", status: bookingReady ? booking.status === "confirmed" || booking.status === "completed" ? "complete" : "current" : "pending", detail: booking ? statusLabel(booking.status) : "No active booking" },
     { key: "payment", label: "Payment", status: booking?.status === "confirmed" || booking?.status === "completed" ? "complete" : booking?.status === "pending" ? "current" : "pending", detail: booking ? "Payment details limited in Resident Portal" : "Waiting for booking" },
@@ -47,7 +57,9 @@ export function nextAction(data: DashboardData): NextAction {
   const app = latestApplication(data.applications);
   const booking = latestBooking(data.bookings);
   if (!hasRequiredIdentityDocuments(data)) {
-    return { label: "Complete your required documents", description: "Student Card and Ghana Card uploads are required before application submission.", href: "/documents" };
+    const missing = missingDocumentLabels(data);
+    const target = missing.length === 1 ? missing[0] : "required documents";
+    return { label: `Upload your ${target}`, description: "Student Card and Ghana Card uploads are required before application submission.", href: "/documents" };
   }
   if (!app) return { label: "Start your hostel application", description: "Create your application for the active academic session when applications open.", href: "/application" };
   if (app.status === "draft") return { label: "Continue your draft application", description: "Review and submit your draft application.", href: "/application" };

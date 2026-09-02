@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { ResidentShell } from "../components/layout/ResidentShell";
+import { DocumentsPage } from "../pages/Documents/DocumentsPage";
 import { HomePage } from "../pages/Home/HomePage";
 import { LoginPage } from "../pages/Login/LoginPage";
 import { PlaceholderPage } from "../pages/Placeholder/PlaceholderPage";
@@ -10,7 +11,6 @@ import { ProtectedRoute } from "./ProtectedRoute";
 import { RootRedirect } from "./RootRedirect";
 
 const placeholders = [
-  { path: "/documents", title: "Documents", description: "Private document metadata and secure access workflows will appear here." },
   { path: "/application", title: "Application", description: "The resident application workflow will appear here." },
   { path: "/booking", title: "Booking", description: "Your booking details and history will appear here." },
   { path: "/payments", title: "Payments", description: "Payment submission and history will appear here." },
@@ -31,6 +31,7 @@ export function AppRoutes() {
         <Route element={<ResidentShell />}>
           <Route path="/home" element={<HomePage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/documents" element={<DocumentsPage />} />
           {placeholders.map((route) => (
             <Route key={route.path} path={route.path} element={<PlaceholderPage title={route.title} description={route.description} />} />
           ))}

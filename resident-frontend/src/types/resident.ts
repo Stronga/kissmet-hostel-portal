@@ -19,10 +19,13 @@ export interface ResidentProfile {
 
 export interface ResidentDocument {
   id: number;
-  document_type: string;
-  status: string;
+  document_type: "student_card" | "ghana_card" | string;
+  status: "uploaded" | "verified" | "rejected" | string;
   original_filename?: string | null;
+  content_type?: string | null;
+  size_bytes?: number | null;
   created_at?: string | null;
+  rejection_reason?: string | null;
 }
 
 export interface ResidentApplication {

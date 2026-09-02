@@ -126,7 +126,7 @@ export class ResidentService {
 
   async ownDocument(actor: AuthUser, id: number) {
     if (!actor.residentId) throw new Error("Resident session required");
-    const doc = await this.repo.first<Record<string, unknown>>("SELECT id, document_type, status, original_filename, content_type, size_bytes, r2_key FROM documents WHERE id = ? AND resident_id = ?", id, actor.residentId);
+    const doc = await this.repo.first<Record<string, unknown>>("SELECT id, document_type, status, original_filename, content_type, size_bytes, created_at FROM documents WHERE id = ? AND resident_id = ?", id, actor.residentId);
     if (!doc) throw new Error("Document not found");
     return doc;
   }

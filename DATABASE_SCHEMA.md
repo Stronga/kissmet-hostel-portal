@@ -283,6 +283,7 @@ Stores R2 object metadata and links to domain records.
 - Unique constraints: `r2_key`.
 - No binary file contents are stored in D1.
 - Student Card and Ghana Card files must be stored privately in R2; D1 stores only metadata and object references.
+- Resident-facing document metadata must not expose private R2 object keys. File viewing/download must be mediated by authenticated backend ownership checks before any private object content is streamed.
 - Ghana Card numbers must not be used as authentication credentials.
 - Ownership rule: document links must be internally consistent. For example, a payment-slip document linked to a `payment_id` must belong to the same resident as that payment; a receipt document linked to a `receipt_id` must trace through its payment to the same resident; an application document must belong to the same resident as the application. These cross-table ownership rules are enforced in the service layer because SQLite `CHECK` constraints cannot query other tables.
 - A document may be attached to multiple related records only when those records belong to the same resident workflow. Services must reject documents attached to unrelated residents, bookings, payments, or receipts.

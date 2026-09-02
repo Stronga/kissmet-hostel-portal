@@ -162,6 +162,7 @@ describe("resident onboarding", () => {
     repo.rows.documents.push({ id: 1, resident_id: 1, document_type: "student_card", status: "uploaded" });
     repo.rows.applications.push({ id: 1, resident_id: 1, application_number: "KSM-APP-0001", status: "draft" });
     await expect(svc.me(resident)).resolves.toMatchObject({ resident_code: "KSM-RES-0001" });
+    await expect(svc.ownDocument(resident, 1)).resolves.not.toHaveProperty("r2_key");
     await expect(svc.ownDocument(otherResident, 1)).rejects.toThrow("Document not found");
     await expect(svc.ownApplication(otherResident, 1)).rejects.toThrow("Application not found");
   });

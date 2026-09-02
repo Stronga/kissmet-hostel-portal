@@ -92,7 +92,14 @@ describe("resident home dashboard", () => {
     mockDashboard({});
     render(renderResidentApp(["/home"]));
 
-    expect(await screen.findByText("Complete your required documents")).toBeInTheDocument();
+    expect(await screen.findByText("Upload your required documents")).toBeInTheDocument();
+  });
+
+  it("sets next action for one missing identity document", async () => {
+    mockDashboard({ documents: [{ id: 1, document_type: "student_card", status: "uploaded" }] });
+    render(renderResidentApp(["/home"]));
+
+    expect(await screen.findByText("Upload your Ghana Card")).toBeInTheDocument();
   });
 
   it("sets next action for draft application", async () => {
@@ -166,13 +173,13 @@ describe("resident home dashboard", () => {
     expect(screen.getByText("Bed 1")).toBeInTheDocument();
   });
 
-  it("links next actions to placeholder routes without implementing workflows", async () => {
+  it("links document next action to the real documents page", async () => {
     mockDashboard({});
     render(renderResidentApp(["/home"]));
 
-    await screen.findByText("Complete your required documents");
+    await screen.findByText("Upload your required documents");
     await userEvent.click(screen.getByRole("link", { name: "Continue" }));
     expect(await screen.findByRole("heading", { name: "Documents" })).toBeInTheDocument();
-    expect(screen.getByText(/Coming in a later resident portal phase/i)).toBeInTheDocument();
+    expect(screen.getByText("0 of 2 uploaded")).toBeInTheDocument();
   });
 });

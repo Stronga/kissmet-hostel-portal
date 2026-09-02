@@ -16,6 +16,13 @@ export function fetchResidentDocuments() {
   return apiRequest<{ ok: true; data: ResidentDocument[] }>("/resident/me/documents");
 }
 
+export function uploadResidentIdentityDocument(type: "student_card" | "ghana_card", file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const path = type === "student_card" ? "/resident/me/documents/student-card" : "/resident/me/documents/ghana-card";
+  return apiRequest<{ ok: true; data: ResidentDocument }>(path, { method: "POST", body: formData });
+}
+
 export function fetchResidentApplications() {
   return apiRequest<{ ok: true; data: ResidentApplication[] }>("/resident/me/applications");
 }
