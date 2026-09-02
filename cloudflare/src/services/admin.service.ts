@@ -417,7 +417,24 @@ export class AdminService {
     if (payment.status !== "submitted") throw new Error("Invalid workflow transition");
     const before = await this.bookingPaymentSummary(Number(payment.booking_id));
     if (before.verifiedPaidMinor + Number(payment.amount_minor) > before.bookingTotalMinor) throw new Error("Payment would exceed booking total");
-    await this.repo.run("UPDATE payments SET status = 'verified', verified_by_staff_id = ?, verified_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), notes = COALESCE(?, notes), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", actor.staffId, notes ?? null, id);
+    const update = await this.repo.run(`
+      UPDATE payments
+      SET status = 'verified',
+          verified_by_staff_id = ?,
+          verified_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+          notes = COALESCE(?, notes),
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE id = ?
+        AND status = 'submitted'
+        AND (SELECT b.total_amount_minor FROM bookings b WHERE b.id = ?) >= (
+          SELECT COALESCE(SUM(p.amount_minor), 0) + ?
+          FROM payments p
+          WHERE p.booking_id = ?
+            AND p.status = 'verified'
+            AND p.id <> ?
+        )
+    `, actor.staffId, notes ?? null, id, payment.booking_id, payment.amount_minor, payment.booking_id, id);
+    if (update.meta.changes !== 1) throw new Error("Payment would exceed booking total");
     const after = await this.bookingPaymentSummary(Number(payment.booking_id));
     await this.repo.audit(actor.id, actor.staffId, "admin.payment.verified", "payment", id, { bookingId: payment.booking_id, eligibleForConfirmation: after.confirmationRequirementMet });
     if (!before.confirmationRequirementMet && after.confirmationRequirementMet) {

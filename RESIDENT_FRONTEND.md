@@ -345,7 +345,7 @@ Allowed resident payment methods are `cash`, `bank_transfer`, `mobile_money`, `c
 
 Payment slip upload is private. The frontend sends authenticated `FormData` with field name `file` and accepts only PDF, JPEG, PNG, and WebP files up to 5 MB. R2 object keys, bucket names, and public storage URLs are never displayed or constructed in the frontend. Slip content viewing/downloading is not exposed by the current resident backend.
 
-Residents can submit a `pending` payment for staff verification. Submission changes the payment to `submitted`; it does not verify payment, issue a receipt, or confirm the booking. Staff-only verification and booking confirmation remain backend/admin operations. Rejected payments can be viewed historically; residents create a new payment record rather than bypassing backend status rules with a frontend-only resubmission path.
+Residents can submit a `pending` payment for staff verification. Submission changes the payment to `submitted`; it does not verify payment, issue a receipt, or confirm the booking. Staff-only verification and booking confirmation remain backend/admin operations. Staff verification includes an update-time overpayment guard so concurrent verification attempts cannot silently push verified totals beyond the booking total. Rejected payments can be viewed historically; residents create a new payment record rather than bypassing backend status rules with a frontend-only resubmission path.
 
 Receipt history is read-only for residents. The page lists issued and voided receipt metadata tied to resident-owned payments. Residents cannot issue, void, refund, verify, or mutate receipts from the portal. Receipt PDF/content download remains unavailable until a resident-safe backend streaming endpoint is added.
 
@@ -532,6 +532,6 @@ Latest Phase R7 validation:
 - resident-frontend tests: 10 files / 99 tests passed
 - resident-frontend build: passed
 - cloudflare typecheck: passed
-- cloudflare tests: 5 files / 98 tests passed
+- cloudflare tests: 5 files / 99 tests passed
 
 No D1 migrations were required for Phase R7. Backend code added resident-owned payment summary, payment listing, payment creation, payment submission, private payment slip upload, and receipt read endpoints using the existing payments, receipts, documents, bookings, and payment confirmation settings schema.

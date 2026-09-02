@@ -42,6 +42,15 @@ Allowed transitions:
 
 Verification is performed only through the verify endpoint. Clients cannot submit a trusted verified status.
 
+Payment verification now has a D1-compatible update-time overpayment guard. The service still reads the booking payment summary first to produce the normal validation error, but the final `UPDATE payments ... SET status = 'verified'` is also conditional:
+
+- the payment row must still be `submitted`
+- the booking's `total_amount_minor` must still be greater than or equal to the current verified total for that booking plus the payment being verified
+- the verified-total subquery excludes the payment being updated
+- the service requires exactly one changed row
+
+This protects the known race where two submitted payments for the same booking are verified close together after both pass a stale read-time summary check. If another verification wins first and the second payment would overpay the booking, the second conditional update changes zero rows and the service returns `Payment would exceed booking total`. The submitted payment remains submitted for staff review. This does not change payment statuses, receipt rules, booking confirmation thresholds, refund behavior, or financial formulas.
+
 ## Part Payments
 
 Multiple payments may be recorded for one booking. Calculated values are derived from payment records:

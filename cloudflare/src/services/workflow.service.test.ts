@@ -98,6 +98,19 @@ class WorkflowRepo {
     if (sql.startsWith("UPDATE payments SET status = 'verified'")) {
       const row = this.rows.payments.find((p) => p.id === binds[2]);
       if (row) Object.assign(row, { status: "verified", verified_by_staff_id: binds[0], notes: binds[1] });
+      return { meta: { changes: row ? 1 : 0 } };
+    }
+    if (sql.includes("UPDATE payments") && sql.includes("AND status = 'submitted'") && sql.includes("COALESCE(SUM(p.amount_minor)")) {
+      const row = this.rows.payments.find((p) => p.id === binds[2] && p.status === "submitted");
+      const booking = this.rows.bookings.find((b) => b.id === binds[3]);
+      const verified = this.rows.payments
+        .filter((p) => p.booking_id === binds[5] && p.status === "verified" && p.id !== binds[6])
+        .reduce((sum, p) => sum + Number(p.amount_minor), 0);
+      if (row && booking && Number(booking.total_amount_minor) >= verified + Number(binds[4])) {
+        Object.assign(row, { status: "verified", verified_by_staff_id: binds[0], notes: binds[1] });
+        return { meta: { changes: 1 } };
+      }
+      return { meta: { changes: 0 } };
     } else if (sql.startsWith("UPDATE payments SET status = 'refunded'")) {
       const row = this.rows.payments.find((p) => p.id === binds[1]);
       if (row) Object.assign(row, { status: "refunded", notes: binds[0] });
@@ -428,6 +441,19 @@ describe("phase 5 workflows", () => {
     await svc.createPayment(manager, { bookingId: secondBooking, residentId: 1, amountMinor: 300000, method: "cash" });
     await svc.updatePaymentStatus(manager, 2, "submitted");
     await expect(svc.verifyPayment(manager, 2)).rejects.toThrow("Payment would exceed booking total");
+  });
+
+  it("guards verification update against concurrent overpayment", async () => {
+    const { svc, repo } = service();
+    const bookingId = await approvedBooking(svc, repo);
+    await svc.createPayment(manager, { bookingId, residentId: 1, amountMinor: 150000, method: "cash" });
+    await svc.createPayment(manager, { bookingId, residentId: 1, amountMinor: 150000, method: "mobile_money" });
+    await svc.updatePaymentStatus(manager, 1, "submitted");
+    await svc.updatePaymentStatus(manager, 2, "submitted");
+    await svc.verifyPayment(manager, 1);
+    await expect(svc.verifyPayment(manager, 2)).rejects.toThrow("Payment would exceed booking total");
+    expect(repo.rows.payments.find((p) => p.id === 2)?.status).toBe("submitted");
+    expect(await svc.bookingPaymentSummary(bookingId)).toMatchObject({ verifiedPaidMinor: 150000, balanceMinor: 100000 });
   });
 
   it("uploads private payment-slip metadata and issues unique receipts only for verified payments", async () => {
