@@ -5,6 +5,7 @@ Phase R2 replaces the auth placeholders with real resident registration and OTP 
 Phase R3 replaces the neutral Home and Profile placeholders with real resident-owned dashboard and profile views.
 Phase R4 replaces the Documents placeholder with real Student Card and Ghana Card upload management.
 Phase R5 replaces the Application placeholder with the real resident draft/submission workflow.
+Phase R6 replaces the Booking placeholder with a real read-only resident booking lifecycle view.
 
 ## Stack
 
@@ -111,6 +112,7 @@ No production UI uses mock residents or fake API responses.
 Resident auth API wrappers live in `src/api/residentAuth.ts`, public institution loading lives in `src/api/institutions.ts`, and resident-owned dashboard/profile API wrappers live in `src/api/resident.ts`.
 Identity document upload uses authenticated `FormData` through the same API client. The client does not manually set multipart boundaries.
 Resident application creation/submission also uses `src/api/resident.ts` and never calls admin application endpoints.
+Resident booking display uses the same API layer and remains read-only.
 
 ## Shell And Navigation
 
@@ -274,6 +276,51 @@ The timeline renders only real backend timestamps: `created_at`, `submitted_at`,
 
 Rejected applications show `decision_notes` only because that field is already exposed by the resident endpoint. If it is absent, the UI shows a neutral fallback message.
 
+## Booking
+
+`/booking` is a real resident booking view. R6 is read-only because the current backend treats booking creation and confirmation as admin/operational workflow after application approval.
+
+The page uses resident-owned endpoints only:
+
+- `GET /resident/me/bookings`
+- `GET /resident/me/applications`
+- `GET /resident/me/allocation`
+
+The frontend does not call admin booking, room, payment, or allocation APIs. It never sends or exposes arbitrary `resident_id`, `user_id`, booking owner fields, `priced_room_rate_id`, staff IDs, or audit metadata.
+
+The resident booking response was expanded with safe labels and timestamps:
+
+- booking number
+- status
+- academic session code/name
+- related application number
+- captured `total_amount_minor`
+- currency
+- booked/created/expiry/cancelled/completed timestamps
+- priced room code/name
+- resident-safe payment-attention fields
+
+Internal pricing IDs remain hidden. The resident page displays the priced room as `Room used for booking price`, not `Your Room`.
+
+Booking lifecycle labels preserve backend semantics:
+
+- `pending` -> Pending
+- `confirmed` -> Confirmed
+- `cancelled` -> Cancelled
+- `expired` -> Expired
+- `completed` -> Completed
+- `archived` -> Archived
+
+The captured financial basis is always the booking's stored `total_amount_minor` and `currency`. The Resident Portal does not recalculate booking amounts from current room rates and does not fetch newer room rates to overwrite historical booking obligations.
+
+Payment-stage wording is intentionally limited. R6 shows the captured amount due and links to `/payments`, but it does not implement payment submission or verified payment totals. The known resident-safe payment-summary gap remains; the Booking page does not show `GHS 0.00` as a fake verified amount.
+
+`payment_attention_required` may appear on confirmed bookings. This is valid because refunds can flag attention without automatically de-confirming a booking. The UI shows a resident-friendly warning when the field is present.
+
+Actual room/bed assignment comes only from `GET /resident/me/allocation`. A confirmed booking without allocation shows that no room or bed has been assigned yet. A priced room alone is never treated as an allocation.
+
+Booking history is shown when multiple resident-owned bookings are returned. Pending/confirmed bookings are treated as current; cancelled, expired, completed, archived, and older records are shown as history.
+
 ## Reusable Components And Utilities
 
 R1 adds:
@@ -320,9 +367,8 @@ Auth errors are mapped to resident-safe messages. The UI does not expose SQL err
 
 ## Known Limitations
 
-R5 completes the resident application workflow. The following remain later phases:
+R6 completes the resident booking view. The following remain later phases:
 
-- booking UI
 - payments and receipts
 - maintenance requests
 - announcements
@@ -336,11 +382,13 @@ Resident document viewing/download remains unavailable until a backend endpoint 
 
 The Application page has no cancellation action because the current resident backend does not expose a cancellation endpoint. Booking creation/actions remain outside R5.
 
+The Booking page has no resident create, confirm, or cancel action because the current resident backend does not expose those operations. Payment submission and verified payment summaries remain R7.
+
 Static Kissmet branding remains in use. The Resident Portal still does not call admin-only settings endpoints.
 
 ## Validation
 
-Phase R1/R2/R3/R4/R5 tests cover:
+Phase R1/R2/R3/R4/R5/R6 tests cover:
 
 - app rendering
 - unauthenticated `/` redirect to `/login`
@@ -416,13 +464,28 @@ Phase R1/R2/R3/R4/R5 tests cover:
 - approved application not displaying room/payment/allocation completion
 - resident-safe rejection reason and fallback behavior
 - no admin application API usage
+- protected Booking route
+- Booking loading and retryable error states
+- no-booking messaging before and after application approval
+- pending, confirmed, cancelled, expired, completed, and archived booking states
+- booking history separation
+- captured booking total from `total_amount_minor` and `currency`
+- academic session and related application labels
+- priced room shown as pricing source, not actual room assignment
+- no internal rate IDs, resident IDs, or application IDs displayed
+- no frontend recalculation from current room rates
+- payment-stage explanation without fake verified totals
+- no admin payment API usage
+- payment-attention display on confirmed bookings
+- allocation shown only from active allocation data
+- no resident booking creation action
 
-Latest Phase R5 validation:
+Latest Phase R6 validation:
 
 - resident-frontend typecheck: passed
-- resident-frontend tests: 8 files / 74 tests passed
+- resident-frontend tests: 9 files / 86 tests passed
 - resident-frontend build: passed
 - cloudflare typecheck: passed
 - cloudflare tests: 5 files / 94 tests passed
 
-No D1 migrations were required for Phase R5. Backend code changed only to expose the resident-safe active academic session and reject resident draft creation for non-active sessions.
+No D1 migrations were required for Phase R6. Backend code changed only to enrich the resident-owned booking list response with safe labels, timestamps, priced-room display fields, and payment-attention fields.

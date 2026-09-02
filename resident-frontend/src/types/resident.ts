@@ -52,9 +52,22 @@ export interface ResidentBooking {
   id: number;
   booking_number: string;
   academic_session_id: number;
+  application_id?: number | null;
   status: BookingStatus;
   total_amount_minor: number;
   currency: string;
+  booked_at?: string | null;
+  expires_at?: string | null;
+  cancelled_at?: string | null;
+  completed_at?: string | null;
+  created_at?: string | null;
+  payment_attention_required?: number | boolean | null;
+  payment_attention_reason?: string | null;
+  academic_session_code?: string | null;
+  academic_session_name?: string | null;
+  application_number?: string | null;
+  priced_room_code?: string | null;
+  priced_room_name?: string | null;
 }
 
 export interface ResidentAllocation {

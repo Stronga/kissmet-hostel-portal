@@ -25,7 +25,7 @@ class Repo {
     sessions: [],
     documents: [],
     applications: [],
-    bookings: [{ id: 1, resident_id: 1, booking_number: "KSM-BKG-0001", status: "pending", total_amount_minor: 250000, currency: "GHS" }],
+    bookings: [{ id: 1, resident_id: 1, academic_session_id: 1, application_id: 1, booking_number: "KSM-BKG-0001", status: "pending", total_amount_minor: 250000, currency: "GHS", priced_room_id: 1, payment_attention_required: 0 }],
     allocations: [{ id: 1, resident_id: 1, status: "active", bed_id: 1, academic_session_id: 1 }],
     beds: [{ id: 1, room_id: 1, bed_code: "R1-A", label: "A" }],
     rooms: [{ id: 1, room_code: "R1", room_name: "Room 1" }],
@@ -41,7 +41,14 @@ class Repo {
     if (sql.includes("FROM institutions")) return { results: this.rows.institutions.filter((i) => i.status === "active").map(({ code, name }) => ({ code, name })) as T[] };
     if (sql.includes("FROM documents")) return { results: this.rows.documents.filter((d) => d.resident_id === binds[0]) as T[] };
     if (sql.includes("FROM applications")) return { results: this.rows.applications.filter((a) => a.resident_id === binds[0]) as T[] };
-    if (sql.includes("FROM bookings")) return { results: this.rows.bookings.filter((b) => b.resident_id === binds[0]) as T[] };
+    if (sql.includes("FROM bookings")) return {
+      results: this.rows.bookings.filter((b) => b.resident_id === binds[0]).map((b) => {
+        const session = this.rows.academic_sessions.find((s) => s.id === b.academic_session_id);
+        const app = this.rows.applications.find((a) => a.id === b.application_id);
+        const room = this.rows.rooms.find((r) => r.id === b.priced_room_id);
+        return { ...b, academic_session_code: session?.code, academic_session_name: session?.name, application_number: app?.application_number, priced_room_code: room?.room_code, priced_room_name: room?.room_name };
+      }) as T[]
+    };
     if (sql.includes("FROM maintenance_requests")) return { results: this.rows.maintenance_requests.filter((m) => m.resident_id === binds[0]) as T[] };
     if (sql.includes("FROM announcements")) return { results: this.rows.announcements.filter((a) => ["all", "residents"].includes(String(a.audience)) && a.status === "published" && (!a.expires_at || String(a.expires_at) > new Date().toISOString())) as T[] };
     return { results: [] as T[] };
@@ -195,6 +202,7 @@ describe("resident onboarding", () => {
     const app = await svc.createApplication(resident, 1) as Record<string, unknown>;
     await expect(svc.submitApplication(resident, Number(app.id))).rejects.toThrow("Incomplete application");
     await expect(svc.bookings(resident)).resolves.toMatchObject({ results: [{ booking_number: "KSM-BKG-0001" }] });
+    await expect(svc.bookings(resident)).resolves.toMatchObject({ results: [{ total_amount_minor: 250000, academic_session_name: "2026 Academic Year", priced_room_code: "R1" }] });
     await expect(svc.bookings(otherResident)).resolves.toMatchObject({ results: [] });
     await expect(svc.allocation(resident)).resolves.toMatchObject({ room_code: "R1" });
   });

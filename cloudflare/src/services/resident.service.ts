@@ -178,7 +178,20 @@ export class ResidentService {
 
   bookings(actor: AuthUser) {
     if (!actor.residentId) throw new Error("Resident session required");
-    return this.repo.all("SELECT id, booking_number, academic_session_id, status, total_amount_minor, currency FROM bookings WHERE resident_id = ? ORDER BY id DESC", actor.residentId);
+    return this.repo.all(`
+      SELECT b.id, b.booking_number, b.academic_session_id, b.application_id, b.status,
+             b.total_amount_minor, b.currency, b.booked_at, b.expires_at, b.cancelled_at,
+             b.completed_at, b.created_at, b.payment_attention_required, b.payment_attention_reason,
+             s.code AS academic_session_code, s.name AS academic_session_name,
+             a.application_number,
+             room.room_code AS priced_room_code, room.room_name AS priced_room_name
+      FROM bookings b
+      LEFT JOIN academic_sessions s ON s.id = b.academic_session_id
+      LEFT JOIN applications a ON a.id = b.application_id
+      LEFT JOIN rooms room ON room.id = b.priced_room_id
+      WHERE b.resident_id = ?
+      ORDER BY b.id DESC
+    `, actor.residentId);
   }
 
   allocation(actor: AuthUser) {
