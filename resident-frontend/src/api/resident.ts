@@ -89,3 +89,7 @@ export function fetchResidentReceipts() {
 export function fetchResidentAllocation() {
   return apiRequest<{ ok: true; data: ResidentAllocation | null }>("/resident/me/allocation");
 }
+
+export function fetchResidentAllocations() {
+  return apiRequest<{ ok: true; data: ResidentAllocation[] }>("/resident/me/allocations");
+}

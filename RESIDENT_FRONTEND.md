@@ -7,6 +7,7 @@ Phase R4 replaces the Documents placeholder with real Student Card and Ghana Car
 Phase R5 replaces the Application placeholder with the real resident draft/submission workflow.
 Phase R6 replaces the Booking placeholder with a real read-only resident booking lifecycle view.
 Phase R7 replaces the Payments placeholder with resident-owned payment submission, payment slip upload, and receipt history.
+Phase R8 replaces the My Room placeholder with a real active-allocation room and bed view.
 
 ## Stack
 
@@ -115,6 +116,7 @@ Identity document upload uses authenticated `FormData` through the same API clie
 Resident application creation/submission also uses `src/api/resident.ts` and never calls admin application endpoints.
 Resident booking display uses the same API layer and remains read-only.
 Resident payments, payment slip uploads, payment summaries, and receipt history use the same API layer and never call admin payment or receipt endpoints.
+Resident room assignment uses resident-owned allocation endpoints and never calls admin allocation APIs.
 
 ## Shell And Navigation
 
@@ -351,6 +353,47 @@ Receipt history is read-only for residents. The page lists issued and voided rec
 
 Payment attention can appear on confirmed bookings after refunds or other staff payment actions. The portal shows this as a resident-facing warning without changing booking status or verified payment history.
 
+## My Room
+
+`/room` is a real resident My Room page backed by resident-owned endpoints only:
+
+- `GET /resident/me/allocation`
+- `GET /resident/me/allocations`
+- `GET /resident/me/bookings`
+
+The active allocation is the only authority for the resident's actual room and bed. The page never infers a room assignment from application approval, booking status, the booking's priced room, payment status, or receipt status.
+
+The active room assignment displays resident-safe allocation details:
+
+- room code/name
+- bed label/code
+- allocation status
+- allocation start date
+- academic session code/name where available
+- booking number where available
+- room gender policy where useful
+
+Room and bed concepts remain distinct. A room is the physical room. A bed is the occupiable inventory inside that room. The resident is assigned to a specific bed through an allocation. The page does not use `rooms.capacity` to imply assignment or availability.
+
+Priced room and assigned room remain separate concepts. Booking pages may show `Room used for booking price`; My Room shows `Your room assignment`. If no active allocation exists, My Room does not display the priced room as the resident's assigned room.
+
+No-allocation states are based on real booking data:
+
+- no booking: explains that booking is required before allocation
+- pending booking: explains that room assignment happens after booking confirmation
+- confirmed booking without allocation: explains that the room and bed have not been assigned yet
+- cancelled/expired/latest non-current booking: explains there is no active room assignment
+
+Allocation history uses `GET /resident/me/allocations` and shows previous non-active assignments separately under Previous room assignments. Transferred, ended, cancelled, or archived allocations never appear as the current room. When staff transfer a resident, the old allocation remains history and the new active allocation becomes the only current assignment.
+
+Payment attention does not hide an active room. A confirmed booking can require payment attention after staff payment/refund activity while the allocation remains active. My Room shows a separate payment warning and link to `/payments` without changing allocation state.
+
+R8 is read-only for residents. The portal does not expose Choose Room, Choose Bed, Change Room, Transfer Room, End Allocation, Cancel Allocation, or Check Out actions. Allocation management remains staff/admin controlled.
+
+Backend enrichment added safe allocation labels to resident allocation responses: booking number, academic session code/name, room gender policy/status, bed code/label, and allocation dates. The backend still derives ownership from the authenticated resident session and does not expose assigned staff IDs, arbitrary resident lookup, audit metadata, or mutation endpoints.
+
+Gender-policy audit: `residents.gender` exists in the canonical schema, and admin allocation validation enforces room gender policy when a resident gender is present. Resident registration/profile self-service does not currently collect or update gender, so enforcement is conditional for residents created without that field. This is a production-hardening/onboarding gap for a later phase, not an R8 registration redesign.
+
 ## Reusable Components And Utilities
 
 R1 adds:
@@ -397,7 +440,7 @@ Auth errors are mapped to resident-safe messages. The UI does not expose SQL err
 
 ## Known Limitations
 
-R7 completes resident payment submission, payment slip upload, payment summaries, and receipt history. The following remain later phases:
+R8 completes resident active room and bed display. The following remain later phases:
 
 - maintenance requests
 - announcements
@@ -525,13 +568,24 @@ Phase R1/R2/R3/R4/R5/R6/R7 tests cover:
 - payment attention display on confirmed bookings
 - resident receipt history display for issued and voided receipts
 - no resident issue, void, verify, refund, admin payment, or admin receipt API usage
+- protected My Room route
+- My Room loading, retryable error, and no-allocation states
+- no booking, pending booking, confirmed/no-allocation, cancelled, and expired room guidance
+- active room display from active allocation only
+- bed display as specific allocated inventory
+- academic session and booking relationship display from allocation data
+- priced room not used as assigned room
+- allocation history separated from current active assignment
+- transferred/ended allocations excluded from current room
+- payment attention warning shown without hiding active allocation
+- no resident allocation mutation, admin allocation API use, arbitrary resident targeting, internal IDs, staff IDs, or audit metadata display
 
-Latest Phase R7 validation:
+Latest Phase R8 validation:
 
 - resident-frontend typecheck: passed
-- resident-frontend tests: 10 files / 99 tests passed
+- resident-frontend tests: 11 files / 111 tests passed
 - resident-frontend build: passed
 - cloudflare typecheck: passed
-- cloudflare tests: 5 files / 99 tests passed
+- cloudflare tests: 5 files / 100 tests passed
 
-No D1 migrations were required for Phase R7. Backend code added resident-owned payment summary, payment listing, payment creation, payment submission, private payment slip upload, and receipt read endpoints using the existing payments, receipts, documents, bookings, and payment confirmation settings schema.
+No D1 migrations were required for Phase R8. Backend code enriched resident-owned allocation reads and added a resident-safe allocation history endpoint using the existing allocations, rooms, beds, bookings, and academic sessions schema.

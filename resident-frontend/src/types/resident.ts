@@ -124,14 +124,20 @@ export interface ResidentReceipt {
 
 export interface ResidentAllocation {
   id: number;
-  bed_id: number;
   status: string;
   starts_on?: string | null;
+  ends_on?: string | null;
+  assigned_at?: string | null;
+  released_at?: string | null;
   room_code: string;
   room_name?: string | null;
+  room_gender_policy?: "female" | "male" | "any" | string | null;
+  room_status?: string | null;
   bed_code: string;
   label?: string | null;
-  academic_session_id: number;
+  academic_session_code?: string | null;
+  academic_session_name?: string | null;
+  booking_number?: string | null;
 }
 
 export interface DashboardData {

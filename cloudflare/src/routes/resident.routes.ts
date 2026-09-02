@@ -122,6 +122,7 @@ residentRoutes.get("/me/receipts/:id", async (c) => {
   try { return c.json(ok(await service(c).receipt(c.get("authUser"), Number(c.req.param("id"))))); }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
+residentRoutes.get("/me/allocations", async (c) => c.json(ok((await service(c).allocations(c.get("authUser"))).results ?? [])));
 residentRoutes.get("/me/allocation", async (c) => c.json(ok(await service(c).allocation(c.get("authUser")))));
 residentRoutes.get("/me/maintenance", async (c) => c.json(ok((await service(c).maintenance(c.get("authUser"))).results ?? [])));
 residentRoutes.post("/me/maintenance", async (c) => {

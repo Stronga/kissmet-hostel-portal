@@ -351,7 +351,39 @@ export class ResidentService {
 
   allocation(actor: AuthUser) {
     if (!actor.residentId) throw new Error("Resident session required");
-    return this.repo.first("SELECT a.id, a.bed_id, a.status, a.starts_on, room.room_code, room.room_name, b.bed_code, b.label, a.academic_session_id FROM allocations a JOIN beds b ON b.id = a.bed_id JOIN rooms room ON room.id = b.room_id WHERE a.resident_id = ? AND a.status = 'active' LIMIT 1", actor.residentId);
+    return this.repo.first(`
+      SELECT a.id, a.status, a.starts_on, a.ends_on, a.assigned_at, a.released_at,
+             room.room_code, room.room_name, room.gender_policy AS room_gender_policy, room.status AS room_status,
+             b.bed_code, b.label,
+             s.code AS academic_session_code, s.name AS academic_session_name,
+             bk.booking_number
+      FROM allocations a
+      JOIN beds b ON b.id = a.bed_id
+      JOIN rooms room ON room.id = b.room_id
+      JOIN academic_sessions s ON s.id = a.academic_session_id
+      JOIN bookings bk ON bk.id = a.booking_id
+      WHERE a.resident_id = ? AND a.status = 'active'
+      ORDER BY a.id DESC
+      LIMIT 1
+    `, actor.residentId);
+  }
+
+  allocations(actor: AuthUser) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    return this.repo.all(`
+      SELECT a.id, a.status, a.starts_on, a.ends_on, a.assigned_at, a.released_at,
+             room.room_code, room.room_name, room.gender_policy AS room_gender_policy, room.status AS room_status,
+             b.bed_code, b.label,
+             s.code AS academic_session_code, s.name AS academic_session_name,
+             bk.booking_number
+      FROM allocations a
+      JOIN beds b ON b.id = a.bed_id
+      JOIN rooms room ON room.id = b.room_id
+      JOIN academic_sessions s ON s.id = a.academic_session_id
+      JOIN bookings bk ON bk.id = a.booking_id
+      WHERE a.resident_id = ?
+      ORDER BY CASE WHEN a.status = 'active' THEN 0 ELSE 1 END, COALESCE(a.starts_on, a.assigned_at) DESC, a.id DESC
+    `, actor.residentId);
   }
 
   async createMaintenance(actor: AuthUser, data: { category: string; priority?: string; title: string; description?: string | null }) {

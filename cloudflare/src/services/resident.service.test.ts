@@ -29,9 +29,9 @@ class Repo {
     payments: [],
     receipts: [],
     payment_confirmation_settings: [{ id: 1, requirement_type: "full", fixed_amount_minor: null, percentage_basis_points: null, status: "active" }],
-    allocations: [{ id: 1, resident_id: 1, status: "active", bed_id: 1, academic_session_id: 1 }],
+    allocations: [{ id: 1, booking_id: 1, resident_id: 1, status: "active", bed_id: 1, academic_session_id: 1, starts_on: "2026-09-01", ends_on: null }],
     beds: [{ id: 1, room_id: 1, bed_code: "R1-A", label: "A" }],
-    rooms: [{ id: 1, room_code: "R1", room_name: "Room 1" }],
+    rooms: [{ id: 1, room_code: "R1", room_name: "Room 1", gender_policy: "female", status: "available" }],
     maintenance_requests: [{ id: 1, request_number: "KSM-MNT-0001", resident_id: 1, status: "open", title: "Leak", category: "plumbing", priority: "urgent" }, { id: 2, request_number: "KSM-MNT-0002", resident_id: 2, status: "open", title: "Other", category: "cleaning", priority: "normal" }],
     announcements: [{ id: 1, title: "Residents", audience: "residents", status: "published", expires_at: null }, { id: 2, title: "All", audience: "all", status: "published", expires_at: null }, { id: 3, title: "Staff", audience: "staff", status: "published", expires_at: null }, { id: 4, title: "Draft", audience: "all", status: "draft", expires_at: null }, { id: 5, title: "Expired", audience: "all", status: "published", expires_at: "2000-01-01T00:00:00.000Z" }]
   };
@@ -55,6 +55,15 @@ class Repo {
     };
     if (sql.includes("FROM payments")) return { results: this.rows.payments.filter((p) => p.resident_id === binds[0]).map((p) => ({ ...p, booking_number: this.rows.bookings.find((b) => b.id === p.booking_id)?.booking_number })) as T[] };
     if (sql.includes("FROM receipts")) return { results: this.rows.receipts.filter((r) => this.rows.payments.find((p) => p.id === r.payment_id)?.resident_id === binds[0]).map((r) => ({ ...r, ...this.rows.payments.find((p) => p.id === r.payment_id) })) as T[] };
+    if (sql.includes("FROM allocations")) return {
+      results: this.rows.allocations.filter((a) => a.resident_id === binds[0]).map((allocation) => {
+        const bed = this.rows.beds.find((b) => b.id === allocation.bed_id);
+        const room = this.rows.rooms.find((r) => r.id === bed?.room_id);
+        const session = this.rows.academic_sessions.find((s) => s.id === allocation.academic_session_id);
+        const booking = this.rows.bookings.find((b) => b.id === allocation.booking_id);
+        return { id: allocation.id, status: allocation.status, starts_on: allocation.starts_on, ends_on: allocation.ends_on, assigned_at: allocation.assigned_at, released_at: allocation.released_at, bed_code: bed?.bed_code, label: bed?.label, room_code: room?.room_code, room_name: room?.room_name, room_gender_policy: room?.gender_policy, room_status: room?.status, academic_session_code: session?.code, academic_session_name: session?.name, booking_number: booking?.booking_number };
+      }) as T[]
+    };
     if (sql.includes("FROM maintenance_requests")) return { results: this.rows.maintenance_requests.filter((m) => m.resident_id === binds[0]) as T[] };
     if (sql.includes("FROM announcements")) return { results: this.rows.announcements.filter((a) => ["all", "residents"].includes(String(a.audience)) && a.status === "published" && (!a.expires_at || String(a.expires_at) > new Date().toISOString())) as T[] };
     return { results: [] as T[] };
@@ -91,7 +100,9 @@ class Repo {
       const allocation = this.rows.allocations.find((a) => a.resident_id === binds[0] && a.status === "active");
       const bed = this.rows.beds.find((b) => b.id === allocation?.bed_id);
       const room = this.rows.rooms.find((r) => r.id === bed?.room_id);
-      return allocation ? { ...allocation, bed_code: bed?.bed_code, label: bed?.label, room_code: room?.room_code, room_name: room?.room_name } as T : null;
+      const session = this.rows.academic_sessions.find((s) => s.id === allocation?.academic_session_id);
+      const booking = this.rows.bookings.find((b) => b.id === allocation?.booking_id);
+      return allocation ? { id: allocation.id, status: allocation.status, starts_on: allocation.starts_on, ends_on: allocation.ends_on, assigned_at: allocation.assigned_at, released_at: allocation.released_at, bed_code: bed?.bed_code, label: bed?.label, room_code: room?.room_code, room_name: room?.room_name, room_gender_policy: room?.gender_policy, room_status: room?.status, academic_session_code: session?.code, academic_session_name: session?.name, booking_number: booking?.booking_number } as T : null;
     }
     if (sql.includes("FROM maintenance_requests")) return (this.rows.maintenance_requests.find((m) => m.id === binds[0] && m.resident_id === binds[1]) ?? null) as T;
     if (sql.includes("FROM announcements")) return (this.rows.announcements.find((a) => a.id === binds[0] && ["all", "residents"].includes(String(a.audience)) && a.status === "published" && (!a.expires_at || String(a.expires_at) > new Date().toISOString())) ?? null) as T;
@@ -242,7 +253,20 @@ describe("resident onboarding", () => {
     await expect(svc.bookings(resident)).resolves.toMatchObject({ results: [{ booking_number: "KSM-BKG-0001" }] });
     await expect(svc.bookings(resident)).resolves.toMatchObject({ results: [{ total_amount_minor: 250000, academic_session_name: "2026 Academic Year", priced_room_code: "R1" }] });
     await expect(svc.bookings(otherResident)).resolves.toMatchObject({ results: [] });
-    await expect(svc.allocation(resident)).resolves.toMatchObject({ room_code: "R1" });
+    await expect(svc.allocation(resident)).resolves.toMatchObject({ room_code: "R1", bed_code: "R1-A", academic_session_name: "2026 Academic Year", booking_number: "KSM-BKG-0001", room_gender_policy: "female" });
+    await expect(svc.allocation(otherResident)).resolves.toBeNull();
+  });
+
+  it("returns resident-owned allocation history with safe labels only", async () => {
+    const { svc, repo } = make();
+    repo.rows.allocations.unshift({ id: 2, booking_id: 1, resident_id: 1, status: "transferred", bed_id: 1, academic_session_id: 1, starts_on: "2026-08-01", ends_on: "2026-08-31", assigned_by_staff_id: 4 });
+    const rows = (await svc.allocations(resident)).results as Record<string, unknown>[];
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "active", room_code: "R1", bed_code: "R1-A", booking_number: "KSM-BKG-0001" }),
+      expect.objectContaining({ status: "transferred", starts_on: "2026-08-01", ends_on: "2026-08-31" })
+    ]));
+    expect(JSON.stringify(rows)).not.toMatch(/assigned_by_staff_id|staffId|audit/i);
+    expect((await svc.allocations(otherResident)).results).toEqual([]);
   });
 
   it("keeps Ghana Card staff access restricted by permission", async () => {

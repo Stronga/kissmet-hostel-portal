@@ -140,6 +140,10 @@ Pending, cancelled, expired, completed, and archived bookings cannot receive a n
 
 The allocation service rejects cross-room allocation when the destination room's active rate for the booking's session differs from the booking's captured `total_amount_minor` or `currency`.
 
+Resident-facing allocation reads are read-only and ownership-scoped. `GET /resident/me/allocation` returns only the resident's active allocation, and `GET /resident/me/allocations` returns that resident's allocation history with safe room, bed, academic session, booking number, status, and date labels. These resident endpoints do not expose assigned staff IDs, arbitrary resident lookup, admin controls, audit metadata, or allocation mutation.
+
+Gender-policy audit: `residents.gender` exists and admin allocation validation compares it with `rooms.gender_policy` when gender is present. Resident registration/profile self-service does not currently collect gender, so gender-policy enforcement is complete only for residents whose gender has been captured by staff/admin or another trusted workflow. Residents without a stored gender are not rejected by the current allocation validation; this remains a production-hardening/onboarding gap.
+
 ## Transfers
 
 A transfer validates the destination bed first. It then marks the old active allocation as `transferred` with end/release timestamps and creates a new active allocation for the destination bed. The old bed assignment remains as history, and the active-allocation unique indexes remain the final concurrency guard.
