@@ -10,6 +10,7 @@ Phase R7 replaces the Payments placeholder with resident-owned payment submissio
 Phase R8 replaces the My Room placeholder with a real active-allocation room and bed view.
 Phase R9 replaces the Maintenance placeholder with resident-owned maintenance request creation and tracking.
 Phase R10 replaces the Announcements and Messages placeholders with read-only resident communications.
+Phase R11 hardens Resident Portal UX only: shared empty/error states, session-expiry messaging, mobile navigation active states, copy/journey clarity, forms, and accessibility — without new business domains or backend contract changes.
 
 ## Stack
 
@@ -66,7 +67,7 @@ Protected resident routes:
 - Token storage is intentionally separate from Admin's `kissmet_admin_token`.
 - Session restore calls `GET /auth/me`.
 - Logout calls `POST /auth/logout`, clears local state, and redirects to `/login`.
-- `401` API responses clear resident auth state.
+- `401` API responses clear resident auth state, mark a one-time session-expired flag in `sessionStorage`, and redirect unauthenticated users to `/login`, which shows a short banner once.
 - `/auth/me` must return `userType = resident`, `role = resident`, and a non-null `residentId`.
 - Staff/admin sessions are rejected safely and are not treated as resident sessions.
 
@@ -719,3 +720,40 @@ Latest Phase R10 validation:
 - cloudflare tests: 5 files / 103 tests passed
 
 No D1 migrations were required for Phase R10. Backend code added resident-owned private message reads and idempotent read marking using the existing `messages`, `message_recipient_snapshots`, and `portal_message_deliveries` schema. Announcements use the existing resident-safe published/audience/expiry/channel filters.
+
+## Phase R11 — Resident Portal UX Hardening
+
+R11 is UX-only. R1–R10 business and security contracts remain locked.
+
+### Shared UX
+
+- `EmptyState` accepts optional `actionHref` + `actionLabel` for next-action CTAs.
+- `ErrorState` accepts optional `onRetry` / `retryLabel`.
+- Session expiry: API `401` marks `kissmet_resident_session_expired`, clears resident auth, and Login shows a one-time banner. Intentional logout does not show the banner.
+- Mobile More menu links use active styles; the More button itself is active on More routes.
+- Focus-visible outlines added for interactive controls; long references use `break-anywhere`.
+- Unused `PlaceholderPage` removed (unreachable after R3–R10).
+
+### Copy And Journey Clarity
+
+- Application approval = eligible for booking, not room/payment completion.
+- Booking: priced room ≠ assigned room.
+- Payments: verified-only totals; upload ≠ verified; threshold ≠ auto-confirm.
+- Documents continue to use Not uploaded / Awaiting verification / Verified / Needs attention labels.
+- Home promotes Next Action and keeps partial-failure warnings with retry.
+
+### Explicit Non-Goals Left For Later (R12+)
+
+- No nav unread Messages badge (would need shell-level message fetch or new global state; Home/Messages already show unread from backend delivery data).
+- No document View/Download or R2 exposure.
+- No message reply/chat.
+- No Admin redesign, CORS, live SMS/email, MoMo, streaming, emergency contacts, gender onboarding, PBKDF2, Cloudflare secrets, custom domain, or D1 backup work.
+- No new design/query/form libraries.
+
+### Tests Added Or Extended
+
+- EmptyState optional CTA
+- ErrorState optional retry
+- MobileNav More active states
+- Auth 401 → session-expired login banner
+

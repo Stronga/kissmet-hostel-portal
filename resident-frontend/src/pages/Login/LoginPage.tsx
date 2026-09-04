@@ -1,11 +1,12 @@
-import { FormEvent, useMemo, useRef, useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { requestResidentLoginOtp } from "../../api/residentAuth";
 import { Card } from "../../components/common/Card";
 import { ErrorState } from "../../components/common/ErrorState";
 import { FormField, SelectField } from "../../components/common/FormField";
 import { Button } from "../../components/common/Button";
 import { useAuth } from "../../auth/AuthContext";
+import { consumeSessionExpiredFlag } from "../../auth/sessionExpiry";
 import { loginContext, saveVerificationContext } from "../../auth/verificationContext";
 import { useInstitutions } from "../../hooks/useInstitutions";
 import { usePageTitle } from "../../hooks/usePageTitle";
@@ -15,13 +16,25 @@ export function LoginPage() {
   const { isAuthenticated } = useAuth();
   const { institutions, isLoading, error: institutionError } = useInstitutions();
   const navigate = useNavigate();
+  const location = useLocation();
   const [institutionCode, setInstitutionCode] = useState("");
   const [studentId, setStudentId] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sessionExpiredMessage] = useState(() => {
+    const fromNav = Boolean((location.state as { sessionExpired?: boolean } | null)?.sessionExpired);
+    const fromFlag = consumeSessionExpiredFlag();
+    return fromNav || fromFlag ? "Your session expired. Please sign in again to continue." : null;
+  });
   const submitLock = useRef(false);
   usePageTitle("Login");
+
+  useEffect(() => {
+    if ((location.state as { sessionExpired?: boolean } | null)?.sessionExpired) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, location.state, navigate]);
 
   const options = useMemo(() => institutions.map((item) => ({ value: item.code, label: item.name })), [institutions]);
 
@@ -58,6 +71,11 @@ export function LoginPage() {
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">Kissmet</p>
         <h1 className="mt-2 text-2xl font-semibold text-text-primary">Resident Portal</h1>
         <p className="mt-2 text-sm text-text-secondary">Sign in with your institution, student ID, and the OTP sent to your registered phone.</p>
+        {sessionExpiredMessage ? (
+          <div className="mt-4 rounded-token border border-warning/40 bg-amber-50 p-3 text-sm text-warning" role="status">
+            {sessionExpiredMessage}
+          </div>
+        ) : null}
         {institutionError ? <div className="mt-4"><ErrorState message={institutionError} /></div> : null}
         <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
           <SelectField

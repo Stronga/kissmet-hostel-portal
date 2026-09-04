@@ -13,6 +13,7 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Promise<Respons
 describe("resident auth provider", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   afterEach(() => {
@@ -30,13 +31,14 @@ describe("resident auth provider", () => {
     }));
   });
 
-  it("clears auth state on 401", async () => {
+  it("clears auth state on 401 and shows a session-expired login message", async () => {
     seedResidentToken();
     mockFetch(() => Response.json({ error: "Unauthorized" }, { status: 401 }));
     render(renderResidentApp(["/home"]));
 
     expect(await screen.findByRole("heading", { name: /Resident Portal/i })).toBeInTheDocument();
     expect(localStorage.getItem(RESIDENT_TOKEN_KEY)).toBeNull();
+    expect(await screen.findByRole("status")).toHaveTextContent(/session expired/i);
   });
 
   it("rejects a non-resident authenticated user safely", async () => {

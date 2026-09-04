@@ -166,7 +166,7 @@ describe("resident application workflow", () => {
     const states = [
       { status: "submitted", text: "Your application has been submitted and is waiting for review." },
       { status: "under_review", text: "Kissmet staff are reviewing your application." },
-      { status: "approved", text: "Your application has been approved. You can proceed to booking when a booking is available or created according to the current workflow." },
+      { status: "approved", text: "Approval means you are eligible for booking. It does not assign a room, create a payment, or confirm accommodation by itself." },
       { status: "rejected", text: "Documents are unclear." },
       { status: "archived", text: "This application is archived." }
     ];

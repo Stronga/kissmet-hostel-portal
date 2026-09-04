@@ -14,9 +14,9 @@ import { maintenanceCategories, maintenanceCategoryLabel, maintenanceLocation, m
 
 function Detail({ label, value }: { label: string; value?: string | number | null }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-text-primary">{value || "Not available"}</p>
+      <p className="mt-1 break-anywhere text-sm font-semibold text-text-primary">{value || "Not available"}</p>
     </div>
   );
 }
@@ -26,7 +26,7 @@ function RequestCard({ request }: { request: ResidentMaintenanceRequest }) {
     <article className="rounded-token border border-border bg-white p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-sm font-semibold text-primary">{request.request_number}</p>
+          <p className="break-anywhere text-sm font-semibold text-primary">{request.request_number}</p>
           <h3 className="mt-1 text-base font-semibold text-text-primary">{request.title}</h3>
           <p className="mt-1 text-sm text-text-secondary">{maintenanceCategoryLabel(request.category)} / {maintenancePriorityLabel(request.priority)} priority</p>
         </div>
@@ -105,12 +105,7 @@ export function MaintenancePage() {
 
   if (isLoading) return <LoadingState label="Loading maintenance requests" />;
   if (error) {
-    return (
-      <div className="space-y-4">
-        <ErrorState title="Maintenance unavailable" message={error} />
-        <Button onClick={() => void load()}>Retry</Button>
-      </div>
-    );
+    return <ErrorState title="Maintenance unavailable" message={error} onRetry={() => void load()} />;
   }
 
   return (
@@ -125,23 +120,23 @@ export function MaintenancePage() {
           <div className="mt-4 space-y-4">
             <div>
               <label className="block text-sm font-semibold text-text-primary" htmlFor="maintenance-title">Issue title</label>
-              <input id="maintenance-title" className="mt-2 w-full rounded-token border border-border px-3 py-3 text-sm" value={title} onChange={(event) => setTitle(event.currentTarget.value)} placeholder="Briefly describe the issue" />
+              <input id="maintenance-title" className="mt-2 min-h-11 w-full rounded-token border border-border px-3 py-3 text-sm" disabled={isSubmitting} autoComplete="off" value={title} onChange={(event) => setTitle(event.currentTarget.value)} placeholder="Briefly describe the issue" />
             </div>
             <div>
               <label className="block text-sm font-semibold text-text-primary" htmlFor="maintenance-category">Category</label>
-              <select id="maintenance-category" className="mt-2 w-full rounded-token border border-border px-3 py-3 text-sm" value={category} onChange={(event) => setCategory(event.currentTarget.value as MaintenanceCategory)}>
+              <select id="maintenance-category" className="mt-2 min-h-11 w-full rounded-token border border-border px-3 py-3 text-sm" disabled={isSubmitting} value={category} onChange={(event) => setCategory(event.currentTarget.value as MaintenanceCategory)}>
                 {maintenanceCategories.map((item) => <option key={item} value={item}>{maintenanceCategoryLabel(item)}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-semibold text-text-primary" htmlFor="maintenance-priority">Priority</label>
-              <select id="maintenance-priority" className="mt-2 w-full rounded-token border border-border px-3 py-3 text-sm" value={priority} onChange={(event) => setPriority(event.currentTarget.value as MaintenancePriority)}>
+              <select id="maintenance-priority" className="mt-2 min-h-11 w-full rounded-token border border-border px-3 py-3 text-sm" disabled={isSubmitting} value={priority} onChange={(event) => setPriority(event.currentTarget.value as MaintenancePriority)}>
                 {maintenancePriorities.map((item) => <option key={item} value={item}>{maintenancePriorityLabel(item)}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-semibold text-text-primary" htmlFor="maintenance-description">Description</label>
-              <textarea id="maintenance-description" className="mt-2 min-h-28 w-full rounded-token border border-border px-3 py-3 text-sm" value={description} onChange={(event) => setDescription(event.currentTarget.value)} placeholder="Add details staff may need" />
+              <textarea id="maintenance-description" className="mt-2 min-h-28 w-full rounded-token border border-border px-3 py-3 text-sm" disabled={isSubmitting} value={description} onChange={(event) => setDescription(event.currentTarget.value)} placeholder="Add details staff may need" />
             </div>
             <Button className="w-full" disabled={isSubmitting} onClick={() => void submit()}>{isSubmitting ? "Submitting..." : "Submit request"}</Button>
             <p className="text-xs text-text-secondary">Kissmet generates the request number and links your current room or bed when an active allocation exists.</p>

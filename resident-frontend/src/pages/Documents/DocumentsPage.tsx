@@ -53,7 +53,7 @@ function DocumentCard({ type, document, state, onUpload }: { type: IdentityDocum
       <dl className="mt-5 grid gap-4 sm:grid-cols-2">
         <div>
           <dt className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Current file</dt>
-          <dd className="mt-1 text-sm font-semibold text-text-primary">{document?.original_filename ?? "Not uploaded"}</dd>
+          <dd className="mt-1 break-anywhere text-sm font-semibold text-text-primary">{document?.original_filename ?? "Not uploaded"}</dd>
         </div>
         <div>
           <dt className="text-xs font-semibold uppercase tracking-wide text-text-secondary">File size</dt>
@@ -145,12 +145,7 @@ export function DocumentsPage() {
 
   if (isLoading) return <LoadingState label="Loading documents" />;
   if (error) {
-    return (
-      <div className="space-y-4">
-        <ErrorState title="Documents unavailable" message={error} />
-        <Button onClick={() => void load()}>Retry</Button>
-      </div>
-    );
+    return <ErrorState title="Documents unavailable" message={error} onRetry={() => void load()} />;
   }
 
   return (

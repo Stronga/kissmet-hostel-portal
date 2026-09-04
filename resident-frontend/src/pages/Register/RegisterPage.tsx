@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { requestRegistrationOtp, type RegistrationOtpInput } from "../../api/residentAuth";
 import { Card } from "../../components/common/Card";
@@ -27,6 +27,7 @@ export function RegisterPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitLock = useRef(false);
   usePageTitle("Register");
 
   const options = useMemo(() => institutions.map((item) => ({ value: item.code, label: item.name })), [institutions]);
@@ -50,6 +51,7 @@ export function RegisterPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitLock.current) return;
     const nextErrors = validate();
     setErrors(nextErrors);
     setSubmitError(null);
@@ -65,6 +67,7 @@ export function RegisterPage() {
       studentId: form.studentId.trim()
     };
 
+    submitLock.current = true;
     setIsSubmitting(true);
     try {
       const selected = institutions.find((item) => item.code === payload.institutionCode);
@@ -74,6 +77,7 @@ export function RegisterPage() {
     } catch (error) {
       setSubmitError(safeAuthError(error));
     } finally {
+      submitLock.current = false;
       setIsSubmitting(false);
     }
   }

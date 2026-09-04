@@ -65,7 +65,7 @@ export function nextAction(data: DashboardData): NextAction {
   if (app.status === "draft") return { label: "Continue your draft application", description: "Review and submit your draft application.", href: "/application" };
   if (app.status === "submitted" || app.status === "under_review") return { label: "Wait for application review", description: "Kissmet staff will review your submitted application.", href: "/application" };
   if (app.status === "rejected") return { label: "Review your application decision", description: "Check the application area for the latest decision information.", href: "/application" };
-  if (app.status === "approved" && !booking) return { label: "Review your approved application", description: "Booking will follow approval through the hostel workflow.", href: "/booking" };
+  if (app.status === "approved" && !booking) return { label: "Continue to booking", description: "Approval makes you eligible for booking. It does not assign a room or complete payment.", href: "/booking" };
   if (booking?.status === "pending" && data.paymentSummary?.confirmationRequirementMet) return { label: "Await booking confirmation", description: "Payment requirement is met. Booking confirmation remains a staff action.", href: "/booking" };
   if (booking?.status === "pending") return { label: "Review your booking and payment requirements", description: "A pending booking requires payment verification before confirmation.", href: "/payments" };
   if (booking?.status === "confirmed" && !data.allocation) return { label: "Wait for room assignment", description: "Your booking is confirmed. Room assignment will appear after allocation.", href: "/room" };

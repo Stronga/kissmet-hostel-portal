@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Button } from "../../components/common/Button";
 import { Card } from "../../components/common/Card";
 import { EmptyState } from "../../components/common/EmptyState";
 import { ErrorState } from "../../components/common/ErrorState";
@@ -21,9 +20,9 @@ interface RoomData {
 
 function Detail({ label, value }: { label: string; value?: string | number | null }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-text-primary">{value || "Not available"}</p>
+      <p className="mt-1 break-anywhere text-sm font-semibold text-text-primary">{value || "Not available"}</p>
     </div>
   );
 }
@@ -99,12 +98,7 @@ export function RoomPage() {
 
   if (isLoading) return <LoadingState label="Loading room assignment" />;
   if (error || !data) {
-    return (
-      <div className="space-y-4">
-        <ErrorState title="Room assignment unavailable" message={error ?? "Unable to load room assignment."} />
-        <Button onClick={() => void load()}>Retry</Button>
-      </div>
-    );
+    return <ErrorState title="My Room unavailable" message={error ?? "Unable to load room assignment."} onRetry={() => void load()} />;
   }
 
   return (

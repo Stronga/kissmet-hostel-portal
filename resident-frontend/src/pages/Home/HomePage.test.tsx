@@ -130,7 +130,7 @@ describe("resident home dashboard", () => {
     mockDashboard({ documents: documentSet, applications: [{ id: 3, application_number: "KSM-APP-0003", status: "approved" }] });
     render(renderResidentApp(["/home"]));
 
-    expect(await screen.findByText("Review your approved application")).toBeInTheDocument();
+    expect(await screen.findByText("Continue to booking")).toBeInTheDocument();
   });
 
   it("shows pending booking and does not treat submitted payment as verified", async () => {
