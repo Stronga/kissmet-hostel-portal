@@ -81,8 +81,18 @@ class Repo {
     if (sql.includes("FROM otp_codes WHERE purpose")) return (this.rows.otp_codes.at(-1) ?? null) as T;
     if (sql.includes("FROM residents r JOIN users")) return this.profile(binds[0] as number) as T;
     if (sql.includes("COUNT(*) AS count FROM documents")) return { count: this.rows.documents.filter((d) => d.resident_id === binds[0] && ["student_card", "ghana_card"].includes(String(d.document_type))).length } as T;
+    if (sql.includes("FROM applications WHERE resident_id") && sql.includes("academic_session_id") && sql.includes("NOT IN")) {
+      return (this.rows.applications.find((a) => a.resident_id === binds[0] && a.academic_session_id === binds[1] && !["cancelled", "archived"].includes(String(a.status))) ?? null) as T;
+    }
     if (sql.includes("FROM applications WHERE id")) return (this.rows.applications.find((a) => a.id === binds[0] && a.resident_id === binds[1]) ?? null) as T;
-    if (sql.includes("FROM documents WHERE id")) return (this.rows.documents.find((d) => d.id === binds[0] && d.resident_id === binds[1]) ?? null) as T;
+    if (sql.includes("FROM documents WHERE id")) {
+      const doc = this.rows.documents.find((d) => d.id === binds[0] && d.resident_id === binds[1]);
+      if (!doc) return null;
+      if (sql.includes("original_filename") && !sql.includes("r2_key")) {
+        return { id: doc.id, document_type: doc.document_type, status: doc.status, original_filename: doc.original_filename, content_type: doc.content_type, size_bytes: doc.size_bytes, created_at: doc.created_at } as T;
+      }
+      return doc as T;
+    }
     if (sql.includes("FROM bookings WHERE resident_id")) return (this.rows.bookings.find((b) => b.resident_id === binds[0] && ["pending", "confirmed"].includes(String(b.status))) ?? null) as T;
     if (sql.includes("FROM bookings WHERE id")) return (this.rows.bookings.find((b) => b.id === binds[0] && b.resident_id === binds[1] && ["pending", "confirmed"].includes(String(b.status))) ?? null) as T;
     if (sql.includes("verified_minor")) {
@@ -268,9 +278,12 @@ describe("resident onboarding", () => {
 
   it("uploads private Student Card and Ghana Card documents", async () => {
     const { svc, puts } = make();
-    await svc.uploadIdentityDocument(resident, "student_card", new File(["x"], "student.pdf", { type: "application/pdf" }));
-    await svc.uploadIdentityDocument(resident, "ghana_card", new File(["x"], "ghana.png", { type: "image/png" }));
+    const student = await svc.uploadIdentityDocument(resident, "student_card", new File(["x"], "student.pdf", { type: "application/pdf" })) as Record<string, unknown>;
+    const ghana = await svc.uploadIdentityDocument(resident, "ghana_card", new File(["x"], "ghana.png", { type: "image/png" })) as Record<string, unknown>;
     expect(puts.every((key) => key.startsWith("identity/1/"))).toBe(true);
+    expect(student).not.toHaveProperty("r2_key");
+    expect(student).not.toHaveProperty("r2_bucket");
+    expect(ghana).not.toHaveProperty("r2_key");
     await expect(svc.uploadIdentityDocument(resident, "student_card", new File(["x"], "bad.txt", { type: "text/plain" }))).rejects.toThrow("Unsupported document type");
   });
 
@@ -280,7 +293,7 @@ describe("resident onboarding", () => {
     const app = await svc.createApplication(resident, 1) as Record<string, unknown>;
     expect(app.application_number).toBe("KSM-APP-0001");
     await expect(svc.updateApplication(resident, Number(app.id), { notes: "Quiet room preferred" })).resolves.toMatchObject({ decision_notes: "Quiet room preferred" });
-    await expect(svc.createApplication(resident, 1)).rejects.toThrow("UNIQUE");
+    await expect(svc.createApplication(resident, 1)).rejects.toThrow("Active application already exists for this session");
     await expect(svc.createApplication(resident, 2)).rejects.toThrow("Active academic session not found");
     await expect(svc.submitApplication(resident, Number(app.id))).resolves.toMatchObject({ status: "submitted" });
   });

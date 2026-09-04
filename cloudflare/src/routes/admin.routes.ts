@@ -8,6 +8,7 @@ import { AdminRepository } from "../repositories/admin.repository";
 import { AdminService } from "../services/admin.service";
 import { asObject, intField, pagination, stringField } from "../http/input";
 import { error, listOk, ok } from "../http/responses";
+import { routeError } from "../http/safe-error";
 
 type Variables = { authUser: AuthUser };
 const routes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -22,9 +23,7 @@ async function body(c: { req: { json: () => Promise<unknown> } }) {
 }
 
 function handle(e: unknown) {
-  const message = e instanceof Error ? e.message : "Request failed";
-  const status = message.includes("not found") ? 404 : message.includes("exceeded") || message.includes("UNIQUE") ? 409 : 400;
-  return { body: error(message), status: status as ContentfulStatusCode };
+  return routeError(e);
 }
 
 function listRoute(path: string, table: string, permission = "admin:read") {

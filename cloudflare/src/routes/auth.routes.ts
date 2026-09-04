@@ -11,7 +11,7 @@ type Variables = { authUser: import("../auth/context").AuthUser };
 export const authRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 function service(c: { env: Env }) {
-  return new AuthService(c.env, new MockSmsProvider());
+  return new AuthService(c.env, new MockSmsProvider(c.env));
 }
 
 authRoutes.post("/staff/login", async (c) => {
