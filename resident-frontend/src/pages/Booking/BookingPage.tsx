@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Button } from "../../components/common/Button";
 import { Card } from "../../components/common/Card";
 import { EmptyState } from "../../components/common/EmptyState";
 import { ErrorState } from "../../components/common/ErrorState";
@@ -22,9 +21,9 @@ interface BookingData {
 
 function Detail({ label, value }: { label: string; value?: string | number | null }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-text-primary">{value || "Unavailable"}</p>
+      <p className="mt-1 break-anywhere text-sm font-semibold text-text-primary">{value || "Unavailable"}</p>
     </div>
   );
 }
@@ -37,7 +36,7 @@ function BookingSummary({ booking, allocation }: { booking: ResidentBooking; all
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm font-semibold text-text-secondary">Current booking</p>
-          <h2 className="mt-1 text-2xl font-semibold text-text-primary">{booking.booking_number}</h2>
+          <h2 className="mt-1 break-anywhere text-2xl font-semibold text-text-primary">{booking.booking_number}</h2>
           <p className="mt-1 text-sm text-text-secondary">{bookingStatusDescription(booking, allocation)}</p>
         </div>
         <StatusBadge status={bookingStatusLabel(booking.status)} />
@@ -60,7 +59,7 @@ function BookingSummary({ booking, allocation }: { booking: ResidentBooking; all
       </div>
       <div className="mt-5 rounded-token border border-border bg-muted/50 p-4 text-sm text-text-secondary">
         <p><span className="font-semibold text-text-primary">Pricing basis:</span> this amount is the booking's captured `total_amount_minor` and `currency`. It is not recalculated from current room rates.</p>
-        <p className="mt-2"><span className="font-semibold text-text-primary">Room assignment:</span> the priced room is not your assigned room. Actual room and bed assignment comes only from an active allocation.</p>
+        <p className="mt-2"><span className="font-semibold text-text-primary">Priced room ≠ assigned room:</span> the room used for booking price is not your assigned room. Actual room and bed assignment comes only from an active allocation.</p>
       </div>
     </Card>
   );
@@ -99,12 +98,7 @@ export function BookingPage() {
 
   if (isLoading) return <LoadingState label="Loading booking" />;
   if (error || !data) {
-    return (
-      <div className="space-y-4">
-        <ErrorState title="Booking unavailable" message={error ?? "Unable to load booking."} />
-        <Button onClick={() => void load()}>Retry</Button>
-      </div>
-    );
+    return <ErrorState title="Booking unavailable" message={error ?? "Unable to load booking."} onRetry={() => void load()} />;
   }
 
   return (
@@ -115,7 +109,7 @@ export function BookingPage() {
           <BookingSummary booking={booking} allocation={data.allocation} />
         ) : (
           <Card>
-            <EmptyState title="No booking yet" message={noBookingMessage(application)} />
+            <EmptyState title="No booking yet" message={noBookingMessage(application)} actionHref="/application" actionLabel="View application" />
           </Card>
         )}
         <div className="space-y-4">

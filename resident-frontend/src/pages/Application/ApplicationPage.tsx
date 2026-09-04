@@ -22,9 +22,9 @@ interface PageData {
 
 function Detail({ label, value }: { label: string; value?: string | number | null }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-text-primary">{value || "Unavailable"}</p>
+      <p className="mt-1 break-anywhere text-sm font-semibold text-text-primary">{value || "Unavailable"}</p>
     </div>
   );
 }
@@ -137,12 +137,7 @@ export function ApplicationPage() {
 
   if (isLoading) return <LoadingState label="Loading application" />;
   if (error || !data) {
-    return (
-      <div className="space-y-4">
-        <ErrorState title="Application unavailable" message={error ?? "Unable to load application."} />
-        <Button onClick={() => void load()}>Retry</Button>
-      </div>
-    );
+    return <ErrorState title="Application unavailable" message={error ?? "Unable to load application."} onRetry={() => void load()} />;
   }
 
   return (
@@ -179,7 +174,7 @@ export function ApplicationPage() {
 
           <div className="mt-5 rounded-token border border-border bg-muted/50 p-4">
             <p className="text-sm font-semibold text-text-primary">{applicationStatusDescription(currentApplication)}</p>
-            {currentApplication?.status === "approved" ? <p className="mt-2 text-sm text-text-secondary">Your application has been approved. You can proceed to booking when a booking is available or created according to the current workflow.</p> : null}
+            {currentApplication?.status === "approved" ? <p className="mt-2 text-sm text-text-secondary">Approval means you are eligible for booking. It does not assign a room, create a payment, or confirm accommodation by itself.</p> : null}
             {currentApplication?.status === "rejected" ? <p className="mt-2 text-sm text-text-secondary">{currentApplication.decision_notes || "Your application was not approved. Contact hostel management if you need more information."}</p> : null}
           </div>
 

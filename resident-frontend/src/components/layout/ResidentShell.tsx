@@ -16,7 +16,7 @@ export function ResidentShell() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-20 md:pb-0">
+    <div className="min-h-screen bg-background pb-24 md:pb-0">
       <ResidentHeader displayName={user?.displayName} onLogout={handleLogout} />
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 py-5 md:grid-cols-[220px_1fr] md:px-6">
         <aside className="sticky top-[73px] hidden self-start rounded-token border border-border bg-surface p-3 shadow-token md:block">
@@ -27,16 +27,18 @@ export function ResidentShell() {
                 key={item.href}
                 to={item.href}
                 className={({ isActive }) =>
-                  `flex min-h-11 items-center gap-3 rounded-token px-3 py-2 text-sm font-medium ${isActive ? "bg-muted text-primary" : "text-text-secondary hover:bg-muted hover:text-text-primary"}`
+                  `flex min-h-11 items-center gap-3 rounded-token px-3 py-2 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+                    isActive ? "bg-muted text-primary" : "text-text-secondary hover:bg-muted hover:text-text-primary"
+                  }`
                 }
               >
-                <item.icon size={18} />
+                <item.icon size={18} aria-hidden="true" />
                 {item.label}
               </NavLink>
             ))}
           </nav>
         </aside>
-        <main>
+        <main className="min-w-0">
           <Outlet />
         </main>
       </div>

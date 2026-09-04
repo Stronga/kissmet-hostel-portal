@@ -22,7 +22,7 @@ export function applicationStatusDescription(application?: ResidentApplication |
   if (application.status === "draft") return "Review your readiness checklist and submit when everything is complete.";
   if (application.status === "submitted") return "Your application has been submitted and is waiting for review.";
   if (application.status === "under_review") return "Kissmet staff are reviewing your application.";
-  if (application.status === "approved") return "Your application has been approved. Booking is the next stage.";
+  if (application.status === "approved") return "Your application has been approved. You are eligible for booking — this does not assign a room or complete payment.";
   if (application.status === "rejected") return "Your application was not approved.";
   if (application.status === "archived") return "This application is archived.";
   if (application.status === "cancelled") return "This application was cancelled.";

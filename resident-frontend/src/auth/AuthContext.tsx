@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { fetchMe, logout as logoutRequest } from "../api/auth";
 import { onUnauthorized, setAuthToken } from "../api/client";
 import type { AuthUser } from "../types/api";
+import { markSessionExpired } from "./sessionExpiry";
 
 export const RESIDENT_TOKEN_KEY = "kissmet_resident_token";
 
@@ -77,7 +78,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [clearSession]);
 
   useEffect(() => {
-    onUnauthorized(clearSession);
+    onUnauthorized(() => {
+      markSessionExpired();
+      clearSession();
+    });
     return () => onUnauthorized(null);
   }, [clearSession]);
 

@@ -20,9 +20,9 @@ interface PaymentsData {
 
 function Detail({ label, value }: { label: string; value?: string | number | null }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-text-primary">{value || "Unavailable"}</p>
+      <p className="mt-1 break-anywhere text-sm font-semibold text-text-primary">{value || "Unavailable"}</p>
     </div>
   );
 }
@@ -114,17 +114,12 @@ export function PaymentsPage() {
 
   if (isLoading) return <LoadingState label="Loading payments" />;
   if (error || !data) {
-    return (
-      <div className="space-y-4">
-        <ErrorState title="Payments unavailable" message={error ?? "Unable to load payments."} />
-        <Button onClick={() => void load()}>Retry</Button>
-      </div>
-    );
+    return <ErrorState title="Payments unavailable" message={error ?? "Unable to load payments."} onRetry={() => void load()} />;
   }
 
   return (
     <>
-      <PageHeader title="Payments" description="Submit payment records and private payment slips for staff verification." />
+      <PageHeader title="Payments" description="Submit payment records and private payment slips for staff verification. Outstanding balance uses verified payments only." />
       {actionError ? <div className="mb-5"><ErrorState title="Payment action failed" message={actionError} /></div> : null}
       {actionSuccess ? <div className="mb-5 rounded-token border border-success/30 bg-success/5 p-4 text-sm font-semibold text-success">{actionSuccess}</div> : null}
 
@@ -134,7 +129,7 @@ export function PaymentsPage() {
             <div>
               <p className="text-sm font-semibold text-text-secondary">Current booking</p>
               <h2 className="mt-1 text-xl font-semibold text-text-primary">{data.summary.bookingNumber}</h2>
-              <p className="mt-1 text-sm text-text-secondary">Outstanding balance is based on verified payments only.</p>
+              <p className="mt-1 text-sm text-text-secondary">Outstanding balance uses verified payments only. Uploading a slip or submitting a payment does not verify it, and meeting the confirmation threshold does not auto-confirm the booking.</p>
             </div>
             <StatusBadge status={data.summary.bookingStatus} />
           </div>
@@ -160,7 +155,7 @@ export function PaymentsPage() {
         </Card>
       ) : (
         <Card>
-          <EmptyState title="No current booking" message="Payment cannot be made until a current booking exists." />
+          <EmptyState title="No current booking" message="Payment cannot be made until a current booking exists." actionHref="/booking" actionLabel="View booking" />
         </Card>
       )}
 
@@ -170,16 +165,16 @@ export function PaymentsPage() {
           {data.summary ? (
             <div className="mt-4 space-y-4">
               <label className="block text-sm font-semibold text-text-primary" htmlFor="payment-amount">Amount in GHS</label>
-              <input id="payment-amount" className="w-full rounded-token border border-border px-3 py-3 text-sm" value={amount} onChange={(event) => setAmount(event.currentTarget.value)} placeholder="0.00" />
+              <input id="payment-amount" className="min-h-11 w-full rounded-token border border-border px-3 py-3 text-sm" value={amount} onChange={(event) => setAmount(event.currentTarget.value)} placeholder="0.00" inputMode="decimal" autoComplete="transaction-amount" disabled={Boolean(busyKey)} />
               {amount && amountError ? <p className="text-sm font-semibold text-danger" role="alert">{amountError}</p> : null}
               <label className="block text-sm font-semibold text-text-primary" htmlFor="payment-method">Payment method</label>
-              <select id="payment-method" className="w-full rounded-token border border-border px-3 py-3 text-sm" value={method} onChange={(event) => setMethod(event.currentTarget.value)}>
+              <select id="payment-method" className="min-h-11 w-full rounded-token border border-border px-3 py-3 text-sm" value={method} onChange={(event) => setMethod(event.currentTarget.value)} disabled={Boolean(busyKey)}>
                 {paymentMethods.map((item) => <option key={item} value={item}>{methodLabel(item)}</option>)}
               </select>
               <label className="block text-sm font-semibold text-text-primary" htmlFor="payment-notes">Reference note</label>
-              <textarea id="payment-notes" className="min-h-24 w-full rounded-token border border-border px-3 py-3 text-sm" value={notes} onChange={(event) => setNotes(event.currentTarget.value)} />
+              <textarea id="payment-notes" className="min-h-24 w-full rounded-token border border-border px-3 py-3 text-sm" value={notes} onChange={(event) => setNotes(event.currentTarget.value)} disabled={Boolean(busyKey)} autoComplete="off" />
               <Button className="w-full" disabled={busyKey === "create" || Boolean(amount && amountError)} onClick={() => void createPayment()}>{busyKey === "create" ? "Creating..." : "Create payment record"}</Button>
-              <p className="text-xs text-text-secondary">Payment references are generated by Kissmet. Submission does not verify payment or confirm booking.</p>
+              <p className="text-xs text-text-secondary">Payment references are generated by Kissmet. Upload ≠ verified. Threshold met ≠ automatic booking confirmation.</p>
             </div>
           ) : (
             <EmptyState title="Booking required" message="A payment record can be created only after a current booking exists." />
@@ -194,7 +189,7 @@ export function PaymentsPage() {
                 <div key={payment.id} className="rounded-token border border-border bg-white p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className="text-sm font-semibold text-text-primary">{payment.payment_reference}</p>
+                      <p className="break-anywhere text-sm font-semibold text-text-primary">{payment.payment_reference}</p>
                       <p className="mt-1 text-sm text-text-secondary">{formatMoneyMinor(payment.amount_minor, payment.currency)} via {methodLabel(payment.method)}</p>
                     </div>
                     <StatusBadge status={paymentStatusLabel(payment.status)} />
@@ -234,7 +229,7 @@ export function PaymentsPage() {
               <div key={receipt.id} className="rounded-token border border-border bg-white p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-text-primary">{receipt.receipt_number}</p>
+                    <p className="break-anywhere text-sm font-semibold text-text-primary">{receipt.receipt_number}</p>
                     <p className="mt-1 text-sm text-text-secondary">{receipt.payment_reference} - {formatMoneyMinor(receipt.amount_minor, receipt.currency)}</p>
                     <p className="mt-1 text-sm text-text-secondary">Issued {formatDateTime(receipt.issued_at)}</p>
                   </div>

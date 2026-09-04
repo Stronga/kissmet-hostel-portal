@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { fetchResidentProfile, updateResidentProfile } from "../../api/resident";
 import { Button } from "../../components/common/Button";
 import { Card } from "../../components/common/Card";
@@ -14,9 +14,9 @@ import { formatDateTime } from "../../utils/format";
 
 function Detail({ label, value }: { label: string; value?: string | null }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-text-primary">{value || "Not available"}</p>
+      <p className="mt-1 break-anywhere text-sm font-semibold text-text-primary">{value || "Not available"}</p>
     </div>
   );
 }
@@ -29,6 +29,7 @@ export function ProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const submitLock = useRef(false);
   usePageTitle("Profile");
 
   async function load() {
@@ -56,6 +57,7 @@ export function ProfilePage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitLock.current) return;
     setSuccess(null);
     setFormError(null);
     if (!form.firstName.trim() || !form.lastName.trim()) {
@@ -66,6 +68,7 @@ export function ProfilePage() {
       setFormError("Enter a valid email address.");
       return;
     }
+    submitLock.current = true;
     setIsSaving(true);
     try {
       const result = (await updateResidentProfile({
@@ -79,18 +82,14 @@ export function ProfilePage() {
     } catch (err) {
       setFormError(safeAuthError(err));
     } finally {
+      submitLock.current = false;
       setIsSaving(false);
     }
   }
 
   if (isLoading) return <LoadingState label="Loading your profile" />;
   if (error || !profile) {
-    return (
-      <div className="space-y-4">
-        <ErrorState message={error ?? "Unable to load your profile."} />
-        <Button onClick={() => void load()}>Retry</Button>
-      </div>
-    );
+    return <ErrorState message={error ?? "Unable to load your profile."} onRetry={() => void load()} />;
   }
 
   const fullName = [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ");
@@ -120,9 +119,9 @@ export function ProfilePage() {
           <h2 className="text-lg font-semibold text-text-primary">Edit Profile</h2>
           <p className="mt-1 text-sm text-text-secondary">You may update only the fields currently supported by the backend: name and email.</p>
           <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
-            <FormField label="First name" value={form.firstName} onChange={(event) => { const value = event.currentTarget.value; setForm((current) => ({ ...current, firstName: value })); }} disabled={isSaving} />
-            <FormField label="Middle name" value={form.middleName} onChange={(event) => { const value = event.currentTarget.value; setForm((current) => ({ ...current, middleName: value })); }} disabled={isSaving} />
-            <FormField label="Last name" value={form.lastName} onChange={(event) => { const value = event.currentTarget.value; setForm((current) => ({ ...current, lastName: value })); }} disabled={isSaving} />
+            <FormField label="First name" name="firstName" autoComplete="given-name" value={form.firstName} onChange={(event) => { const value = event.currentTarget.value; setForm((current) => ({ ...current, firstName: value })); }} disabled={isSaving} />
+            <FormField label="Middle name" name="middleName" autoComplete="additional-name" value={form.middleName} onChange={(event) => { const value = event.currentTarget.value; setForm((current) => ({ ...current, middleName: value })); }} disabled={isSaving} />
+            <FormField label="Last name" name="lastName" autoComplete="family-name" value={form.lastName} onChange={(event) => { const value = event.currentTarget.value; setForm((current) => ({ ...current, lastName: value })); }} disabled={isSaving} />
             <FormField label="Email" value={form.email} onChange={(event) => { const value = event.currentTarget.value; setForm((current) => ({ ...current, email: value })); }} disabled={isSaving} inputMode="email" autoComplete="email" />
             {formError ? <ErrorState message={formError} /> : null}
             {success ? <p className="rounded-token bg-muted p-3 text-sm font-semibold text-success">{success}</p> : null}

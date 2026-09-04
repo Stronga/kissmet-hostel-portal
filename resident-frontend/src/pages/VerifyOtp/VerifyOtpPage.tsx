@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { requestRegistrationOtp, requestResidentLoginOtp, verifyRegistrationOtp, verifyResidentLoginOtp } from "../../api/residentAuth";
 import { Card } from "../../components/common/Card";
@@ -19,12 +19,15 @@ export function VerifyOtpPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const submitLock = useRef(false);
+  const resendLock = useRef(false);
   usePageTitle("Verify OTP");
 
   if (isAuthenticated) return <Navigate to="/home" replace />;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitLock.current || resendLock.current) return;
     setError(null);
     setNotice(null);
     if (!context) return;
@@ -32,6 +35,7 @@ export function VerifyOtpPage() {
       setError("Verification code is required.");
       return;
     }
+    submitLock.current = true;
     setIsSubmitting(true);
     try {
       const input = { institutionCode: context.institutionCode, studentId: context.studentId, otp: otp.trim() };
@@ -43,14 +47,16 @@ export function VerifyOtpPage() {
     } catch (error) {
       setError(safeAuthError(error));
     } finally {
+      submitLock.current = false;
       setIsSubmitting(false);
     }
   }
 
   async function handleResend() {
-    if (!context) return;
+    if (!context || resendLock.current || submitLock.current) return;
     setError(null);
     setNotice(null);
+    resendLock.current = true;
     setIsResending(true);
     try {
       if (context.flow === "login") {
@@ -60,10 +66,11 @@ export function VerifyOtpPage() {
       } else {
         throw new Error("Registration verification context is missing.");
       }
-      setNotice("If verification can proceed, a new OTP has been sent.");
+      setNotice("If verification can proceed, a new OTP has been sent to your registered phone. Enter the newest code.");
     } catch (error) {
       setError(safeAuthError(error));
     } finally {
+      resendLock.current = false;
       setIsResending(false);
     }
   }
@@ -74,7 +81,7 @@ export function VerifyOtpPage() {
         <Card className="w-full max-w-md">
           <h1 className="text-2xl font-semibold text-text-primary">Verify OTP</h1>
           <div className="mt-4">
-            <ErrorState message="Verification details are no longer available. Please start again." />
+            <ErrorState message="Verification details are no longer available. Please start again from login or registration." />
           </div>
           <div className="mt-5 flex items-center justify-between text-sm">
             <Link to="/login" className="font-semibold text-primary">Back to login</Link>
@@ -90,7 +97,8 @@ export function VerifyOtpPage() {
       <Card className="w-full max-w-md">
         <h1 className="text-2xl font-semibold text-text-primary">Verify OTP</h1>
         <p className="mt-2 text-sm text-text-secondary">
-          Enter the code sent to the registered phone for {context.institutionName} student ID {context.studentId}.
+          Enter the one-time code sent to the registered phone for {context.institutionName} student ID {context.studentId}.
+          The code is never shown in this portal.
         </p>
         <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
           <FormField
@@ -101,17 +109,23 @@ export function VerifyOtpPage() {
             inputMode="numeric"
             autoComplete="one-time-code"
             placeholder="Enter OTP"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isResending}
+            hint={isResending ? "Sending a new code…" : "Use the newest code if you requested a resend."}
           />
-          {notice ? <p className="rounded-token bg-muted p-3 text-sm text-text-secondary">{notice}</p> : null}
+          {notice ? <p className="rounded-token bg-muted p-3 text-sm text-text-secondary" role="status">{notice}</p> : null}
           {error ? <ErrorState message={error} /> : null}
           <Button className="w-full" type="submit" disabled={isSubmitting || isResending}>
             {isSubmitting ? "Verifying" : "Verify"}
           </Button>
         </form>
-        <div className="mt-5 flex items-center justify-between text-sm">
-          <button type="button" className="font-semibold text-primary disabled:opacity-60" disabled={isSubmitting || isResending} onClick={handleResend}>
-            {isResending ? "Sending" : "Resend OTP"}
+        <div className="mt-5 flex items-center justify-between gap-3 text-sm">
+          <button
+            type="button"
+            className="min-h-11 font-semibold text-primary disabled:opacity-60"
+            disabled={isSubmitting || isResending}
+            onClick={() => void handleResend()}
+          >
+            {isResending ? "Sending new code…" : "Resend OTP"}
           </button>
           <Link to={context.flow === "registration" ? "/register" : "/login"} onClick={clearVerificationContext} className="font-semibold text-primary">
             Change details

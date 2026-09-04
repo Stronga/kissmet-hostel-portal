@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Button } from "../../components/common/Button";
 import { Card } from "../../components/common/Card";
 import { EmptyState } from "../../components/common/EmptyState";
 import { ErrorState } from "../../components/common/ErrorState";
@@ -55,12 +54,9 @@ export function MessagesPage() {
     <>
       <PageHeader title="Messages" description={unread ? `${unread} unread private message${unread === 1 ? "" : "s"}.` : "Private messages delivered to your resident account."} />
       {error ? (
-        <div className="space-y-4">
-          <ErrorState message={error} />
-          <Button onClick={() => void load()}>Retry</Button>
-        </div>
+        <ErrorState message={error} onRetry={() => void load()} />
       ) : messages.length === 0 ? (
-        <EmptyState title="You don't have any messages yet." message="Private Kissmet messages delivered to you will appear here." />
+        <EmptyState title="You don't have any messages yet." message="Private Kissmet messages delivered to you will appear here." actionHref="/home" actionLabel="Back to home" />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
           <section className="space-y-3" aria-label="Message inbox">
@@ -72,8 +68,8 @@ export function MessagesPage() {
                 className={`w-full rounded-token border bg-surface p-4 text-left shadow-token transition hover:border-primary ${selected?.id === message.id ? "border-primary" : "border-border"} ${message.status === "unread" ? "border-l-4 border-l-primary" : ""}`}
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <h2 className="text-base font-semibold text-text-primary">{message.subject}</h2>
-                  <span className="inline-flex w-fit rounded-full bg-muted px-3 py-1 text-xs font-semibold text-text-secondary">{message.status === "unread" ? "Unread" : "Read"}</span>
+                  <h2 className="break-anywhere text-base font-semibold text-text-primary">{message.subject}</h2>
+                  <span className="inline-flex w-fit rounded-full bg-muted px-3 py-1 text-xs font-semibold text-text-secondary" aria-label={message.status === "unread" ? "Unread message" : "Read message"}>{message.status === "unread" ? "Unread" : "Read"}</span>
                 </div>
                 <p className="mt-2 text-sm text-text-secondary">{messagePreview(message) || "No message body provided."}</p>
                 <p className="mt-3 text-xs font-semibold text-text-secondary">Sent {formatDateTime(message.sent_at ?? message.delivered_at)}</p>
@@ -87,7 +83,7 @@ export function MessagesPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-sm font-semibold text-primary">{selected.sender_label ?? "Kissmet Hostel"}</p>
-                    <h2 className="mt-1 text-xl font-semibold text-text-primary">{selected.subject}</h2>
+                    <h2 className="mt-1 break-anywhere text-xl font-semibold text-text-primary">{selected.subject}</h2>
                   </div>
                   <span className="inline-flex w-fit rounded-full bg-muted px-3 py-1 text-xs font-semibold text-text-secondary">{selected.status === "unread" ? "Unread" : "Read"}</span>
                 </div>

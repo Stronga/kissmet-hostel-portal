@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Button } from "../../components/common/Button";
 import { Card } from "../../components/common/Card";
 import { EmptyState } from "../../components/common/EmptyState";
 import { ErrorState } from "../../components/common/ErrorState";
@@ -51,12 +50,9 @@ export function AnnouncementsPage() {
     <>
       <PageHeader title="Announcements" description="Published Kissmet notices visible to residents." />
       {error ? (
-        <div className="space-y-4">
-          <ErrorState message={error} />
-          <Button onClick={() => void load()}>Retry</Button>
-        </div>
+        <ErrorState message={error} onRetry={() => void load()} />
       ) : announcements.length === 0 ? (
-        <EmptyState title="No announcements right now." message="Published resident notices will appear here." />
+        <EmptyState title="No announcements right now." message="Published resident notices will appear here." actionHref="/home" actionLabel="Back to home" />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
           <section className="space-y-3" aria-label="Announcement list">
@@ -68,7 +64,7 @@ export function AnnouncementsPage() {
                 className={`w-full rounded-token border bg-surface p-4 text-left shadow-token transition hover:border-primary ${selected?.id === announcement.id ? "border-primary" : "border-border"}`}
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <h2 className="text-base font-semibold text-text-primary">{announcement.title}</h2>
+                  <h2 className="break-anywhere text-base font-semibold text-text-primary">{announcement.title}</h2>
                   <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-semibold ${announcementSeverityTone(announcement.severity)}`}>
                     {announcementSeverityLabel(announcement.severity)}
                   </span>
@@ -85,7 +81,7 @@ export function AnnouncementsPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-sm font-semibold text-primary">Announcement</p>
-                    <h2 className="mt-1 text-xl font-semibold text-text-primary">{selected.title}</h2>
+                    <h2 className="mt-1 break-anywhere text-xl font-semibold text-text-primary">{selected.title}</h2>
                   </div>
                   <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-semibold ${announcementSeverityTone(selected.severity)}`}>
                     {announcementSeverityLabel(selected.severity)}
