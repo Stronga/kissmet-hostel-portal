@@ -30,14 +30,14 @@ INSERT OR IGNORE INTO institutions (code, name, status) VALUES
   ('ug', 'University of Ghana', 'active'),
   ('knust', 'Kwame Nkrumah University of Science and Technology', 'active');
 
-INSERT OR IGNORE INTO residents (user_id, institution_id, resident_code, student_id, first_name, last_name, gender, guardian_name, guardian_phone, status)
-SELECT u.id, i.id, 'KSM-RES-9001', 'KSM-STU-0001', 'Ama', 'Resident', 'female', 'Akosua Resident', '+233000000201', 'applicant'
+INSERT OR IGNORE INTO residents (user_id, institution_id, resident_code, student_id, first_name, last_name, gender, guardian_name, guardian_phone, status, phone_verified_at)
+SELECT u.id, i.id, 'KSM-RES-9001', 'KSM-STU-0001', 'Ama', 'Resident', 'female', 'Akosua Resident', '+233000000201', 'applicant', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 FROM users u
 JOIN institutions i ON i.code = 'ug'
 WHERE u.email = 'ama.resident@example.com';
 
-INSERT OR IGNORE INTO residents (user_id, institution_id, resident_code, student_id, first_name, last_name, gender, guardian_name, guardian_phone, status)
-SELECT u.id, i.id, 'KSM-RES-9002', 'KSM-STU-0002', 'Kojo', 'Resident', 'male', 'Kwame Resident', '+233000000202', 'applicant'
+INSERT OR IGNORE INTO residents (user_id, institution_id, resident_code, student_id, first_name, last_name, gender, guardian_name, guardian_phone, status, phone_verified_at)
+SELECT u.id, i.id, 'KSM-RES-9002', 'KSM-STU-0002', 'Kojo', 'Resident', 'male', 'Kwame Resident', '+233000000202', 'applicant', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 FROM users u
 JOIN institutions i ON i.code = 'knust'
 WHERE u.email = 'kojo.resident@example.com';

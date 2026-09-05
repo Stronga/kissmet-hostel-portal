@@ -1,4 +1,7 @@
 # Local-only secrets belong in .dev.vars and should not be committed.
-# This foundation does not require secrets yet.
 APP_ENV=local
-ADMIN_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+# Explicit Admin + Resident local Vite origins (no wildcards).
+ADMIN_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174
+# When APP_ENV=local, MockSmsProvider logs OTPs to the Worker console for local E2E.
+# Set DEV_OTP_LOG=false to suppress. Never enable in production.
+# DEV_OTP_LOG=true

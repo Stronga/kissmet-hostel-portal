@@ -482,7 +482,10 @@ export class AdminService {
       payment.resident_id
     );
     await this.repo.audit(actor.id, actor.staffId, "admin.payment.slip_uploaded", "document", res.meta.last_row_id, { paymentId });
-    return this.get("documents", Number(res.meta.last_row_id));
+    const uploaded = await this.get("documents", Number(res.meta.last_row_id)) as Record<string, unknown> | null;
+    if (!uploaded) throw new Error("Document not found");
+    const { r2_key: _rk, r2_bucket: _rb, ...safe } = uploaded;
+    return safe;
   }
 
   async issueReceipt(actor: AuthUser, paymentId: number) {
@@ -528,7 +531,7 @@ export class AdminService {
   }
 
   async identityDocument(actor: AuthUser, id: number, includeSensitive = false) {
-    const doc = await this.repo.first<Record<string, unknown>>("SELECT id, resident_id, document_type, status, original_filename, content_type, size_bytes, r2_key, created_at FROM documents WHERE id = ? AND document_type IN ('student_card', 'ghana_card')", id);
+    const doc = await this.repo.first<Record<string, unknown>>("SELECT id, resident_id, document_type, status, original_filename, content_type, size_bytes, created_at FROM documents WHERE id = ? AND document_type IN ('student_card', 'ghana_card')", id);
     if (!doc) throw new Error("Document not found");
     if (doc.document_type === "ghana_card" && !includeSensitive) throw new Error("Forbidden");
     await this.repo.audit(actor.id, actor.staffId, "admin.identity_document.accessed", "document", id, { documentType: doc.document_type });
@@ -538,7 +541,9 @@ export class AdminService {
   async identityDocumentContent(actor: AuthUser, id: number, allowGhanaCard: boolean) {
     if (!this.documents) throw new Error("Document storage is not configured");
     const doc = await this.identityDocument(actor, id, allowGhanaCard);
-    const object = await this.documents.get(String(doc.r2_key));
+    const stored = await this.repo.first<{ r2_key: string }>("SELECT r2_key FROM documents WHERE id = ?", id);
+    if (!stored?.r2_key) throw new Error("Document content not found");
+    const object = await this.documents.get(stored.r2_key);
     if (!object) throw new Error("Document content not found");
     return { object, document: doc };
   }
@@ -548,7 +553,7 @@ export class AdminService {
     if (!doc) throw new Error("Document not found");
     await this.repo.run("UPDATE documents SET status = ?, verified_by_staff_id = ?, verified_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", status, actor.staffId, id);
     await this.repo.audit(actor.id, actor.staffId, `admin.identity_document.${status}`, "document", id, { documentType: doc.document_type, reason });
-    return this.get("documents", id);
+    return this.repo.first("SELECT id, resident_id, document_type, status, original_filename, content_type, size_bytes, created_at, verified_at FROM documents WHERE id = ?", id);
   }
 
   async createMaintenance(actor: AuthUser, data: { residentId?: number | null; roomId?: number | null; bedId?: number | null; category: string; priority?: string; title: string; description?: string | null }) {

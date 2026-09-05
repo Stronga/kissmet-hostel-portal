@@ -123,7 +123,7 @@ export class ResidentService {
     await this.documents.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
     const res = await this.repo.run("INSERT INTO documents (owner_user_id, resident_id, document_type, status, r2_bucket, r2_key, original_filename, content_type, size_bytes, uploaded_by_user_id) VALUES (?, ?, ?, 'uploaded', 'DOCUMENTS', ?, ?, ?, ?, ?)", actor.id, actor.residentId, type, key, file.name, file.type, file.size, actor.id);
     await this.repo.audit(actor.id, null, `resident.document.${type}_uploaded`, "document", res.meta.last_row_id);
-    return this.repo.get("documents", Number(res.meta.last_row_id));
+    return this.ownDocument(actor, Number(res.meta.last_row_id));
   }
 
   documentsFor(actor: AuthUser) {
@@ -142,6 +142,12 @@ export class ResidentService {
     if (!actor.residentId) throw new Error("Resident session required");
     const session = await this.repo.first("SELECT id FROM academic_sessions WHERE id = ? AND status = 'active'", academicSessionId);
     if (!session) throw new Error("Active academic session not found");
+    const existing = await this.repo.first(
+      "SELECT id FROM applications WHERE resident_id = ? AND academic_session_id = ? AND status NOT IN ('cancelled', 'archived')",
+      actor.residentId,
+      academicSessionId
+    );
+    if (existing) throw new Error("Active application already exists for this session");
     const number = await this.repo.allocateApplicationNumber();
     const res = await this.repo.run("INSERT INTO applications (resident_id, academic_session_id, application_number, status) VALUES (?, ?, ?, 'draft')", actor.residentId, academicSessionId, number);
     await this.repo.audit(actor.id, null, "resident.application.created", "application", res.meta.last_row_id);
@@ -323,7 +329,7 @@ export class ResidentService {
       actor.id
     );
     await this.repo.audit(actor.id, null, "resident.payment.slip_uploaded", "document", res.meta.last_row_id, { paymentId });
-    return this.repo.get("documents", Number(res.meta.last_row_id));
+    return this.ownDocument(actor, Number(res.meta.last_row_id));
   }
 
   receipts(actor: AuthUser) {

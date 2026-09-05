@@ -138,3 +138,8 @@ Verified locally on `http://127.0.0.1:8787`:
 - No authentication migration was started.
 - No hostel domain features were built.
 - No D1 schema was created beyond the empty migration system.
+
+
+## CORS / Allowed Origins (R12)
+
+`ADMIN_ALLOWED_ORIGINS` lists explicit Admin and Resident browser origins (no wildcards). Local Vite ports are pinned: Admin `5173`, Resident `5174`. Production includes `https://admin.kissmetgroup.org` and `https://portal.kissmetgroup.org`.

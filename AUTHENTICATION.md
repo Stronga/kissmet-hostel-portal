@@ -102,6 +102,10 @@ Ghana Card numbers are not used as authentication credentials.
 
 Development uses `MockSmsProvider`, which does not call a real SMS API. A Ghana SMS provider can later implement the same `SmsProvider` interface without rewriting auth flow logic.
 
+### Local OTP testability (R12)
+
+When `APP_ENV=local` (or `DEV_OTP_LOG=true` and not production), `MockSmsProvider` captures the last OTP in Worker memory and logs `[kissmet-dev-otp]` to the Wrangler console so local E2E can complete without live SMS. Capture is disabled for `APP_ENV=production`. OTPs remain PBKDF2-hashed in D1; there is no production HTTP route that returns OTP plaintext. Test helpers: `getLastDevOtpForTests` / `clearDevOtpsForTests`.
+
 Successful OTP verification marks the OTP as used and creates a normal application session in `sessions`.
 
 ## Sessions
@@ -278,3 +282,14 @@ GET /auth/me with issued token -> 200
 POST /auth/logout -> 200
 GET /auth/me after logout -> 401
 ```
+
+
+## CORS origins (R12)
+
+Authenticated browser calls use explicit origins from `ADMIN_ALLOWED_ORIGINS` (historical env name; covers **Admin + Resident** portals). Defaults:
+
+- local: `http://localhost:5173`, `http://127.0.0.1:5173`, `http://localhost:5174`, `http://127.0.0.1:5174`
+- staging: `https://staging-admin.kissmetgroup.org`, `https://staging-portal.kissmetgroup.org`
+- production: `https://admin.kissmetgroup.org`, `https://portal.kissmetgroup.org`
+
+Wildcards are not used for authenticated requests.

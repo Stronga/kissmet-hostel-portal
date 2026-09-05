@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { Env } from "../types/bindings";
 import type { AuthUser } from "../auth/context";
 import { requireAuth } from "../middleware/auth.middleware";
 import { asObject, intField, stringField } from "../http/input";
-import { error, ok } from "../http/responses";
+import { ok } from "../http/responses";
+import { routeError } from "../http/safe-error";
 import { MockSmsProvider } from "../services/sms.service";
 import { ResidentService } from "../services/resident.service";
 
@@ -13,7 +13,7 @@ type Variables = { authUser: AuthUser };
 export const residentRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 function service(c: { env: Env }) {
-  return new ResidentService(c.env, new MockSmsProvider(), c.env.DOCUMENTS);
+  return new ResidentService(c.env, new MockSmsProvider(c.env), c.env.DOCUMENTS);
 }
 
 async function body(c: { req: { json: () => Promise<unknown> } }) {
@@ -21,9 +21,7 @@ async function body(c: { req: { json: () => Promise<unknown> } }) {
 }
 
 function handle(e: unknown) {
-  const message = e instanceof Error ? e.message : "Request failed";
-  const status = message.includes("not found") ? 404 : message.includes("UNIQUE") || message.includes("already") ? 409 : message.includes("Unauthorized") ? 401 : 400;
-  return { body: error(message), status: status as ContentfulStatusCode };
+  return routeError(e);
 }
 
 residentRoutes.post("/register/request-otp", async (c) => {

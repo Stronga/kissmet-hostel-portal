@@ -29,6 +29,8 @@ Resident frontend configuration uses:
 
 ```text
 VITE_API_BASE_URL=http://localhost:8787
+
+Local Vite port is pinned to **5174** (Admin uses **5173**) so CORS origins remain stable.
 ```
 
 Production API and portal domains are expected to be:
@@ -757,3 +759,10 @@ R11 is UX-only. R1–R10 business and security contracts remain locked.
 - MobileNav More active states
 - Auth 401 → session-expired login banner
 
+
+
+## R12 validation notes
+
+- CORS must allow the Resident origin (`http://localhost:5174` locally; `https://portal.kissmetgroup.org` in production) in addition to Admin.
+- Local OTP completion uses Mock SMS console capture when `APP_ENV=local`; live SMS remains deferred.
+- Gender is still not collected in resident onboarding; allocation gender policy remains conditional when `residents.gender` is null.
