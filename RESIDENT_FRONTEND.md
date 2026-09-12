@@ -10,6 +10,7 @@ Phase R7 replaces the Payments placeholder with resident-owned payment submissio
 Phase R8 replaces the My Room placeholder with a real active-allocation room and bed view.
 Phase R9 replaces the Maintenance placeholder with resident-owned maintenance request creation and tracking.
 Phase R10 replaces the Announcements and Messages placeholders with read-only resident communications.
+The Resident Home redesign updates the existing functional dashboard to the approved Figma desktop reference (`N4Koc3HxZEGAqDp8DD6xHA`, node `3:4`) without changing resident data sources, backend contracts, or business rules.
 Phase R11 hardens Resident Portal UX only: shared empty/error states, session-expiry messaging, mobile navigation active states, copy/journey clarity, forms, and accessibility — without new business domains or backend contract changes.
 
 ## Stack
@@ -146,17 +147,32 @@ The shell uses a lighter resident visual treatment: light background, white card
 - `GET /resident/me/bookings`
 - `GET /resident/me/allocation`
 - `GET /resident/me/payments/summary`
+- `GET /resident/me/announcements`
+- `GET /resident/me/messages`
 
-The profile request is required for the dashboard to render. Documents, applications, bookings, and allocation are loaded independently so partial failures show a warning without hiding the resident identity and available sections.
+The profile request is required for the dashboard to render. Documents, applications, bookings, allocation, payments, announcements, and messages are loaded independently so partial failures show a warning without hiding the resident identity and available sections.
+
+The current visual baseline follows the approved Resident Home Figma frame (`N4Koc3HxZEGAqDp8DD6xHA`, node `3:4`):
+
+- primary resident brand color: `#056268`
+- Poppins as the resident UI font direction
+- pale gray app background with white shell/sidebar/header and rounded white cards
+- unified accommodation information bar for Application, Booking, Payment, and My Room
+- local Figma hostel illustration stored in `resident-frontend/src/assets/hostel-illustration.png`
+- responsive two-column lower dashboard on desktop and stacked cards on tablet/mobile
 
 The dashboard shows:
 
-- resident identity summary: name, resident code, institution, student ID, phone, email, and status
+- resident identity summary: name, institution, student ID, and status, with the compact resident identity card on mobile
+- unified accommodation information bar using latest application, latest booking, resident-safe payment summary, and active allocation data
 - next-action card derived from real journey state
 - accommodation journey stages: account, documents, application, booking, payment, and room assignment
-- latest application summary from resident application records
-- latest booking summary from resident booking records
-- resident-safe payment summary from verified payment totals
+- recent activity safely derived from latest application, booking, and active allocation state
+- updates summary from resident-visible announcements and private messages
+- Need Help panel routing to the existing Maintenance flow
+- latest application summary from resident application records inside the information bar and journey state
+- latest booking summary from resident booking records inside the information bar and journey state
+- resident-safe payment summary from verified payment totals, outstanding balance, and backend confirmation state
 - active room assignment only from `GET /resident/me/allocation`
 
 Room assignment never comes from application, booking, or payment records. A room is shown only when the backend reports an active allocation.
@@ -766,3 +782,11 @@ R11 is UX-only. R1–R10 business and security contracts remain locked.
 - CORS must allow the Resident origin (`http://localhost:5174` locally; `https://portal.kissmetgroup.org` in production) in addition to Admin.
 - Local OTP completion uses Mock SMS console capture when `APP_ENV=local`; live SMS remains deferred.
 - Gender is still not collected in resident onboarding; allocation gender policy remains conditional when `residents.gender` is null.
+
+## Resident Home redesign validation
+
+- resident-frontend typecheck: passed
+- resident-frontend tests: 17 files / 140 tests passed
+- resident-frontend build: passed
+
+The redesign changed presentation only. It preserved `useResidentDashboard`, resident-owned API wrappers, existing partial-failure handling, verified-payment-only balance rules, active-allocation-only room assignment, private-document boundaries, and read-only communications.

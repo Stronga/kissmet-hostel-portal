@@ -56,3 +56,4 @@ profiles/
 static/
 templates/
 *.png
+!resident-frontend/src/assets/hostel-illustration.png
