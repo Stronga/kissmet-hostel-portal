@@ -7,6 +7,7 @@ import { AuditLogsPage } from "../pages/AuditLogs/AuditLogsPage";
 import { BookingsPage } from "../pages/Bookings/BookingsPage";
 import { DashboardPage } from "../pages/Dashboard/DashboardPage";
 import { LoginPage } from "../pages/Login/LoginPage";
+import { InternetAccessPage } from "../pages/InternetAccess/InternetAccessPage";
 import { MaintenancePage } from "../pages/Maintenance/MaintenancePage";
 import { MessagesPage } from "../pages/Messages/MessagesPage";
 import { PaymentsPage } from "../pages/Payments/PaymentsPage";
@@ -33,6 +34,7 @@ export function AppRoutes() {
           <Route path="/allocations" element={<AllocationsPage />} />
           <Route path="/payments" element={<PaymentsPage />} />
           <Route path="/receipts" element={<ReceiptsPage />} />
+          <Route path="/internet-access" element={<InternetAccessPage />} />
           <Route path="/maintenance" element={<MaintenancePage />} />
           <Route path="/announcements" element={<AnnouncementsPage />} />
           <Route path="/messages" element={<MessagesPage />} />

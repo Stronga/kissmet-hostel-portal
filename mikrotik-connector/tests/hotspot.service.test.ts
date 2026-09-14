@@ -14,18 +14,21 @@ describe("HotspotService", () => {
     service = new HotspotService(client);
   });
 
-  it("creates Kissmet-Residents with shared-users=3 idempotently", async () => {
+  it("creates Kissmet-Residents with shared-users=3 when missing", async () => {
     const first = await service.ensureResidentProfile();
     expect(first.created).toBe(true);
     expect(first.profile.sharedUsers).toBe(RESIDENT_SHARED_USERS);
     expect(first.profile.name).toBe(RESIDENT_PROFILE_NAME);
+  });
 
+  it("returns already-correct profile without mutation", async () => {
+    client.profiles.set(RESIDENT_PROFILE_NAME, { id: "*1", name: RESIDENT_PROFILE_NAME, sharedUsers: 3 });
     const second = await service.ensureResidentProfile();
     expect(second.created).toBe(false);
     expect(client.profiles.get(DEFAULT_PROFILE_NAME)?.sharedUsers).toBe(250);
   });
 
-  it("fails safely when Kissmet-Residents exists with wrong shared-users", async () => {
+  it("fails safely when Kissmet-Residents exists with conflicting shared-users", async () => {
     client.profiles.set(RESIDENT_PROFILE_NAME, { id: "*9", name: RESIDENT_PROFILE_NAME, sharedUsers: 10 });
     await expect(service.ensureResidentProfile()).rejects.toBeInstanceOf(ProfileConflictError);
     expect(client.profiles.get(DEFAULT_PROFILE_NAME)?.sharedUsers).toBe(250);
@@ -63,12 +66,13 @@ describe("HotspotService", () => {
     expect(e2.disabled).toBe(false);
   });
 
-  it("disconnects sessions and treats empty as success", async () => {
+  it("lists and disconnects sessions; empty set is success", async () => {
     await service.createUser({ username: "KSM-RES-0002", password: "x" });
     client.sessions.set("KSM-RES-0002", [
       { id: "*1", user: "KSM-RES-0002", address: "10.0.0.2" },
       { id: "*2", user: "KSM-RES-0002", address: "10.0.0.3" }
     ]);
+    expect(await service.listActiveSessions("KSM-RES-0002")).toHaveLength(2);
     expect(await service.disconnectSessions("KSM-RES-0002")).toEqual({ disconnected: 2 });
     expect(await service.disconnectSessions("KSM-RES-0002")).toEqual({ disconnected: 0 });
   });
@@ -77,5 +81,10 @@ describe("HotspotService", () => {
     await service.createUser({ username: "KSM-RES-0003", password: "old" });
     await service.resetUserPassword("KSM-RES-0003", "new-pass");
     expect(client.passwords.get("KSM-RES-0003")).toBe("new-pass");
+  });
+
+  it("health proxies RouterOS identity", async () => {
+    const health = await service.health();
+    expect(health).toBeTruthy();
   });
 });

@@ -28,6 +28,42 @@ export interface InternetAccountRow {
   last_name?: string;
   room_code?: string | null;
   bed_code?: string | null;
+  has_active_allocation?: number | boolean;
+}
+
+export interface InternetSummary {
+  total: number;
+  active: number;
+  suspended: number;
+  sync_failed: number;
+  pending: number;
+}
+
+export interface EligibleResidentRow {
+  id: number;
+  resident_code: string;
+  first_name: string;
+  last_name: string;
+  room_code: string | null;
+  bed_code: string | null;
+  internet_account_id: number | null;
+  internet_status: InternetStatus | null;
+  internet_sync_status: SyncStatus | null;
+  already_provisioned: number | boolean;
+}
+
+export interface ListInternetFilters {
+  search?: string;
+  status?: string;
+  syncStatus?: string;
+}
+
+export interface ConnectorHealthView {
+  ok: boolean;
+  configured: boolean;
+  message?: string;
+  board?: string;
+  version?: string;
 }
 
 function nowIso() {
@@ -79,7 +115,8 @@ export class InternetAccessService {
     return `
       SELECT ia.*,
              r.resident_code, r.first_name, r.last_name,
-             room.room_code, bed.bed_code
+             room.room_code, bed.bed_code,
+             CASE WHEN a.id IS NOT NULL THEN 1 ELSE 0 END AS has_active_allocation
       FROM resident_internet_accounts ia
       JOIN residents r ON r.id = ia.resident_id
       LEFT JOIN allocations a ON a.resident_id = r.id AND a.status = 'active'
@@ -90,15 +127,112 @@ export class InternetAccessService {
     `;
   }
 
-  async list(limit: number, offset: number, search?: string) {
-    if (search) {
-      const like = `%${search}%`;
-      return this.repo.all(
-        `${this.listSelect("r.resident_code LIKE ? OR r.first_name LIKE ? OR r.last_name LIKE ? OR ia.router_username LIKE ?")} LIMIT ? OFFSET ?`,
-        like, like, like, like, limit, offset
-      );
+  async list(limit: number, offset: number, filters: ListInternetFilters | string = {}) {
+    const normalized: ListInternetFilters =
+      typeof filters === "string" ? { search: filters } : (filters ?? {});
+    const clauses: string[] = ["1=1"];
+    const binds: unknown[] = [];
+
+    if (normalized.search?.trim()) {
+      const like = `%${normalized.search.trim()}%`;
+      clauses.push("(r.resident_code LIKE ? OR r.first_name LIKE ? OR r.last_name LIKE ? OR ia.router_username LIKE ?)");
+      binds.push(like, like, like, like);
     }
-    return this.repo.all(`${this.listSelect()} LIMIT ? OFFSET ?`, limit, offset);
+    if (normalized.status && normalized.status !== "all") {
+      clauses.push("ia.status = ?");
+      binds.push(normalized.status);
+    }
+    if (normalized.syncStatus && normalized.syncStatus !== "all") {
+      clauses.push("ia.sync_status = ?");
+      binds.push(normalized.syncStatus);
+    }
+
+    return this.repo.all(
+      `${this.listSelect(clauses.join(" AND "))} LIMIT ? OFFSET ?`,
+      ...binds,
+      limit,
+      offset
+    );
+  }
+
+  async summary(): Promise<InternetSummary> {
+    const row = await this.repo.first<InternetSummary>(
+      `SELECT
+         (SELECT COUNT(*) FROM resident_internet_accounts) AS total,
+         (SELECT COUNT(*) FROM resident_internet_accounts WHERE status = 'active') AS active,
+         (SELECT COUNT(*) FROM resident_internet_accounts WHERE status = 'suspended') AS suspended,
+         (SELECT COUNT(*) FROM resident_internet_accounts WHERE sync_status = 'failed') AS sync_failed,
+         (SELECT COUNT(*) FROM resident_internet_accounts WHERE sync_status = 'pending') AS pending`
+    );
+    return {
+      total: Number(row?.total ?? 0),
+      active: Number(row?.active ?? 0),
+      suspended: Number(row?.suspended ?? 0),
+      sync_failed: Number(row?.sync_failed ?? 0),
+      pending: Number(row?.pending ?? 0)
+    };
+  }
+
+  async searchEligibleResidents(limit: number, offset: number, search?: string) {
+    const clauses = ["1=1"];
+    const binds: unknown[] = [];
+    if (search?.trim()) {
+      const like = `%${search.trim()}%`;
+      clauses.push("(r.resident_code LIKE ? OR r.first_name LIKE ? OR r.last_name LIKE ? OR r.student_id LIKE ?)");
+      binds.push(like, like, like, like);
+    }
+    return this.repo.all<EligibleResidentRow>(
+      `SELECT r.id, r.resident_code, r.first_name, r.last_name,
+              room.room_code, bed.bed_code,
+              ia.id AS internet_account_id,
+              ia.status AS internet_status,
+              ia.sync_status AS internet_sync_status,
+              CASE WHEN ia.id IS NOT NULL THEN 1 ELSE 0 END AS already_provisioned
+       FROM residents r
+       JOIN allocations a ON a.resident_id = r.id AND a.status = 'active'
+       JOIN beds bed ON bed.id = a.bed_id
+       JOIN rooms room ON room.id = bed.room_id
+       LEFT JOIN resident_internet_accounts ia ON ia.resident_id = r.id
+       WHERE ${clauses.join(" AND ")}
+       ORDER BY r.resident_code ASC
+       LIMIT ? OFFSET ?`,
+      ...binds,
+      limit,
+      offset
+    );
+  }
+
+  async connectorHealth(): Promise<ConnectorHealthView> {
+    if (!this.connector.configured) {
+      return { ok: false, configured: false, message: "Internet connector is not configured" };
+    }
+    const result = await this.safeConnector(() => this.connector.health());
+    if (!result.ok) {
+      return { ok: false, configured: true, message: result.error };
+    }
+    return {
+      ok: true,
+      configured: true,
+      board: result.value.board,
+      version: result.value.version
+    };
+  }
+
+  async ensureProfile(actor: AuthUser) {
+    if (!actor.staffId) throw new Error("Staff session required");
+    const result = await this.safeConnector(() => this.connector.ensureResidentProfile());
+    if (!result.ok) {
+      await this.repo.audit(actor.id, actor.staffId, "internet.ensure_profile", "internet_profile", null, {
+        outcome: "failed"
+      });
+      throw new Error(result.error || "Internet profile ensure failed");
+    }
+    await this.repo.audit(actor.id, actor.staffId, "internet.ensure_profile", "internet_profile", null, {
+      outcome: "synced",
+      created: result.value.created,
+      sharedUsers: result.value.profile.sharedUsers
+    });
+    return result.value;
   }
 
   async get(id: number) {

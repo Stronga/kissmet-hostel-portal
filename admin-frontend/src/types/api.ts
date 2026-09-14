@@ -584,3 +584,67 @@ export interface CreateResidentInput {
   gender?: string | null;
   status?: string;
 }
+
+
+export type InternetStatus = "active" | "suspended" | "disabled";
+export type InternetSyncStatus = "pending" | "synced" | "failed";
+
+export interface InternetAccount {
+  id: number;
+  resident_id: number;
+  router_username: string;
+  router_profile: string;
+  status: InternetStatus;
+  sync_status: InternetSyncStatus;
+  last_synced_at?: string | null;
+  last_sync_error?: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by_staff_id?: number | null;
+  updated_by_staff_id?: number | null;
+  resident_code?: string;
+  first_name?: string;
+  last_name?: string;
+  room_code?: string | null;
+  bed_code?: string | null;
+  has_active_allocation?: number | boolean;
+  password?: string;
+  provision_error?: string;
+}
+
+export interface InternetSummary {
+  total: number;
+  active: number;
+  suspended: number;
+  sync_failed: number;
+  pending: number;
+}
+
+export interface EligibleResident {
+  id: number;
+  resident_code: string;
+  first_name: string;
+  last_name: string;
+  room_code: string | null;
+  bed_code: string | null;
+  internet_account_id: number | null;
+  internet_status: InternetStatus | null;
+  internet_sync_status: InternetSyncStatus | null;
+  already_provisioned: number | boolean;
+}
+
+export interface InternetSession {
+  id: string;
+  user: string;
+  address?: string;
+  macAddress?: string;
+  uptime?: string;
+}
+
+export interface ConnectorHealth {
+  ok: boolean;
+  configured: boolean;
+  message?: string;
+  board?: string;
+  version?: string;
+}
