@@ -146,7 +146,12 @@ function HomeStatusBar({ data }: { data: DashboardData }) {
   ];
 
   return (
-    <section className="relative z-10 mb-6 overflow-hidden rounded-3xl border border-[#d6eae5] bg-gradient-to-br from-[#ebf8f5] to-[#f6fcfb] p-4 shadow-[0_2px_10px_rgba(0,0,0,0.02)] lg:mb-14 lg:overflow-visible lg:p-[15px]">
+    <section className="relative z-10 mb-6 overflow-hidden rounded-3xl border border-[#d6eae5] bg-gradient-to-br from-[#ebf8f5] to-[#f6fcfb] p-4 shadow-[0_2px_10px_rgba(0,0,0,0.02)] lg:mb-16 lg:mt-4 lg:overflow-visible lg:p-[15px]">
+      <div
+        className="pointer-events-none absolute -top-14 right-0 z-0 hidden h-[calc(100%+3.5rem)] w-[40%] bg-contain bg-right-bottom bg-no-repeat lg:block"
+        style={{ backgroundImage: `url(${hostelIllustration})` }}
+        aria-hidden="true"
+      />
       <div className="relative z-[1] flex items-stretch justify-between gap-6">
         <div className="grid w-full gap-0 sm:grid-cols-2 lg:flex lg:w-[62%] lg:items-stretch lg:gap-6">
           {items.map((item, index) => (
@@ -176,18 +181,12 @@ function HomeStatusBar({ data }: { data: DashboardData }) {
             </div>
           ))}
         </div>
-        {/* Desktop spacer reserves width; illustration overflows above/right of the banner like the HTML reference. */}
-        <div className="relative z-[2] hidden w-[38%] shrink-0 lg:block" aria-hidden="true">
-          <img
-            src={hostelIllustration}
-            alt=""
-            className="pointer-events-none absolute bottom-[-12px] right-[-8px] h-[210px] w-auto max-w-none origin-bottom-right object-contain drop-shadow-sm"
-          />
-        </div>
+        <div className="relative z-[2] hidden w-[38%] shrink-0 lg:block" aria-hidden="true" />
       </div>
     </section>
   );
 }
+
 
 const journeyIcons: Record<string, LucideIcon> = {
   account: UserRound,

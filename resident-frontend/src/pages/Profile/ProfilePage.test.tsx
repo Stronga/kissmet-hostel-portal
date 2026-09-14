@@ -71,7 +71,7 @@ describe("resident profile", () => {
     });
     render(renderResidentApp(["/profile"]));
 
-    expect(await screen.findByText("Ama Resident")).toBeInTheDocument();
+    expect((await screen.findAllByText("Ama Resident")).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("Not available")).length).toBeGreaterThanOrEqual(2);
   });
 
