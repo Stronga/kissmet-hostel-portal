@@ -66,7 +66,7 @@ export function ResidentShell() {
             </span>
           </Link>
         </aside>
-        <main className="min-w-0 lg:px-10 lg:py-8">
+        <main className="min-w-0 overflow-x-clip lg:overflow-x-visible lg:overflow-y-visible lg:px-10 lg:py-8">
           <Outlet />
         </main>
       </div>

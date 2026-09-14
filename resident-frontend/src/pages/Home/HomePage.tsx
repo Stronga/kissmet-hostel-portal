@@ -146,14 +146,9 @@ function HomeStatusBar({ data }: { data: DashboardData }) {
   ];
 
   return (
-    <section className="relative mb-6 overflow-hidden rounded-3xl border border-[#d6eae5] bg-gradient-to-br from-[#ebf8f5] to-[#f6fcfb] p-4 shadow-[0_2px_10px_rgba(0,0,0,0.02)] lg:p-[15px]">
-      <div
-        className="pointer-events-none absolute inset-y-0 right-0 hidden w-[35%] bg-cover bg-center lg:block"
-        style={{ backgroundImage: `url(${hostelIllustration})`, top: "-50px" }}
-        aria-hidden="true"
-      />
+    <section className="relative z-10 mb-6 overflow-hidden rounded-3xl border border-[#d6eae5] bg-gradient-to-br from-[#ebf8f5] to-[#f6fcfb] p-4 shadow-[0_2px_10px_rgba(0,0,0,0.02)] lg:mb-14 lg:overflow-visible lg:p-[15px]">
       <div className="relative z-[1] flex items-stretch justify-between gap-6">
-        <div className="grid w-full gap-0 sm:grid-cols-2 lg:flex lg:w-[65%] lg:items-stretch lg:gap-6">
+        <div className="grid w-full gap-0 sm:grid-cols-2 lg:flex lg:w-[62%] lg:items-stretch lg:gap-6">
           {items.map((item, index) => (
             <div key={item.key} className="contents">
               {index > 0 ? <div className="hidden w-px self-stretch bg-[#d1e6e0] lg:my-2 lg:block" aria-hidden="true" /> : null}
@@ -181,8 +176,13 @@ function HomeStatusBar({ data }: { data: DashboardData }) {
             </div>
           ))}
         </div>
-        <div className="relative z-[1] hidden w-[30%] items-center justify-end pr-5 lg:flex" aria-hidden="true">
-          <img src={hostelIllustration} alt="" className="h-[140px] w-auto max-w-full object-contain object-right" />
+        {/* Desktop spacer reserves width; illustration overflows above/right of the banner like the HTML reference. */}
+        <div className="relative z-[2] hidden w-[38%] shrink-0 lg:block" aria-hidden="true">
+          <img
+            src={hostelIllustration}
+            alt=""
+            className="pointer-events-none absolute bottom-[-12px] right-[-8px] h-[210px] w-auto max-w-none origin-bottom-right object-contain drop-shadow-sm"
+          />
         </div>
       </div>
     </section>
