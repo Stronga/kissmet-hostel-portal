@@ -11,4 +11,8 @@ export interface Env {
   ADMIN_ALLOWED_ORIGINS?: string;
   /** Local/dev only: force OTP console capture when not production. */
   DEV_OTP_LOG?: string;
+  /** Always-on MikroTik connector base URL (optional locally — missing → sync_failed safely). */
+  MIKROTIK_CONNECTOR_URL?: string;
+  /** Shared Bearer secret for Worker → connector (optional locally). */
+  MIKROTIK_CONNECTOR_SECRET?: string;
 }

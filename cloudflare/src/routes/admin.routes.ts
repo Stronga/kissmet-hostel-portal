@@ -9,6 +9,7 @@ import { AdminService } from "../services/admin.service";
 import { asObject, intField, pagination, stringField } from "../http/input";
 import { error, listOk, ok } from "../http/responses";
 import { routeError } from "../http/safe-error";
+import { internetAccessRoutes } from "./internet-access.routes";
 
 type Variables = { authUser: AuthUser };
 const routes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -587,5 +588,7 @@ routes.get("/audit-logs", requirePermission("audit:read"), async (c) => {
   return c.json({ ...listOk((result.results ?? []) as unknown[], p), pagination: { ...p, total: result.total } });
 });
 routes.get("/audit-logs/:id", requirePermission("audit:read"), async (c) => c.json(ok(await service(c).auditLog(c.get("authUser"), Number(c.req.param("id"))))));
+
+routes.route("/", internetAccessRoutes);
 
 export const adminRoutes = routes;
