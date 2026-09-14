@@ -130,12 +130,12 @@ Resident announcements and private messages use the same API layer and never cal
 
 The resident shell is mobile-first:
 
-- desktop/tablet header and compact side navigation
-- mobile header and bottom navigation
+- desktop layout at `lg` (1024px) and above: ~280px sidebar with pill navigation, header, and full-width main content
+- below `lg`: existing mobile header, bottom navigation, and More menu (unchanged routes and stacking)
 - mobile primary items: Home, Application, Payments, My Room, More
 - More menu: Booking, Maintenance, Messages, Announcements, Profile, Documents, Logout
 
-The shell uses a lighter resident visual treatment: light background, white cards, teal accent, larger touch targets, and simple status chips.
+The shell uses a lighter resident visual treatment: light background, white cards, teal accent (`#056268`), larger touch targets, and simple status chips.
 
 ## Home Dashboard
 
@@ -152,14 +152,14 @@ The shell uses a lighter resident visual treatment: light background, white card
 
 The profile request is required for the dashboard to render. Documents, applications, bookings, allocation, payments, announcements, and messages are loaded independently so partial failures show a warning without hiding the resident identity and available sections.
 
-The current visual baseline follows the approved Resident Home Figma frame (`N4Koc3HxZEGAqDp8DD6xHA`, node `3:4`):
+The current visual baseline follows the approved Resident Home desktop HTML/CSS reference (desktop-only; mobile HTML ignored) and brand primary `#056268`:
 
-- primary resident brand color: `#056268`
-- Poppins as the resident UI font direction
-- pale gray app background with white shell/sidebar/header and rounded white cards
-- unified accommodation information bar for Application, Booking, Payment, and My Room
-- local Figma hostel illustration stored in `resident-frontend/src/assets/hostel-illustration.png`
-- responsive two-column lower dashboard on desktop and stacked cards on tablet/mobile
+- primary resident brand color: `#056268` (HTML `--primary-dark` reconciled to this principal brand)
+- Poppins / Inter as the resident UI font direction
+- pale gray app background (`#f3f6f8`) with white shell/sidebar/header and rounded cards (~12–24px radii)
+- unified accommodation information banner for Application | Booking | Payment | My Room with subtle separators and hostel building illustration on desktop
+- hostel illustration stored in `resident-frontend/src/assets/hostel-illustration.png`
+- desktop lower layout: left Journey + Recent Activity; right Next Action + Updates + Need Help (`lg` two-column); stacked below `lg`
 
 The dashboard shows:
 
