@@ -7,15 +7,15 @@ interface ResidentHeaderProps {
   onLogout: () => void;
 }
 
+/** Mobile top bar. Desktop branding lives in the sidebar; user/logout sits in the main column. */
 export function ResidentHeader({ displayName, onLogout }: ResidentHeaderProps) {
   return (
-    <header className="sticky top-0 z-20 border-b border-border bg-surface/95 px-4 py-3 backdrop-blur lg:border-b lg:px-10">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 lg:mx-0 lg:max-w-none">
-        <div className="lg:hidden">
+    <header className="sticky top-0 z-20 border-b border-border bg-surface/95 px-4 py-3 backdrop-blur lg:hidden">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+        <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-primary">Kissmet</p>
           <h1 className="text-base font-semibold text-text-primary">{portalTitle}</h1>
         </div>
-        <h1 className="sr-only">{portalTitle}</h1>
         <div className="flex items-center gap-3">
           {displayName ? <span className="hidden text-sm text-text-secondary sm:block">{displayName}</span> : null}
           <Button variant="ghost" className="gap-2 px-3" onClick={onLogout} aria-label="Logout">
