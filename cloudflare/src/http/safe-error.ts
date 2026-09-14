@@ -18,6 +18,9 @@ const SAFE_PREFIXES = [
   "Booking ",
   "Application ",
   "Allocation ",
+  "Internet ",
+  "HotSpot ",
+  "Staff ",
   "Room ",
   "Bed ",
   "Gender",
@@ -47,6 +50,9 @@ function looksUnsafe(message: string): boolean {
     lower.includes("r2") ||
     lower.includes("stack") ||
     lower.includes("password") ||
+    lower.includes("connector") && lower.includes("http") ||
+    lower.includes("authorization") ||
+    lower.includes("wireguard") ||
     lower.includes("token") ||
     lower.includes("otp") && lower.includes("hash") ||
     lower.includes("/workspace") ||
