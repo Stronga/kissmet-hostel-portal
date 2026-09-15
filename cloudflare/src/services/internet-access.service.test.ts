@@ -3,6 +3,7 @@ import type { AuthUser } from "../auth/context";
 import { hasPermission } from "../auth/permissions";
 import {
   generateHotspotPassword,
+  INTERNET_DEVICE_LIMIT,
   InternetAccessService,
   routerUsernameFromResidentCode
 } from "./internet-access.service";
@@ -110,6 +111,20 @@ class FakeRepo {
   async audit(_u: number | null, _s: number | null, action: string) {
     this.audits.push(action);
   }
+}
+
+
+function residentActor(residentId = 1): AuthUser {
+  return {
+    id: 40,
+    userType: "resident",
+    displayName: "Ama Resident",
+    email: "ama@example.com",
+    role: "resident",
+    staffId: null,
+    residentId,
+    sessionId: 77
+  };
 }
 
 function staff(): AuthUser {
@@ -471,5 +486,118 @@ describe("InternetAccessService Phase 1 ops", () => {
     connector.unavailable = true;
     await expect(svc.ensureProfile(actor)).rejects.toThrow(/connector/i);
     expect(repo.audits).toContain("internet.ensure_profile");
+  });
+});
+
+describe("InternetAccessService Phase 2 resident read-only", () => {
+  let repo: FakeRepo;
+  let connector: FakeConnector;
+  let svc: InternetAccessService;
+
+  beforeEach(() => {
+    repo = new FakeRepo();
+    connector = new FakeConnector();
+    svc = new InternetAccessService(repo as never, connector as never);
+  });
+
+  it("returns no-access view when resident has no internet account", async () => {
+    const view = await svc.residentAccess(residentActor());
+    expect(view).toEqual({
+      hasAccess: false,
+      status: null,
+      internetId: null,
+      deviceLimit: INTERNET_DEVICE_LIMIT,
+      syncStatus: null
+    });
+    expect(JSON.stringify(view)).not.toMatch(/password|Bearer|192\.168|WireGuard|\.id/i);
+  });
+
+  it("returns resident-safe active account fields from D1 only", async () => {
+    await svc.provision(staff(), 1);
+    const view = await svc.residentAccess(residentActor(1));
+    expect(view.hasAccess).toBe(true);
+    expect(view.status).toBe("active");
+    expect(view.internetId).toBe("KSM-RES-0025");
+    expect(view.deviceLimit).toBe(3);
+    expect(view.syncStatus).toBe("synced");
+    expect(view).not.toHaveProperty("password");
+    expect(view).not.toHaveProperty("last_sync_error");
+    expect(view).not.toHaveProperty("router_profile");
+  });
+
+  it("exposes suspended and pending/failed sync without connector error text", async () => {
+    await svc.provision(staff(), 1);
+    repo.accounts[0].status = "suspended";
+    repo.accounts[0].sync_status = "synced";
+    repo.accounts[0].last_sync_error = "secret http://connector Authorization Bearer";
+    const suspended = await svc.residentAccess(residentActor(1));
+    expect(suspended.status).toBe("suspended");
+    expect(JSON.stringify(suspended)).not.toMatch(/secret|Bearer|http:\/\/connector/i);
+
+    repo.accounts[0].status = "active";
+    repo.accounts[0].sync_status = "failed";
+    const failed = await svc.residentAccess(residentActor(1));
+    expect(failed.syncStatus).toBe("failed");
+    expect(failed).not.toHaveProperty("last_sync_error");
+
+    repo.accounts[0].sync_status = "pending";
+    const pending = await svc.residentAccess(residentActor(1));
+    expect(pending.syncStatus).toBe("pending");
+  });
+
+  it("returns active counts 0/1/2/3 without RouterOS session internals", async () => {
+    await svc.provision(staff(), 1);
+    for (const count of [0, 1, 2, 3]) {
+      connector.sessions.set(
+        "KSM-RES-0025",
+        Array.from({ length: count }, (_, i) => ({
+          id: `*${i + 1}`,
+          user: "KSM-RES-0025",
+          macAddress: `AA:BB:CC:DD:EE:0${i}`,
+          address: `10.0.0.${i + 1}`
+        }))
+      );
+      const sessions = await svc.residentActiveSessions(residentActor(1));
+      expect(sessions).toEqual({ activeCount: count, deviceLimit: 3 });
+      expect(JSON.stringify(sessions)).not.toMatch(/AA:BB|10\.0\.0|\*1|password/i);
+    }
+  });
+
+  it("returns unavailable live count when connector fails without changing D1", async () => {
+    await svc.provision(staff(), 1);
+    expect(repo.accounts[0].sync_status).toBe("synced");
+    expect(repo.accounts[0].status).toBe("active");
+    connector.unavailable = true;
+    const sessions = await svc.residentActiveSessions(residentActor(1));
+    expect(sessions.activeCount).toBeNull();
+    expect(sessions.deviceLimit).toBe(3);
+    expect(repo.accounts[0].sync_status).toBe("synced");
+    expect(repo.accounts[0].status).toBe("active");
+  });
+
+  it("never returns another resident's account or sessions", async () => {
+    await svc.provision(staff(), 1);
+    connector.sessions.set("KSM-RES-0025", [{ id: "*9", user: "KSM-RES-0025" }]);
+    const stranger = residentActor(999);
+    const access = await svc.residentAccess(stranger);
+    expect(access.hasAccess).toBe(false);
+    const sessions = await svc.residentActiveSessions(stranger);
+    expect(sessions.activeCount).toBeNull();
+  });
+
+  it("requires resident session for resident endpoints", async () => {
+    await expect(svc.residentAccess(staff())).rejects.toThrow(/Resident session required/);
+    await expect(svc.residentActiveSessions(staff())).rejects.toThrow(/Resident session required/);
+  });
+
+  it("resident endpoints are read-only against RouterOS", async () => {
+    await svc.provision(staff(), 1);
+    const before = structuredClone(connector.users.get("KSM-RES-0025"));
+    connector.sessions.set("KSM-RES-0025", [{ id: "*1" }]);
+    await svc.residentAccess(residentActor(1));
+    await svc.residentActiveSessions(residentActor(1));
+    expect(connector.users.get("KSM-RES-0025")).toEqual(before);
+    expect(connector.sessions.get("KSM-RES-0025")).toHaveLength(1);
+    expect(connector.passwords.get("KSM-RES-0025")).toBeTruthy();
   });
 });

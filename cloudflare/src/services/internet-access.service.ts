@@ -6,6 +6,7 @@ import {
 } from "./mikrotik-connector.client";
 
 export const INTERNET_PROFILE = "Kissmet-Residents";
+export const INTERNET_DEVICE_LIMIT = 3;
 
 export type InternetStatus = "active" | "suspended" | "disabled";
 export type SyncStatus = "pending" | "synced" | "failed";
@@ -56,6 +57,20 @@ export interface ListInternetFilters {
   search?: string;
   status?: string;
   syncStatus?: string;
+}
+
+
+export interface ResidentInternetAccessView {
+  hasAccess: boolean;
+  status: InternetStatus | null;
+  internetId: string | null;
+  deviceLimit: number;
+  syncStatus: SyncStatus | null;
+}
+
+export interface ResidentInternetSessionsView {
+  activeCount: number | null;
+  deviceLimit: number;
 }
 
 export interface ConnectorHealthView {
@@ -526,6 +541,57 @@ export class InternetAccessService {
       return { ...updated, password: recreatedPassword };
     }
     return updated;
+  }
+
+
+  /**
+   * Resident read-only account/entitlement view (D1 only).
+   * Ownership from authenticated residentId — never from query params.
+   * Never includes password, RouterOS ids, connector errors, or secrets.
+   */
+  async residentAccess(actor: AuthUser): Promise<ResidentInternetAccessView> {
+    if (!actor.residentId) throw new Error("Resident session required");
+    const account = await this.getByResident(actor.residentId);
+    if (!account) {
+      return {
+        hasAccess: false,
+        status: null,
+        internetId: null,
+        deviceLimit: INTERNET_DEVICE_LIMIT,
+        syncStatus: null
+      };
+    }
+    return {
+      hasAccess: true,
+      status: account.status,
+      internetId: account.router_username,
+      deviceLimit: INTERNET_DEVICE_LIMIT,
+      syncStatus: account.sync_status
+    };
+  }
+
+  /**
+   * Resident live active-device count only (RouterOS via connector).
+   * D1 account status is never changed on connector failure.
+   * Returns activeCount=null when unavailable — no MAC/IP/session detail.
+   */
+  async residentActiveSessions(actor: AuthUser): Promise<ResidentInternetSessionsView> {
+    if (!actor.residentId) throw new Error("Resident session required");
+    const account = await this.getByResident(actor.residentId);
+    if (!account) {
+      return { activeCount: null, deviceLimit: INTERNET_DEVICE_LIMIT };
+    }
+
+    const result = await this.safeConnector(() =>
+      this.connector.listActiveSessions(account.router_username)
+    );
+    if (!result.ok) {
+      return { activeCount: null, deviceLimit: INTERNET_DEVICE_LIMIT };
+    }
+    return {
+      activeCount: result.value.length,
+      deviceLimit: INTERNET_DEVICE_LIMIT
+    };
   }
 
   async listSessions(id: number) {

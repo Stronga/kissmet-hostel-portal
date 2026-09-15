@@ -8,6 +8,9 @@ import { ok } from "../http/responses";
 import { routeError } from "../http/safe-error";
 import { MockSmsProvider } from "../services/sms.service";
 import { ResidentService } from "../services/resident.service";
+import { AdminRepository } from "../repositories/admin.repository";
+import { InternetAccessService } from "../services/internet-access.service";
+import { MikroTikConnectorClient } from "../services/mikrotik-connector.client";
 
 type Variables = { authUser: AuthUser };
 export const residentRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -22,6 +25,13 @@ async function body(c: { req: { json: () => Promise<unknown> } }) {
 
 function handle(e: unknown) {
   return routeError(e);
+}
+
+function internetService(c: { env: Env }) {
+  return new InternetAccessService(
+    new AdminRepository(c.env.DB),
+    MikroTikConnectorClient.fromEnv(c.env)
+  );
 }
 
 residentRoutes.post("/register/request-otp", async (c) => {
@@ -58,6 +68,25 @@ residentRoutes.patch("/me", requireAuth, async (c) => {
       email: stringField(input, "email", false)
     })));
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+
+
+residentRoutes.get("/me/internet-access", async (c) => {
+  try {
+    return c.json(ok(await internetService(c).residentAccess(c.get("authUser"))));
+  } catch (e) {
+    const h = handle(e);
+    return c.json(h.body, h.status);
+  }
+});
+
+residentRoutes.get("/me/internet-access/sessions", async (c) => {
+  try {
+    return c.json(ok(await internetService(c).residentActiveSessions(c.get("authUser"))));
+  } catch (e) {
+    const h = handle(e);
+    return c.json(h.body, h.status);
+  }
 });
 
 residentRoutes.get("/me/documents", async (c) => c.json(ok((await service(c).documentsFor(c.get("authUser"))).results ?? [])));

@@ -55,6 +55,15 @@ function mockDashboard(state: MockState) {
     if (url.endsWith("/resident/me/announcements")) return json({ ok: true, data: state.announcements ?? [] });
     if (url.endsWith("/resident/me/messages") && state.failMessages) return json({ error: "Messages unavailable" }, 500);
     if (url.endsWith("/resident/me/messages")) return json({ ok: true, data: state.messages ?? [] });
+    if (url.endsWith("/resident/me/internet-access/sessions")) {
+      return json({ ok: true, data: { activeCount: null, deviceLimit: 3 } });
+    }
+    if (url.endsWith("/resident/me/internet-access")) {
+      return json({
+        ok: true,
+        data: { hasAccess: false, status: null, internetId: null, deviceLimit: 3, syncStatus: null }
+      });
+    }
     return json({ ok: true, data: [] });
   }));
 }

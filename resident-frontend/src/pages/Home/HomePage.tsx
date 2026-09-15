@@ -26,6 +26,7 @@ import type { DashboardData } from "../../types/resident";
 import { latestAnnouncement, latestMessage, messagePreview, unreadMessageCount } from "../../utils/communications";
 import { formatDateTime, formatMoneyMinor, statusLabel } from "../../utils/format";
 import { buildJourney, latestApplicationSummary, latestBookingSummary, nextAction, type JourneyStage } from "../../utils/journey";
+import { InternetAccessCard } from "./InternetAccessCard";
 
 function Detail({ label, value }: { label: string; value?: string | number | null }) {
   return (
@@ -543,6 +544,10 @@ export function HomePage() {
       </div>
 
       <HomeStatusBar data={data} />
+
+      <div className="mt-6">
+        <InternetAccessCard />
+      </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1.5fr_1fr]">
         <div className="space-y-6">
