@@ -75,6 +75,11 @@ export class NodeRouterOsClient implements RouterOsClient {
       return (result ?? []) as RosRow[];
     } catch (e) {
       const message = e instanceof Error ? e.message : "RouterOS write failed";
+      const errno = typeof e === "object" && e && "errno" in e ? String((e as { errno?: unknown }).errno) : "";
+      // Defensive: empty filtered print on RouterOS 7
+      if (errno === "UNKNOWNREPLY" && /!empty/i.test(message)) {
+        return [];
+      }
       log.error("routeros_write_failed", { path, error: message });
       throw new RouterOsUnavailableError("RouterOS operation failed");
     }
