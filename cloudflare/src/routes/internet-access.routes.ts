@@ -23,11 +23,38 @@ function handle(e: unknown) {
   return routeError(e);
 }
 
+routes.get("/internet-access/summary", requirePermission("internet:read"), async (c) => {
+  return c.json(ok(await service(c).summary()));
+});
+
+routes.get("/internet-access/connector-health", requirePermission("internet:read"), async (c) => {
+  return c.json(ok(await service(c).connectorHealth()));
+});
+
+routes.get("/internet-access/eligible-residents", requirePermission("internet:read"), async (c) => {
+  const url = new URL(c.req.url);
+  const p = pagination(url);
+  const search = url.searchParams.get("search") ?? undefined;
+  const result = await service(c).searchEligibleResidents(p.limit, p.offset, search) as { results?: unknown[] };
+  return c.json(listOk((result.results ?? []) as unknown[], p));
+});
+
+routes.post("/internet-access/ensure-profile", requirePermission("internet:manage"), async (c) => {
+  try {
+    return c.json(ok(await service(c).ensureProfile(c.get("authUser"))));
+  } catch (e) {
+    const h = handle(e);
+    return c.json(h.body, h.status);
+  }
+});
+
 routes.get("/internet-access", requirePermission("internet:read"), async (c) => {
   const url = new URL(c.req.url);
   const p = pagination(url);
   const search = url.searchParams.get("search") ?? undefined;
-  const result = await service(c).list(p.limit, p.offset, search) as { results?: unknown[] };
+  const status = url.searchParams.get("status") ?? undefined;
+  const syncStatus = url.searchParams.get("sync_status") ?? undefined;
+  const result = await service(c).list(p.limit, p.offset, { search, status, syncStatus }) as { results?: unknown[] };
   return c.json(listOk((result.results ?? []) as unknown[], p));
 });
 

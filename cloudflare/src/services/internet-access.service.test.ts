@@ -131,9 +131,15 @@ class FakeConnector {
   sessions = new Map<string, unknown[]>();
   unavailable = false;
   profileSharedUsers = 3;
+  configured = true;
 
   private guard() {
     if (this.unavailable) throw new ConnectorUnavailableError("Internet connector unavailable");
+  }
+
+  async health() {
+    this.guard();
+    return { ok: true as const, board: "hAP", version: "7.x" };
   }
 
   async ensureResidentProfile() {
@@ -326,5 +332,144 @@ describe("MikroTikConnectorClient config", () => {
     await client.disconnectSessions("KSM-RES-0025");
     expect(calls).toHaveLength(1);
     expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe("Bearer sec");
+  });
+});
+
+describe("InternetAccessService Phase 1 ops", () => {
+  let repo: FakeRepo;
+  let connector: FakeConnector;
+  let svc: InternetAccessService;
+  const actor = staff();
+
+  beforeEach(() => {
+    repo = new FakeRepo();
+    connector = new FakeConnector();
+    svc = new InternetAccessService(repo as never, connector as never);
+  });
+
+  it("lists with status and sync_status filters", async () => {
+    await svc.provision(actor, 1);
+    repo.accounts.push({
+      id: 2,
+      resident_id: 1,
+      router_username: "KSM-RES-0099",
+      router_profile: "Kissmet-Residents",
+      status: "suspended",
+      sync_status: "failed",
+      last_synced_at: null,
+      last_sync_error: "down",
+      created_at: "2026-09-14T00:00:00.000Z",
+      updated_at: "2026-09-14T00:00:00.000Z",
+      created_by_staff_id: 2,
+      updated_by_staff_id: 2
+    });
+
+    const originalAll = repo.all.bind(repo);
+    repo.all = (async (sql: string, ...binds: unknown[]) => {
+      if (sql.includes("ia.status = ?") && sql.includes("ia.sync_status = ?")) {
+        const status = binds[0];
+        const sync = binds[1];
+        const rows = repo.accounts.filter((a) => a.status === status && a.sync_status === sync);
+        return { results: rows };
+      }
+      if (sql.includes("ia.status = ?")) {
+        return { results: repo.accounts.filter((a) => a.status === binds[0]) };
+      }
+      if (sql.includes("ia.sync_status = ?")) {
+        return { results: repo.accounts.filter((a) => a.sync_status === binds[0]) };
+      }
+      return originalAll(sql, ...binds);
+    }) as typeof repo.all;
+
+    const filtered = await svc.list(25, 0, { status: "suspended", syncStatus: "failed" }) as unknown as { results: Row[] };
+    expect(filtered.results).toHaveLength(1);
+    expect(filtered.results[0].status).toBe("suspended");
+  });
+
+  it("returns summary counts from D1", async () => {
+    await svc.provision(actor, 1);
+    const originalFirst = repo.first.bind(repo);
+    repo.first = (async <T>(sql: string, ...binds: unknown[]) => {
+      if (sql.includes("COUNT(*) FROM resident_internet_accounts")) {
+        return {
+          total: repo.accounts.length,
+          active: repo.accounts.filter((a) => a.status === "active").length,
+          suspended: repo.accounts.filter((a) => a.status === "suspended").length,
+          sync_failed: repo.accounts.filter((a) => a.sync_status === "failed").length,
+          pending: repo.accounts.filter((a) => a.sync_status === "pending").length
+        } as T;
+      }
+      return originalFirst<T>(sql, ...binds);
+    }) as typeof repo.first;
+    const summary = await svc.summary();
+    expect(summary.total).toBe(1);
+    expect(summary.active).toBe(1);
+    expect(summary.sync_failed).toBe(0);
+  });
+
+  it("searches eligible residents with active allocation", async () => {
+    const originalAll = repo.all.bind(repo);
+    repo.all = (async (sql: string, ...binds: unknown[]) => {
+      if (sql.includes("already_provisioned") || sql.includes("JOIN allocations a")) {
+        const residents = repo.residents.filter((r) =>
+          repo.allocations.some((a) => a.resident_id === r.id && a.status === "active")
+        );
+        return {
+          results: residents.map((r) => {
+            const allocation = repo.allocations.find((a) => a.resident_id === r.id && a.status === "active");
+            const bed = repo.beds.find((b) => b.id === allocation?.bed_id);
+            const room = repo.rooms.find((roomRow) => roomRow.id === bed?.room_id);
+            const account = repo.accounts.find((a) => a.resident_id === r.id);
+            return {
+              id: r.id,
+              resident_code: r.resident_code,
+              first_name: r.first_name,
+              last_name: r.last_name,
+              room_code: room?.room_code ?? null,
+              bed_code: bed?.bed_code ?? null,
+              internet_account_id: account?.id ?? null,
+              internet_status: account?.status ?? null,
+              internet_sync_status: account?.sync_status ?? null,
+              already_provisioned: account ? 1 : 0
+            };
+          })
+        };
+      }
+      return originalAll(sql, ...binds);
+    }) as typeof repo.all;
+
+    const result = await svc.searchEligibleResidents(25, 0, "Ama") as unknown as { results: Row[] };
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].resident_code).toBe("KSM-RES-0025");
+    expect(result.results[0].already_provisioned).toBe(0);
+  });
+
+  it("reports connector health without blocking", async () => {
+    const healthy = await svc.connectorHealth();
+    expect(healthy.ok).toBe(true);
+    expect(healthy.configured).toBe(true);
+
+    connector.unavailable = true;
+    const down = await svc.connectorHealth();
+    expect(down.ok).toBe(false);
+    expect(down.configured).toBe(true);
+
+    connector.configured = false;
+    connector.unavailable = false;
+    const unconfigured = await svc.connectorHealth();
+    expect(unconfigured.ok).toBe(false);
+    expect(unconfigured.configured).toBe(false);
+  });
+
+  it("ensure-profile audits staff action", async () => {
+    const result = await svc.ensureProfile(actor);
+    expect(result.profile.sharedUsers).toBe(3);
+    expect(repo.audits).toContain("internet.ensure_profile");
+  });
+
+  it("ensure-profile fails safely when connector down", async () => {
+    connector.unavailable = true;
+    await expect(svc.ensureProfile(actor)).rejects.toThrow(/connector/i);
+    expect(repo.audits).toContain("internet.ensure_profile");
   });
 });

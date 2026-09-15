@@ -1,4 +1,4 @@
-# Kissmet Internet Access — Phase 0
+# Kissmet Internet Access — Phase 0 + Phase 1
 
 Isolated **Internet Access** module for staff/admin provisioning of resident HotSpot identities. MikroTik enforces network entitlement; Kissmet D1 remains the source of truth for residents.
 
@@ -13,15 +13,17 @@ Resident → Documents → Application → Booking → Payment → Allocation / 
 Rules:
 
 - Internet access is only for Kissmet residents with an **active room/bed allocation**
-- Staff/admin initiates provisioning only — no resident self-service in Phase 0
+- Staff/admin initiates provisioning only — no resident self-service in Phase 0/1
 - No internet packages; do not reuse `room_rates`, hostel payments, or accommodation statuses
 - Internet failure must never corrupt registration, OTP, applications, bookings, payments, receipts, allocations, maintenance, or RBAC
 - Residents do not administer MikroTik
+- One identity per resident; `shared-users=3` on `Kissmet-Residents`
+- MikroTik enforcement only
 
 ## Architecture
 
 ```text
-Kissmet Admin UI
+Kissmet Admin UI  (/internet-access)
         │
         ▼
 Cloudflare Worker / Kissmet API
@@ -66,6 +68,7 @@ Stable mapping from Kissmet `resident_code`, e.g. `KSM-RES-0025`. Uppercased; mu
 - Never reuse OTP / student ID / portal auth
 - Returned once on provision / reset / recreate-on-retry
 - Not recoverable from D1 afterwards
+- Never written to localStorage or audit metadata
 
 ## MikroTik profile
 
@@ -97,6 +100,7 @@ Staff/admin initiates `POST .../provision`. No auto-provision on registration.
 | Reset password | Explicit only; returns new password once |
 | Disconnect | Disconnect sessions; empty set is success |
 | Retry sync | Re-push desired state; recreate missing router user if needed |
+| Ensure profile | Staff action; idempotent create/verify `Kissmet-Residents` shared-users=3 |
 
 ## Sync states
 
@@ -110,10 +114,10 @@ Connector outage → internet op becomes pending/failed; hostel workflows contin
 
 ## RBAC
 
-Permissions (code map in `cloudflare/src/auth/permissions.ts`):
+Permissions (code map in `cloudflare/src/auth/permissions.ts` and admin-frontend mirror):
 
-- `internet:read` — list/get/sessions
-- `internet:manage` — provision/enable/suspend/reset/disconnect/retry-sync
+- `internet:read` — list/get/sessions/summary/health/eligible search
+- `internet:manage` — provision/enable/suspend/reset/disconnect/retry-sync/ensure-profile
 
 Granted to:
 
@@ -130,6 +134,7 @@ Not granted to reception/accounts/maintenance/resident.
 - `internet.password_reset`
 - `internet.disconnect_sessions`
 - `internet.sync_retry`
+- `internet.ensure_profile`
 
 Password values are never audited.
 
@@ -137,17 +142,61 @@ Password values are never audited.
 
 Under `/admin` (auth + permission required):
 
-| Method | Path |
-|---|---|
-| GET | `/admin/internet-access` |
-| GET | `/admin/internet-access/:id` |
-| GET | `/admin/internet-access/:id/sessions` |
-| POST | `/admin/internet-access/residents/:residentId/provision` |
-| POST | `/admin/internet-access/:id/enable` |
-| POST | `/admin/internet-access/:id/suspend` |
-| POST | `/admin/internet-access/:id/reset-password` |
-| POST | `/admin/internet-access/:id/disconnect` |
-| POST | `/admin/internet-access/:id/retry-sync` |
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/admin/internet-access` | Search + `status` + `sync_status` + pagination |
+| GET | `/admin/internet-access/summary` | D1 counts: total/active/suspended/sync_failed/pending |
+| GET | `/admin/internet-access/connector-health` | Non-blocking connector reachability |
+| GET | `/admin/internet-access/eligible-residents` | Active allocation; shows already provisioned |
+| POST | `/admin/internet-access/ensure-profile` | Staff ensure Kissmet-Residents |
+| GET | `/admin/internet-access/:id` | Detail (+ room/bed + allocation flag) |
+| GET | `/admin/internet-access/:id/sessions` | Live HotSpot sessions |
+| POST | `/admin/internet-access/residents/:residentId/provision` | One-time password on success |
+| POST | `/admin/internet-access/:id/enable` | |
+| POST | `/admin/internet-access/:id/suspend` | |
+| POST | `/admin/internet-access/:id/reset-password` | One-time password |
+| POST | `/admin/internet-access/:id/disconnect` | |
+| POST | `/admin/internet-access/:id/retry-sync` | May return one-time password if recreated |
+
+## Phase 1 — Admin Operations & Live Connector Workflow
+
+### Admin UI
+
+- Nav entry **Internet Access** under **Operations** (not under Payments/Rooms), gated to `super_admin` / `manager`
+- Route `/internet-access`
+- Summary cards from D1 summary endpoint
+- Table: resident code/name, room/bed, username, status, sync, last synced, actions
+- Server-side search + status + sync filters + pagination
+- Loading / empty / error + retry; connector health failure never blocks the rest of Admin
+
+### Provision workflow
+
+1. Staff opens **Provision Resident**
+2. Search eligible residents (active allocation)
+3. Confirm resident, room/bed, derived username (`resident_code`)
+4. Provision → show HotSpot password **once** with copy + warning
+5. Password is not persisted in D1, localStorage, or audit logs
+
+### Detail actions
+
+From the account detail modal:
+
+- Enable
+- Suspend (confirm)
+- Disconnect sessions (confirm)
+- Reset password (confirm + one-time show)
+- Retry sync
+- Live sessions list (best-effort; connector errors shown inline)
+
+### Connector health
+
+- Manual refresh + low-frequency auto refresh (~2 minutes)
+- Optional **Ensure Kissmet-Residents profile** staff action
+- Never blocks hostel modules or the whole Admin app
+
+### Device limit copy
+
+UI and docs state: **3 simultaneous devices** (`shared-users=3` on `Kissmet-Residents`).
 
 ## Secrets / environment
 
@@ -180,7 +229,7 @@ Do not place secrets in React/Vite env, Markdown, or git history.
 3. Allowlist connector HTTP; do not expose as a public RouterOS proxy
 4. Do not open RouterOS API to the public internet
 5. Do not use the RouterOS `admin` account
-6. Phase 0: no production deploy of this module until Phase 1 review
+6. Phase 1 completes Admin operations UI; production connector hosting remains an ops decision
 
 ## Packages
 
@@ -190,12 +239,14 @@ Do not place secrets in React/Vite env, Markdown, or git history.
 | `cloudflare/src/services/internet-access.service.ts` | Domain logic |
 | `cloudflare/src/services/mikrotik-connector.client.ts` | Worker → connector HTTP client |
 | `cloudflare/src/routes/internet-access.routes.ts` | Admin routes |
+| `admin-frontend/src/pages/InternetAccess/` | Phase 1 Admin UI |
 
-## Explicit non-goals (Phase 0)
+## Explicit non-goals (Phase 1)
 
 - Resident dashboard internet card / self-service
 - Internet packages or Wi-Fi payments
 - Permanent MAC binding
 - Production connector hosting selection beyond requirements
 - api-ssl / 8729 certificate migration
-- Live RouterOS changes from this implementation (NONE)
+- Live RouterOS changes from automated CI (NONE — mocks only)
+- Changing RouterOS `default` profile
