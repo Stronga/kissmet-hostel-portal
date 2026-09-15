@@ -1,4 +1,4 @@
-# Kissmet Internet Access — Phase 0 + Phase 1 + Phase 2
+# Kissmet Internet Access — Phase 0 + Phase 1 + Phase 2 + Phase 3
 
 Isolated **Internet Access** module for staff/admin provisioning of resident HotSpot identities. MikroTik enforces network entitlement; Kissmet D1 remains the source of truth for residents.
 
@@ -27,15 +27,23 @@ Kissmet Admin UI  (/internet-access)
         │
         ▼
 Cloudflare Worker / Kissmet API
-        │  Authorization: Bearer <MIKROTIK_CONNECTOR_SECRET>
+        │  HTTPS + Authorization: Bearer <MIKROTIK_CONNECTOR_SECRET>
+        │  secure Cloudflare connectivity (e.g. Tunnel — commissioning deferred)
         ▼
-Always-on MikroTik Connector  (mikrotik-connector/)
-        │  WireGuard peer .5 (192.168.216.5/32)
+Raspberry Pi — Kissmet On-Site Network Node
+├── Kissmet MikroTik Connector  (mikrotik-connector/)
+├── secure remote-presence capability  (docs only)
+└── future network monitoring  (docs only)
+        │  direct private Ethernet / LAN
         ▼
-MikroTik 192.168.88.1:8728  (RouterOS API as portal-api)
+MikroTik hEX S 192.168.88.1:8728  (RouterOS API as portal-api)
+        │
+     APs / Wi-Fi
 ```
 
-**Cloudflare Workers cannot host WireGuard.** The connector must run on an always-on host that maintains the dedicated `.5` tunnel. The browser never talks to RouterOS, `192.168.88.1`, ports 8728/8729, or connector RouterOS credentials.
+**Production:** connector on the on-site Raspberry Pi; RouterOS traffic is **direct hostel LAN**, not WireGuard.  
+**Dev / remote test:** WireGuard peer `.5` (`192.168.216.5/32`) from the current remote PC is **retained** and must not be deleted — it is not the production path.  
+Cloudflare Workers cannot reach RouterOS directly. The browser never talks to RouterOS, `192.168.88.1`, ports 8728/8729, or connector RouterOS credentials.
 
 ## Database schema
 
@@ -215,7 +223,7 @@ When missing locally, operations fail with `sync_failed` safely (no crash of hos
 |---|---|
 | `CONNECTOR_SECRET` | Must match Worker secret |
 | `MIKROTIK_HOST` | `192.168.88.1` |
-| `MIKROTIK_API_PORT` | `8728` (over private WG) |
+| `MIKROTIK_API_PORT` | `8728` (private path only: Pi LAN in production; WG `.5` in remote lab) |
 | `MIKROTIK_API_USER` | `portal-api` |
 | `MIKROTIK_API_PASSWORD` | RouterOS API password |
 | `PORT` | HTTP listen port |
@@ -224,12 +232,12 @@ Do not place secrets in React/Vite env, Markdown, or git history.
 
 ## Deployment requirements
 
-1. Always-on connector host with WireGuard **.5** identity
-2. Confirm `192.168.88.1:8728` reachable from `.5` before enabling Worker binding
-3. Allowlist connector HTTP; do not expose as a public RouterOS proxy
-4. Do not open RouterOS API to the public internet
-5. Do not use the RouterOS `admin` account
-6. Phase 1 completes Admin operations UI; production connector hosting remains an ops decision
+1. On-site **Raspberry Pi** (64-bit Linux) running the connector under systemd (Ethernet preferred)
+2. Confirm `192.168.88.1:8728` reachable from the **Pi LAN IP** (not WG `.5`) before enabling Worker binding
+3. Secure Cloudflare outbound connectivity to the connector (e.g. Tunnel); no Starlink port-forward / public RouterOS
+4. Do not open RouterOS API to the public internet; do not use RouterOS `admin`
+5. **Commissioning:** live `portal-api` allowlist is currently `192.168.216.5/32` — when the Pi has its final LAN IP, safely update RouterOS allowlist for that IP (do not loosen live now)
+6. WireGuard `.5` remains available for **dev / remote testing** from the remote PC only
 
 ## Packages
 
@@ -319,9 +327,53 @@ Do **not** tell residents to use Kissmet OTP/portal auth as the Wi-Fi password. 
 - Resident device disconnect controls
 - Internet packages or Wi-Fi payments
 - Permanent MAC binding
-- Production connector hosting/deployment selection beyond requirements
+- Physical Raspberry Pi + Cloudflare Tunnel commissioning (Phase 3 code/packaging ready; cutover blocked on hardware)
 - api-ssl / 8729 certificate migration
 - Alerting / HA
 - Automatic entitlement reconciliation
 - Live RouterOS changes from automated CI (NONE — mocks only)
 - Changing RouterOS `default` profile
+
+## Phase 3 — Production connector readiness (Raspberry Pi)
+
+Goal: make the MikroTik connector **production-capable** on an **on-site Raspberry Pi** so Kissmet Internet Access does not depend on a developer Windows PC. Production RouterOS traffic is **direct hostel LAN**, not WireGuard `.5`.
+
+### What Phase 3 delivers
+
+- Linux packaging for Pi OS 64-bit / Debian-based hosts: `.env.example`, systemd unit, `scripts/install.sh`, `scripts/upgrade.sh`
+- Focused guide: `mikrotik-connector/MIKROTIK_CONNECTOR_DEPLOYMENT.md`
+- Production architecture: Cloudflare Worker → secure Cloudflare connectivity → Pi → Ethernet/LAN → MikroTik `192.168.88.1:8728`
+- Pi role docs: (1) connector implement/deploy-ready; (2) remote-presence architecture only; (3) monitoring architecture only
+- WireGuard `.5` retained and documented as **DEV / remote test** from the current PC (not deleted; not production)
+- Worker → connector hardening: authenticated HTTPS / Tunnel pattern, timing-safe Bearer auth, body size limits, rate limit, bounded timeouts, correlation IDs, structured redacted logs
+- Split health: `GET /health` (process) + authenticated `GET /v1/health` (RouterOS path)
+- Restart/recovery under systemd (auto-start on boot; restart on failure); Ethernet/LAN validation checklist
+- RouterOS commissioning note: live `portal-api` allowlist `192.168.216.5/32` must later include the Pi LAN IP — **no live RouterOS changes in this phase**
+
+### Critical gate
+
+**Physical Raspberry Pi is not on site yet.** Software is ready; Cloudflare Tunnel config is not invented or validated here.
+
+Overall status: **CODE READY — BLOCKED ON PHYSICAL PI COMMISSIONING** (expected)
+
+Do not claim live production Internet Access until:
+
+1. Pi installed on hostel LAN (Ethernet preferred; static or DHCP-reserved IP)
+2. `192.168.88.1:8728` reachable from the **Pi LAN IP**; `portal-api` allowlist updated for that IP
+3. Secure Cloudflare outbound connectivity validated; connector reachable by Worker
+4. `MIKROTIK_CONNECTOR_URL` / `MIKROTIK_CONNECTOR_SECRET` set via wrangler secret
+5. Optional temporary-user E2E + cleanup
+
+### Ops preference
+
+One hostel &lt;20 rooms → **Raspberry Pi + Node + systemd** (not Kubernetes/mesh/HA). Prefer shared backup power with network gear when commissioning (ops recommendation, not a software requirement).
+
+### Secrets reminder
+
+| Location | Variables |
+|---|---|
+| Connector host env (Pi) | `CONNECTOR_SECRET`, `MIKROTIK_API_PASSWORD`, … |
+| Worker (wrangler secret) | `MIKROTIK_CONNECTOR_URL`, `MIKROTIK_CONNECTOR_SECRET` |
+
+Never commit secrets; never put connector credentials in Admin/Resident browser bundles.
+

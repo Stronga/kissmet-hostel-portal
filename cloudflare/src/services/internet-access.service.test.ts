@@ -8,6 +8,7 @@ import {
   routerUsernameFromResidentCode
 } from "./internet-access.service";
 import {
+  assertProductionConnectorUrl,
   ConnectorUnavailableError,
   MikroTikConnectorClient
 } from "./mikrotik-connector.client";
@@ -601,3 +602,61 @@ describe("InternetAccessService Phase 2 resident read-only", () => {
     expect(connector.passwords.get("KSM-RES-0025")).toBeTruthy();
   });
 });
+
+describe("MikroTikConnectorClient Phase 3 hardening", () => {
+  it("requires HTTPS connector URL in production", () => {
+    expect(() => assertProductionConnectorUrl("http://connector.example", "production")).toThrow(/HTTPS/);
+    expect(() => assertProductionConnectorUrl("https://connector.example", "production")).not.toThrow();
+    expect(() => assertProductionConnectorUrl("http://127.0.0.1:8788", "local")).not.toThrow();
+  });
+
+  it("rejects embedded credentials in connector URL", () => {
+    expect(() =>
+      assertProductionConnectorUrl("https://user:pass@connector.example", "production")
+    ).toThrow(/embed credentials/);
+  });
+
+  it("maps fetch abort/timeout to ConnectorUnavailableError", async () => {
+    const fetchImpl = (async () => {
+      const err = new Error("The operation was aborted");
+      err.name = "AbortError";
+      throw err;
+    }) as typeof fetch;
+    const client = new MikroTikConnectorClient("https://connector.example", "sec", fetchImpl, {
+      appEnv: "production",
+      timeoutMs: 5
+    });
+    await expect(client.health()).rejects.toBeInstanceOf(ConnectorUnavailableError);
+  });
+
+  it("uses authenticated /v1/health and does not put secret in URL", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          data: { process: "up", routeros: "reachable", board: "hEX S", version: "7.24.2" }
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+    const client = new MikroTikConnectorClient("https://connector.example", "sec", fetchImpl, {
+      appEnv: "production"
+    });
+    const health = await client.health();
+    expect(health.board).toBe("hEX S");
+    expect(calls[0].url).toBe("https://connector.example/v1/health");
+    expect(calls[0].url).not.toMatch(/sec|secret|Bearer/i);
+    expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe("Bearer sec");
+  });
+
+  it("production config does not leak secrets via error messages on bad URL", () => {
+    const client = new MikroTikConnectorClient("http://insecure.example", "super-secret-value", fetch, {
+      appEnv: "production"
+    });
+    expect(client.configured).toBe(true);
+    return expect(client.health()).rejects.toThrow(/HTTPS/);
+  });
+});
+

@@ -49,14 +49,27 @@ export class NodeRouterOsClient implements RouterOsClient {
 
   constructor(private readonly config: ConnectorConfig) {}
 
+  private async resetConnection(): Promise<void> {
+    if (this.conn) {
+      try {
+        this.conn.close();
+      } catch {
+        // ignore
+      }
+      this.conn = null;
+    }
+  }
+
   private async api(): Promise<RouterOSAPI> {
     if (this.conn?.connected) return this.conn;
+    await this.resetConnection();
+    const timeout = this.config.routerosTimeoutMs ?? 10_000;
     const conn = new RouterOSAPI({
       host: this.config.mikrotikHost,
       user: this.config.mikrotikApiUser,
       password: this.config.mikrotikApiPassword,
       port: this.config.mikrotikApiPort,
-      timeout: 10_000
+      timeout
     });
     try {
       await conn.connect();
@@ -80,7 +93,9 @@ export class NodeRouterOsClient implements RouterOsClient {
       if (errno === "UNKNOWNREPLY" && /!empty/i.test(message)) {
         return [];
       }
+      // Drop stale socket so the next call reconnects after LAN/Internet/MikroTik recovery.
       log.error("routeros_write_failed", { path, error: message });
+      await this.resetConnection();
       throw new RouterOsUnavailableError("RouterOS operation failed");
     }
   }

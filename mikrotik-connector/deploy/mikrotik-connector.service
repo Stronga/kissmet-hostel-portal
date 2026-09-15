@@ -1,0 +1,43 @@
+[Unit]
+Description=Kissmet MikroTik Connector
+Documentation=file:///opt/kissmet/mikrotik-connector/MIKROTIK_CONNECTOR_DEPLOYMENT.md
+After=network-online.target
+Wants=network-online.target
+# Production host is the on-site Raspberry Pi: RouterOS is reached over direct hostel LAN/Ethernet.
+# Do NOT require WireGuard for production. WG peer .5 is DEV/remote-test only (remote PC).
+#
+# Lab-only optional: if you temporarily run this unit on a host that uses wg-quick for .5 testing,
+# uncomment the next two lines and set the correct interface name.
+# After=wg-quick@wg0.service
+# Wants=wg-quick@wg0.service
+
+[Service]
+Type=simple
+User=kissmet-connector
+Group=kissmet-connector
+WorkingDirectory=/opt/kissmet/mikrotik-connector
+EnvironmentFile=-/etc/kissmet/mikrotik-connector.env
+ExecStart=/usr/bin/node --import tsx /opt/kissmet/mikrotik-connector/src/index.ts
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=20
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/kissmet/mikrotik-connector
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+# Logging → journald (structured JSON lines on stdout/stderr)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kissmet-mikrotik-connector
+
+[Install]
+WantedBy=multi-user.target

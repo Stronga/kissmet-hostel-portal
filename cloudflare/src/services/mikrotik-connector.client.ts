@@ -23,15 +23,42 @@ export class ConnectorUnavailableError extends Error {
   }
 }
 
+/** Default bounded timeout for Worker → connector calls (ms). */
+export const CONNECTOR_REQUEST_TIMEOUT_MS = 12_000;
+
+export function assertProductionConnectorUrl(url: string, appEnv: string | undefined): void {
+  const env = (appEnv ?? "").toLowerCase();
+  if (env !== "production" && env !== "staging") return;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new ConnectorUnavailableError("Internet connector URL is invalid");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new ConnectorUnavailableError("Internet connector URL must use HTTPS in production");
+  }
+  if (parsed.username || parsed.password) {
+    throw new ConnectorUnavailableError("Internet connector URL must not embed credentials");
+  }
+}
+
 export class MikroTikConnectorClient {
   constructor(
     private readonly baseUrl: string | undefined,
     private readonly secret: string | undefined,
-    private readonly fetchImpl: typeof fetch = fetch
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly options: {
+      appEnv?: string;
+      timeoutMs?: number;
+    } = {}
   ) {}
 
   static fromEnv(env: Env, fetchImpl: typeof fetch = fetch) {
-    return new MikroTikConnectorClient(env.MIKROTIK_CONNECTOR_URL, env.MIKROTIK_CONNECTOR_SECRET, fetchImpl);
+    return new MikroTikConnectorClient(env.MIKROTIK_CONNECTOR_URL, env.MIKROTIK_CONNECTOR_SECRET, fetchImpl, {
+      appEnv: env.APP_ENV,
+      timeoutMs: CONNECTOR_REQUEST_TIMEOUT_MS
+    });
   }
 
   get configured(): boolean {
@@ -42,6 +69,7 @@ export class MikroTikConnectorClient {
     if (!this.configured) {
       throw new ConnectorUnavailableError("Internet connector is not configured");
     }
+    assertProductionConnectorUrl(this.baseUrl!.trim(), this.options.appEnv);
   }
 
   private url(path: string) {
@@ -50,18 +78,29 @@ export class MikroTikConnectorClient {
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     this.requireConfig();
+    const timeoutMs = this.options.timeoutMs ?? CONNECTOR_REQUEST_TIMEOUT_MS;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
     let response: Response;
     try {
       response = await this.fetchImpl(this.url(path), {
         method,
         headers: {
           Authorization: `Bearer ${this.secret}`,
+          "x-correlation-id": crypto.randomUUID(),
           ...(body !== undefined ? { "Content-Type": "application/json" } : {})
         },
-        body: body !== undefined ? JSON.stringify(body) : undefined
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal
       });
-    } catch {
-      throw new ConnectorUnavailableError("Internet connector unreachable");
+    } catch (e) {
+      const aborted = e instanceof Error && (e.name === "AbortError" || /aborted/i.test(e.message));
+      throw new ConnectorUnavailableError(
+        aborted ? "Internet connector request timed out" : "Internet connector unreachable"
+      );
+    } finally {
+      clearTimeout(timer);
     }
 
     type ConnectorPayload = { ok?: boolean; data?: T; error?: { message?: string; code?: string } };
@@ -80,6 +119,12 @@ export class MikroTikConnectorClient {
       if (response.status === 409 || code === "profile_conflict") {
         throw new Error(payload?.error?.message ?? "Internet profile conflict");
       }
+      if (response.status === 401 || code === "unauthorized") {
+        throw new ConnectorUnavailableError("Internet connector unauthorized");
+      }
+      if (response.status === 429 || code === "rate_limited") {
+        throw new ConnectorUnavailableError("Internet connector rate limited");
+      }
       if (response.status >= 500 || code === "unavailable") {
         throw new ConnectorUnavailableError("Internet connector unavailable");
       }
@@ -89,8 +134,18 @@ export class MikroTikConnectorClient {
     return payload.data as T;
   }
 
+  /**
+   * Authenticated deep health (RouterOS path). Process-only /health is for host probes.
+   */
   health() {
-    return this.request<{ ok: true; board?: string; version?: string }>("GET", "/health");
+    return this.request<{
+      process: string;
+      routeros: string;
+      board?: string;
+      version?: string;
+      mikrotikHost?: string;
+      mikrotikApiPort?: number;
+    }>("GET", "/v1/health");
   }
 
   ensureResidentProfile() {
