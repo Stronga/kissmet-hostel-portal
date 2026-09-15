@@ -1,4 +1,4 @@
-# Kissmet Internet Access — Phase 0 + Phase 1 + Phase 2
+# Kissmet Internet Access — Phase 0 + Phase 1 + Phase 2 + Phase 3
 
 Isolated **Internet Access** module for staff/admin provisioning of resident HotSpot identities. MikroTik enforces network entitlement; Kissmet D1 remains the source of truth for residents.
 
@@ -27,7 +27,7 @@ Kissmet Admin UI  (/internet-access)
         │
         ▼
 Cloudflare Worker / Kissmet API
-        │  Authorization: Bearer <MIKROTIK_CONNECTOR_SECRET>
+        │  HTTPS + Authorization: Bearer <MIKROTIK_CONNECTOR_SECRET>
         ▼
 Always-on MikroTik Connector  (mikrotik-connector/)
         │  WireGuard peer .5 (192.168.216.5/32)
@@ -319,9 +319,51 @@ Do **not** tell residents to use Kissmet OTP/portal auth as the Wi-Fi password. 
 - Resident device disconnect controls
 - Internet packages or Wi-Fi payments
 - Permanent MAC binding
-- Production connector hosting/deployment selection beyond requirements
+- Production connector **host selection/provisioning** (Phase 3 code/packaging ready; cutover blocked on host)
 - api-ssl / 8729 certificate migration
 - Alerting / HA
 - Automatic entitlement reconciliation
 - Live RouterOS changes from automated CI (NONE — mocks only)
 - Changing RouterOS `default` profile
+
+## Phase 3 — Production connector readiness
+
+Goal: make the MikroTik connector **production-capable** so Kissmet Internet Access does not depend on a developer Windows PC or manually running WireGuard desktop.
+
+### What Phase 3 delivers
+
+- Linux packaging: `.env.example`, systemd unit, `scripts/install.sh`, `scripts/upgrade.sh`
+- Focused guide: `mikrotik-connector/MIKROTIK_CONNECTOR_DEPLOYMENT.md`
+- WireGuard production docs (narrow AllowedIPs; private key never committed; `.5` peer)
+- Worker → connector hardening: HTTPS required in staging/production, timing-safe Bearer auth, body size limits, rate limit, bounded timeouts, correlation IDs, structured redacted logs
+- Split health: `GET /health` (process) + authenticated `GET /v1/health` (RouterOS path)
+- Restart/recovery expectations under systemd + WG auto-start
+- Host recommendation tradeoff (VPS vs hostel mini-PC) — **no silent host selection**
+
+### Critical gate
+
+**No production host has been selected/provisioned in this phase.**
+
+Overall status: **CODE READY — BLOCKED ON PRODUCTION CONNECTOR HOST**
+
+Do not claim live production Internet Access until:
+
+1. Always-on host exists with WG peer `192.168.216.5/32`
+2. `192.168.88.1:8728` reachable; portal-api auth OK
+3. Connector HTTPS reachable by Worker
+4. `MIKROTIK_CONNECTOR_URL` / `MIKROTIK_CONNECTOR_SECRET` set via wrangler secret
+5. Optional temporary-user E2E + cleanup
+
+### Ops preference
+
+One hostel &lt;20 rooms → **Node + systemd** (not Kubernetes/mesh/HA). Container optional only if already favored.
+
+### Secrets reminder
+
+| Location | Variables |
+|---|---|
+| Connector host env | `CONNECTOR_SECRET`, `MIKROTIK_API_PASSWORD`, … |
+| Worker (wrangler secret) | `MIKROTIK_CONNECTOR_URL`, `MIKROTIK_CONNECTOR_SECRET` |
+
+Never commit secrets; never put connector credentials in Admin/Resident browser bundles.
+

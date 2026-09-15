@@ -1,0 +1,40 @@
+[Unit]
+Description=Kissmet MikroTik Connector
+Documentation=file:///opt/kissmet/mikrotik-connector/MIKROTIK_CONNECTOR_DEPLOYMENT.md
+After=network-online.target
+Wants=network-online.target
+# If WireGuard is managed by wg-quick on this host, wait for the tunnel interface.
+# Replace wg0 with the actual interface name (e.g. wg-kissmet).
+After=wg-quick@wg0.service
+Wants=wg-quick@wg0.service
+
+[Service]
+Type=simple
+User=kissmet-connector
+Group=kissmet-connector
+WorkingDirectory=/opt/kissmet/mikrotik-connector
+EnvironmentFile=-/etc/kissmet/mikrotik-connector.env
+ExecStart=/usr/bin/node --import tsx /opt/kissmet/mikrotik-connector/src/index.ts
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=20
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/kissmet/mikrotik-connector
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+# Logging → journald (structured JSON lines on stdout/stderr)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kissmet-mikrotik-connector
+
+[Install]
+WantedBy=multi-user.target

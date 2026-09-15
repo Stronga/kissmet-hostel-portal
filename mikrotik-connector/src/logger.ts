@@ -1,11 +1,13 @@
 type LogLevel = "info" | "warn" | "error";
 
-const SECRET_KEYS = /password|secret|token|authorization|cookie|wireguard|private.?key/i;
+const SECRET_KEYS = /password|secret|token|authorization|cookie|wireguard|private.?key|bearer|api.?key|credential/i;
 
 function redact(value: unknown): unknown {
   if (value == null) return value;
   if (typeof value === "string") {
-    if (value.length > 8 && SECRET_KEYS.test(value)) return "[redacted]";
+    // Never echo long opaque tokens / bearer-looking strings.
+    if (/^Bearer\s+/i.test(value)) return "Bearer [redacted]";
+    if (value.length > 24 && /^[A-Za-z0-9+/=._-]{24,}$/.test(value)) return "[redacted]";
     return value;
   }
   if (Array.isArray(value)) return value.map(redact);
@@ -35,5 +37,7 @@ function write(level: LogLevel, message: string, meta?: Record<string, unknown>)
 export const log = {
   info: (message: string, meta?: Record<string, unknown>) => write("info", message, meta),
   warn: (message: string, meta?: Record<string, unknown>) => write("warn", message, meta),
-  error: (message: string, meta?: Record<string, unknown>) => write("error", message, meta)
+  error: (message: string, meta?: Record<string, unknown>) => write("error", message, meta),
+  /** Exported for unit tests — never use to log live secrets. */
+  _redactForTest: redact
 };
