@@ -15,7 +15,7 @@ const server = serve({ fetch: app.fetch, port: config.port, hostname: config.bin
     mode: config.mode,
     mikrotikHost: config.mikrotikHost,
     mikrotikApiPort: config.mikrotikApiPort,
-    note: "Requires always-on WireGuard peer .5 to reach RouterOS; Cloudflare Workers cannot host WireGuard"
+    note: "Production: Pi LAN → RouterOS; Cloudflare Workers cannot reach RouterOS directly. WG .5 is DEV/remote-test only"
   });
 });
 

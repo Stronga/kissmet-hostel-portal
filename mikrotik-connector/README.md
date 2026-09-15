@@ -1,18 +1,21 @@
 # Kissmet MikroTik Connector
 
-Always-on HTTP bridge between the Cloudflare Worker API and RouterOS HotSpot.
+Always-on HTTP bridge between the Cloudflare Worker API and RouterOS HotSpot, intended to run on the **on-site Raspberry Pi**.
 
 ```text
-Cloudflare Worker
-  → HTTPS + Authorization: Bearer <CONNECTOR_SECRET>
-Always-on MikroTik Connector (this service)
-  → WireGuard peer .5 (192.168.216.5/32)
-MikroTik 192.168.88.1:8728 (RouterOS API)
+Internet / Cloudflare
+         │  secure outbound Cloudflare connectivity
+         ▼
+Raspberry Pi — Kissmet Connector (this service)
+         │  direct private Ethernet / LAN
+         ▼
+MikroTik hEX S 192.168.88.1:8728 (RouterOS API as portal-api)
 ```
 
-**Cloudflare Workers cannot host WireGuard.** This connector must run on an always-on host that maintains the dedicated `.5` WireGuard tunnel.
+**Production path:** Pi LAN → `192.168.88.1:8728` (not WireGuard).  
+**Dev / remote test path:** WireGuard peer `.5` (`192.168.216.5/32`) from the remote PC — retained; do not delete; do not treat as production.
 
-**Phase 3:** packaging + hardening ready. Production cutover is **blocked on selecting/provisioning an always-on connector host** (see `MIKROTIK_CONNECTOR_DEPLOYMENT.md`).
+**Phase 3:** packaging + hardening ready for Pi OS 64-bit / Debian-based Linux + systemd. Physical Pi and Cloudflare Tunnel commissioning are **deferred** (see `MIKROTIK_CONNECTOR_DEPLOYMENT.md`).
 
 ## Safety boundary
 
@@ -21,6 +24,7 @@ MikroTik 192.168.88.1:8728 (RouterOS API)
 - If `Kissmet-Residents` exists with a conflicting `shared-users`, fails safely (no silent overwrite)
 - Does not touch firewall, NAT, WireGuard peers, DNS, HotSpot servers, or unrelated users
 - Browser never talks to RouterOS or this connector with RouterOS credentials
+- Application uses `portal-api` only — never RouterOS `admin`
 
 ## Environment
 
@@ -32,8 +36,8 @@ Copy `.env.example` and set secrets outside git:
 | `BIND_HOST` | Listen address (default `127.0.0.1`) |
 | `PORT` | HTTP listen port (default `8788`) |
 | `CONNECTOR_SECRET` | Shared Bearer secret for Worker → connector |
-| `MIKROTIK_HOST` | Router LAN address (`192.168.88.1`) |
-| `MIKROTIK_API_PORT` | RouterOS API (`8728` over private WG) |
+| `MIKROTIK_HOST` | Router LAN address (`192.168.88.1`) — same host; path is Pi LAN in production, WG `.5` in remote lab |
+| `MIKROTIK_API_PORT` | RouterOS API (`8728` over private path only) |
 | `MIKROTIK_API_USER` | Dedicated API user (`portal-api`) |
 | `MIKROTIK_API_PASSWORD` | RouterOS API password |
 
@@ -55,12 +59,12 @@ Do not commit real values. Do not put these in React/Vite env.
 | GET | `/v1/users/:username/sessions` | Bearer | List active sessions |
 | POST | `/v1/users/:username/disconnect` | Bearer | Disconnect sessions |
 
-## Production packaging (Linux + systemd)
+## Production packaging (Raspberry Pi + systemd)
 
 ```bash
-sudo ./scripts/install.sh          # first install
+sudo ./scripts/install.sh          # first install on Pi
 sudoedit /etc/kissmet/mikrotik-connector.env
-# WireGuard .5 + HTTPS reverse proxy — see MIKROTIK_CONNECTOR_DEPLOYMENT.md
+# Ethernet to hostel LAN + Cloudflare outbound — see MIKROTIK_CONNECTOR_DEPLOYMENT.md
 sudo systemctl enable --now kissmet-mikrotik-connector
 sudo ./scripts/upgrade.sh          # later redeploys
 journalctl -u kissmet-mikrotik-connector -f
@@ -77,8 +81,8 @@ npm test
 npm run dev
 ```
 
-Unit tests use an in-memory RouterOS mock. Live RouterOS / WireGuard is not required for CI.
+Unit tests use an in-memory RouterOS mock. Live RouterOS / Pi / WireGuard is not required for CI. Optional live validation from the remote PC may use WG `.5`.
 
 ## Transport note
 
-Phase 0–3 use TCP **8728** over the private WireGuard path. Port **8729** (api-ssl) deferred until certificate migration.
+Phase 0–3 use TCP **8728** on a private path only (production = Pi LAN; lab = WG `.5`). Port **8729** (api-ssl) deferred until certificate migration.

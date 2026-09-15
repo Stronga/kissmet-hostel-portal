@@ -61,7 +61,7 @@ export function createApp(config: ConnectorConfig, client: RouterOsClient) {
   }
 
   /**
-   * Authenticated deep health: WireGuard → RouterOS path without leaking secrets.
+   * Authenticated deep health: private path → RouterOS (Pi LAN in production; WG .5 in remote lab) without leaking secrets.
    */
   api.get("/health", async (c) => {
     const correlationId = c.get("correlationId");
@@ -83,7 +83,7 @@ export function createApp(config: ConnectorConfig, client: RouterOsClient) {
           version: health.version,
           mikrotikHost: config.mikrotikHost,
           mikrotikApiPort: config.mikrotikApiPort
-          // deliberately omit credentials, secrets, WireGuard private keys
+          // deliberately omit credentials, secrets, private keys
         }
       });
     } catch (e) {

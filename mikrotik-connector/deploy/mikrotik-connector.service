@@ -3,10 +3,13 @@ Description=Kissmet MikroTik Connector
 Documentation=file:///opt/kissmet/mikrotik-connector/MIKROTIK_CONNECTOR_DEPLOYMENT.md
 After=network-online.target
 Wants=network-online.target
-# If WireGuard is managed by wg-quick on this host, wait for the tunnel interface.
-# Replace wg0 with the actual interface name (e.g. wg-kissmet).
-After=wg-quick@wg0.service
-Wants=wg-quick@wg0.service
+# Production host is the on-site Raspberry Pi: RouterOS is reached over direct hostel LAN/Ethernet.
+# Do NOT require WireGuard for production. WG peer .5 is DEV/remote-test only (remote PC).
+#
+# Lab-only optional: if you temporarily run this unit on a host that uses wg-quick for .5 testing,
+# uncomment the next two lines and set the correct interface name.
+# After=wg-quick@wg0.service
+# Wants=wg-quick@wg0.service
 
 [Service]
 Type=simple

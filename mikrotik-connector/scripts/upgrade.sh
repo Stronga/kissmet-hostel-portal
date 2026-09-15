@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Upgrade / redeploy an existing Kissmet MikroTik Connector install.
-# Preserves /etc/kissmet/mikrotik-connector.env. Does not modify MikroTik or purchase infra.
+# Upgrade / redeploy an existing Kissmet MikroTik Connector install (intended host: Raspberry Pi).
+# Preserves /etc/kissmet/mikrotik-connector.env. Does not modify MikroTik, Cloudflare Tunnel, or purchase infra.
+# Production path remains Pi LAN → 192.168.88.1:8728 (WG .5 is DEV/remote-test only).
 set -euo pipefail
 
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/kissmet/mikrotik-connector}"

@@ -93,7 +93,7 @@ export class NodeRouterOsClient implements RouterOsClient {
       if (errno === "UNKNOWNREPLY" && /!empty/i.test(message)) {
         return [];
       }
-      // Drop stale socket so the next call reconnects after WG/Internet/MikroTik recovery.
+      // Drop stale socket so the next call reconnects after LAN/Internet/MikroTik recovery.
       log.error("routeros_write_failed", { path, error: message });
       await this.resetConnection();
       throw new RouterOsUnavailableError("RouterOS operation failed");
