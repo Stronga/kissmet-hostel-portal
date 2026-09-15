@@ -1,4 +1,4 @@
-# Kissmet Internet Access — Phase 0 + Phase 1
+# Kissmet Internet Access — Phase 0 + Phase 1 + Phase 2
 
 Isolated **Internet Access** module for staff/admin provisioning of resident HotSpot identities. MikroTik enforces network entitlement; Kissmet D1 remains the source of truth for residents.
 
@@ -13,7 +13,7 @@ Resident → Documents → Application → Booking → Payment → Allocation / 
 Rules:
 
 - Internet access is only for Kissmet residents with an **active room/bed allocation**
-- Staff/admin initiates provisioning only — no resident self-service in Phase 0/1
+- Staff/admin initiates provisioning only — residents get **read-only** visibility in Phase 2 (no self-service management)
 - No internet packages; do not reuse `room_rates`, hostel payments, or accommodation statuses
 - Internet failure must never corrupt registration, OTP, applications, bookings, payments, receipts, allocations, maintenance, or RBAC
 - Residents do not administer MikroTik
@@ -240,13 +240,88 @@ Do not place secrets in React/Vite env, Markdown, or git history.
 | `cloudflare/src/services/mikrotik-connector.client.ts` | Worker → connector HTTP client |
 | `cloudflare/src/routes/internet-access.routes.ts` | Admin routes |
 | `admin-frontend/src/pages/InternetAccess/` | Phase 1 Admin UI |
+| `resident-frontend/src/pages/Home/InternetAccessCard.tsx` | Phase 2 resident Home card |
 
-## Explicit non-goals (Phase 1)
+## Phase 2 — Resident read-only Internet Access
 
-- Resident dashboard internet card / self-service
+Residents may see entitlement/account information and an occasional live active-device count. They receive **no** MikroTik management authority.
+
+### Resident product rules
+
+- Internet access for residents only; one HotSpot identity per resident; max **3** simultaneous devices (`shared-users=3` on `Kissmet-Residents`)
+- Not permanent MAC registration; no internet packages/payments
+- No resident provisioning, enable/suspend, password reset, or session-disconnect controls
+- D1 is authoritative for account/entitlement; MikroTik is enforcement only
+- Do not alter documents/application/booking/payment/allocation logic
+- Do not modify `Kissmet-Residents` or the RouterOS `default` profile from resident flows
+
+### Freshness architecture (D1-first)
+
+Do **not** poll MikroTik every second.
+
+1. **D1 first** — account status, Internet ID (`router_username`), `deviceLimit=3`, sync status render without waiting for RouterOS
+2. **RouterOS only for live active-session count** — resolved independently after D1 state
+3. Home renders without blocking on MikroTik
+4. Manual **Refresh** reloads live session info only (duplicate-click lock while in flight; no full page reload)
+5. Optional auto-refresh **≥60s** (preferred; ≥30s minimum) only while the Internet Access UI is mounted; no overlapping requests
+6. If the connector is unavailable: keep D1 info; show `Active devices: Temporarily unavailable`. **Never** change D1 account status because a live lookup failed
+
+### Resident-safe API
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/resident/me/internet-access` | D1: `hasAccess`, `status`, `internetId`, `deviceLimit`, `syncStatus` |
+| GET | `/resident/me/internet-access/sessions` | Live: `activeCount` (or `null` if unavailable), `deviceLimit` |
+
+Ownership comes **exclusively** from the authenticated resident session (`authUser.residentId`). No resident ID / account ID / username query params are accepted as ownership authority.
+
+Never expose to residents:
+
+- HotSpot password
+- RouterOS `.id`
+- Connector URL/secret
+- WireGuard details
+- Unsafe sync errors (`last_sync_error`)
+- MAC / IP / per-session detail (active **count** only)
+- Other residents' accounts or sessions
+
+Resident endpoints are **read-only**: they never mutate RouterOS (no provision/enable/suspend/reset/disconnect).
+
+### Resident UI states (copy)
+
+| State | UI |
+|---|---|
+| No account | `Internet access has not been activated for your account yet. Please contact hostel management if you believe this is incorrect.` |
+| Suspended / disabled | Status + Internet ID + device limit + `Please contact hostel management for assistance.` No unsuspend control |
+| Pending / failed sync | `Internet access setup is being updated. Please try again later or contact hostel management.` No connector error text |
+| Active | Status Active, Internet ID, Device limit `3 devices at a time`, Active now `N of 3`, Refresh |
+| At 3 of 3 | `Your 3-device limit is currently in use. Disconnect one device from Wi-Fi before connecting another.` |
+
+Connection instructions (generic; no invented SSID):
+
+1. Connect your device to the hostel Wi-Fi.
+2. Open the sign-in page when prompted.
+3. Enter your Internet ID and internet password.
+4. You can use up to 3 devices at the same time.
+
+Do **not** tell residents to use Kissmet OTP/portal auth as the Wi-Fi password. If credentials are lost: contact hostel management — no password retrieval/storage in the resident portal.
+
+### Privacy / RouterOS (Phase 2)
+
+- Default active count only — no MAC/IP/session detail lists for residents
+- No other resident's sessions
+- Live mutation performed from resident endpoints: **NO**
+- No new live RouterOS config required for Phase 2
+
+### Explicit deferred / non-goals
+
+- Resident self-service password reset
+- Resident device disconnect controls
 - Internet packages or Wi-Fi payments
 - Permanent MAC binding
-- Production connector hosting selection beyond requirements
+- Production connector hosting/deployment selection beyond requirements
 - api-ssl / 8729 certificate migration
+- Alerting / HA
+- Automatic entitlement reconciliation
 - Live RouterOS changes from automated CI (NONE — mocks only)
 - Changing RouterOS `default` profile

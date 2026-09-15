@@ -52,6 +52,15 @@ export function residentEndpointResponse(url: string) {
   if (url.endsWith("/resident/me/maintenance")) return Response.json({ ok: true, data: [] });
   if (url.endsWith("/resident/me/announcements")) return Response.json({ ok: true, data: [] });
   if (url.endsWith("/resident/me/messages")) return Response.json({ ok: true, data: [] });
+  if (url.endsWith("/resident/me/internet-access/sessions")) {
+    return Response.json({ ok: true, data: { activeCount: null, deviceLimit: 3 } });
+  }
+  if (url.endsWith("/resident/me/internet-access")) {
+    return Response.json({
+      ok: true,
+      data: { hasAccess: false, status: null, internetId: null, deviceLimit: 3, syncStatus: null }
+    });
+  }
   if (url.endsWith("/resident/me")) return Response.json({ ok: true, data: residentProfile });
   return null;
 }
