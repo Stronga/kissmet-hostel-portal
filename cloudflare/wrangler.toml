@@ -133,12 +133,11 @@ ADMIN_ALLOWED_ORIGINS = "https://admin.kissmetgroup.org,https://portal.kissmetgr
 
 [[env.production.d1_databases]]
 binding = "DB"
-database_name = "kissmet-hostel-production"
-# PLACEHOLDER — replace with real production D1 database_id from Cloudflare dashboard
-database_id = "replace-with-production-d1-database-id"
+database_name = "kissmet-production"
+database_id = "b8eeb20d-55de-4d8f-af92-62523871b453"
 migrations_dir = "migrations"
 
 [[env.production.r2_buckets]]
 binding = "DOCUMENTS"
 # Private bucket — no public access / public bucket URL. Worker binding only.
-bucket_name = "kissmet-hostel-production-documents"
+bucket_name = "kissmet-documents-production"
