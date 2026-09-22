@@ -117,7 +117,9 @@ describe("resident OTP authentication", () => {
 
     const result = await authService(repo, sms).requestResidentOtp("ug", "S1001");
     expect(result.ok).toBe(true);
-    expect(sms.lastMessage?.destination).toBe("+233000");
+    expect(sms.lastMessage?.phone).toBe("+233000");
+    expect(sms.lastMessage?.code).toMatch(/^\d{6}$/);
+    expect(sms.lastMessage?.expiresInMinutes).toBe(10);
   });
 
   it("verifies correct OTP and creates a session", async () => {
@@ -170,6 +172,28 @@ describe("resident OTP authentication", () => {
     expect(result.ok).toBe(true);
     expect(repo.audit).toContain("auth.resident.otp_rate_limited");
   });
+
+  it("surfaces delivery failure without authenticating", async () => {
+    const repo = new FakeRepo();
+    repo.resident = { resident_id: 1, resident_code: "KSM-RES-1", institution_code: "ug", student_id: "S1001", user_id: 1, display_name: "Resident", user_status: "active", resident_status: "applicant", phone: "233241234567" };
+    const sms = {
+      name: "failing",
+      async sendOtp() {
+        return { ok: false as const, provider: "failing", errorCategory: "provider_5xx" as const };
+      }
+    };
+    const result = await authService(repo, sms as never).requestResidentOtp("ug", "S1001");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(503);
+      expect(result.body.error).toMatch(/couldn't send your verification code/i);
+      expect(JSON.stringify(result)).not.toMatch(/arkesel|api-key|provider_5xx/i);
+    }
+    expect(repo.sessions).toBe(0);
+    expect(repo.audit).toContain("auth.resident.otp_delivery_failed");
+    expect((await authService(repo).verifyResidentOtp("ug", "S1001", "000000")).status).toBe(401);
+  });
+
 });
 
 describe("authorization middleware", () => {

@@ -4,14 +4,14 @@ import type { Env } from "../types/bindings";
 import { parseJsonObject, requiredString } from "../auth/validation";
 import { requireAuth } from "../middleware/auth.middleware";
 import { AuthService } from "../services/auth.service";
-import { MockSmsProvider } from "../services/sms.service";
+import { createSmsProvider } from "../services/sms.service";
 
 type Variables = { authUser: import("../auth/context").AuthUser };
 
 export const authRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 function service(c: { env: Env }) {
-  return new AuthService(c.env, new MockSmsProvider(c.env));
+  return new AuthService(c.env, createSmsProvider(c.env));
 }
 
 authRoutes.post("/staff/login", async (c) => {
@@ -34,7 +34,11 @@ authRoutes.post("/resident/request-otp", async (c) => {
   const studentId = requiredString(input, "studentId", 64);
   if (!institutionCode || !studentId) return c.json({ ok: true, message: "If the resident can receive OTP messages, an OTP has been sent." });
 
-  return c.json(await service(c).requestResidentOtp(institutionCode, studentId));
+  const result = await service(c).requestResidentOtp(institutionCode, studentId);
+  if (!result.ok) {
+    return c.json(result.body, result.status as ContentfulStatusCode);
+  }
+  return c.json(result);
 });
 
 authRoutes.post("/resident/verify-otp", async (c) => {

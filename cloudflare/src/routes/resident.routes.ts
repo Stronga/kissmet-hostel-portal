@@ -6,7 +6,7 @@ import { requireAuth } from "../middleware/auth.middleware";
 import { asObject, intField, stringField } from "../http/input";
 import { ok } from "../http/responses";
 import { routeError } from "../http/safe-error";
-import { MockSmsProvider } from "../services/sms.service";
+import { createSmsProvider } from "../services/sms.service";
 import { ResidentService } from "../services/resident.service";
 import { AdminRepository } from "../repositories/admin.repository";
 import { InternetAccessService } from "../services/internet-access.service";
@@ -16,7 +16,7 @@ type Variables = { authUser: AuthUser };
 export const residentRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 function service(c: { env: Env }) {
-  return new ResidentService(c.env, new MockSmsProvider(c.env), c.env.DOCUMENTS);
+  return new ResidentService(c.env, createSmsProvider(c.env), c.env.DOCUMENTS);
 }
 
 async function body(c: { req: { json: () => Promise<unknown> } }) {
@@ -37,7 +37,7 @@ function internetService(c: { env: Env }) {
 residentRoutes.post("/register/request-otp", async (c) => {
   try {
     const input = await body(c);
-    return c.json(await service(c).requestRegistrationOtp({
+    const result = await service(c).requestRegistrationOtp({
       firstName: stringField(input, "firstName")!,
       middleName: stringField(input, "middleName", false),
       lastName: stringField(input, "lastName")!,
@@ -45,7 +45,11 @@ residentRoutes.post("/register/request-otp", async (c) => {
       email: stringField(input, "email", false),
       institutionCode: stringField(input, "institutionCode")!,
       studentId: stringField(input, "studentId")!
-    }));
+    });
+    if ("status" in result && result.ok === false) {
+      return c.json(result.body, result.status as import("hono/utils/http-status").ContentfulStatusCode);
+    }
+    return c.json(result);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 

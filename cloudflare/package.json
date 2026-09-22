@@ -15,7 +15,8 @@
     "db:seed:local": "wrangler d1 execute DB --local --env local --file ./seeds/development.sql",
     "db:verify:local": "wrangler d1 execute DB --local --env local --file ./tests/schema-verification.sql",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "sms:smoke": "node scripts/arkesel-sms-smoke.mjs"
   },
   "dependencies": {
     "hono": "^4.6.20"
