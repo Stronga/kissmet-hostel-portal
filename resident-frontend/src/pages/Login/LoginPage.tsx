@@ -69,7 +69,7 @@ export function LoginPage() {
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-8">
       <div
-        className="pointer-events-none absolute bottom-0 right-0 z-0 h-[40vh] w-[85%] max-w-xl bg-contain bg-right-bottom bg-no-repeat opacity-90 sm:h-[55vh] sm:w-[65%] sm:max-w-2xl lg:h-[70vh] lg:w-[55%] lg:max-w-3xl"
+        className="pointer-events-none absolute bottom-0 left-0 z-0 h-[40vh] w-[85%] max-w-xl bg-contain bg-left-bottom bg-no-repeat opacity-90 sm:h-[55vh] sm:w-[65%] sm:max-w-2xl lg:h-[70vh] lg:w-[55%] lg:max-w-3xl"
         style={{ backgroundImage: `url(${hostelIllustration})` }}
         aria-hidden="true"
       />
