@@ -74,16 +74,15 @@ export function LoginPage() {
         style={{ backgroundImage: `url(${hostelIllustration})` }}
         aria-hidden="true"
       />
-      <Card className="relative z-10 w-full max-w-md">
-        <div className="flex justify-center">
-          <img
-            src={kissmetLogo}
-            alt="Kissmet Hostel"
-            className="h-10 w-auto object-contain sm:h-12"
-          />
-        </div>
-        <h1 className="mt-3 text-center text-2xl font-semibold text-text-primary">Resident Portal</h1>
-        <p className="mt-2 text-center text-sm text-text-secondary">Sign in with your institution, student ID, and the OTP sent to your registered phone.</p>
+      <div className="relative z-10 flex w-full max-w-md flex-col items-center gap-4">
+        <img
+          src={kissmetLogo}
+          alt="Kissmet Hostel"
+          className="h-12 w-auto object-contain sm:h-14"
+        />
+        <Card className="w-full">
+        <h1 className="text-2xl font-semibold text-text-primary">Resident Portal</h1>
+        <p className="mt-2 text-sm text-text-secondary">Sign in with your institution, student ID, and the OTP sent to your registered phone.</p>
         {sessionExpiredMessage ? (
           <div className="mt-4 rounded-token border border-warning/40 bg-amber-50 p-3 text-sm text-warning" role="status">
             {sessionExpiredMessage}
@@ -121,6 +120,7 @@ export function LoginPage() {
           <Link to="/verify-otp" className="font-semibold text-primary">Enter OTP</Link>
         </div>
       </Card>
+      </div>
     </main>
   );
 }

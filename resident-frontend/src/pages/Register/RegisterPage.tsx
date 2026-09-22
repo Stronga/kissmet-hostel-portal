@@ -91,16 +91,15 @@ export function RegisterPage() {
         style={{ backgroundImage: `url(${hostelIllustration})` }}
         aria-hidden="true"
       />
-      <Card className="relative z-10 w-full max-w-2xl">
-        <div className="flex justify-center">
-          <img
-            src={kissmetLogo}
-            alt="Kissmet Hostel"
-            className="h-10 w-auto object-contain sm:h-12"
-          />
-        </div>
-        <h1 className="mt-3 text-center text-2xl font-semibold text-text-primary">Resident Registration</h1>
-        <p className="mt-2 text-center text-sm text-text-secondary">Create your applicant account after verifying the phone number attached to your student identity.</p>
+      <div className="relative z-10 flex w-full max-w-2xl flex-col items-center gap-4">
+        <img
+          src={kissmetLogo}
+          alt="Kissmet Hostel"
+          className="h-12 w-auto object-contain sm:h-14"
+        />
+        <Card className="w-full">
+        <h1 className="text-2xl font-semibold text-text-primary">Resident Registration</h1>
+        <p className="mt-2 text-sm text-text-secondary">Create your applicant account after verifying the phone number attached to your student identity.</p>
         {institutionError ? <div className="mt-4"><ErrorState message={institutionError} /></div> : null}
         <form className="mt-6 grid gap-4 sm:grid-cols-2" onSubmit={handleSubmit}>
           <FormField label="First name" name="firstName" value={form.firstName} onChange={(event) => updateField("firstName", event.currentTarget.value)} disabled={isSubmitting} error={errors.firstName} autoComplete="given-name" />
@@ -130,6 +129,7 @@ export function RegisterPage() {
         </form>
         <Link to="/login" className="mt-5 inline-block text-sm font-semibold text-primary">Back to login</Link>
       </Card>
+      </div>
     </main>
   );
 }
