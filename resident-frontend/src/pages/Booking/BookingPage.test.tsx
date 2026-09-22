@@ -107,7 +107,8 @@ describe("resident booking", () => {
     expect(screen.getByText("2026 Academic Year")).toBeInTheDocument();
     expect(screen.getByText("KSM-APP-0001")).toBeInTheDocument();
     expect(screen.getByText("R1 - Room 1")).toBeInTheDocument();
-    expect(screen.getByText(/not recalculated from current room rates/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "About captured booking amount" }));
+    expect(await screen.findByText(/not recalculated from current room rates/i)).toBeInTheDocument();
     expect(screen.queryByText(/priced_room_rate_id|resident_id|application_id/i)).not.toBeInTheDocument();
   });
 

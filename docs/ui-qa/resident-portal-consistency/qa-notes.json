@@ -1,0 +1,163 @@
+[
+  {
+    "page": "announcements",
+    "width": 1024,
+    "path": "docs/ui-qa/resident-portal-consistency/announcements-1024.png",
+    "bytes": 66937,
+    "overflowX": false
+  },
+  {
+    "page": "announcements",
+    "width": 1440,
+    "path": "docs/ui-qa/resident-portal-consistency/announcements-1440.png",
+    "bytes": 92957,
+    "overflowX": false
+  },
+  {
+    "page": "announcements",
+    "width": 430,
+    "path": "docs/ui-qa/resident-portal-consistency/announcements-430.png",
+    "bytes": 57966,
+    "overflowX": false
+  },
+  {
+    "page": "application",
+    "width": 1024,
+    "path": "docs/ui-qa/resident-portal-consistency/application-1024.png",
+    "bytes": 115703,
+    "overflowX": false
+  },
+  {
+    "page": "application",
+    "width": 1440,
+    "path": "docs/ui-qa/resident-portal-consistency/application-1440.png",
+    "bytes": 147501,
+    "overflowX": false
+  },
+  {
+    "page": "application",
+    "width": 430,
+    "path": "docs/ui-qa/resident-portal-consistency/application-430.png",
+    "bytes": 116545,
+    "overflowX": false
+  },
+  {
+    "page": "booking",
+    "width": 1024,
+    "path": "docs/ui-qa/resident-portal-consistency/booking-1024.png",
+    "bytes": 128307,
+    "overflowX": false
+  },
+  {
+    "page": "booking",
+    "width": 1440,
+    "path": "docs/ui-qa/resident-portal-consistency/booking-1440.png",
+    "bytes": 155870,
+    "overflowX": false
+  },
+  {
+    "page": "booking",
+    "width": 430,
+    "path": "docs/ui-qa/resident-portal-consistency/booking-430.png",
+    "bytes": 122350,
+    "overflowX": false
+  },
+  {
+    "page": "documents",
+    "width": 1440,
+    "path": "docs/ui-qa/resident-portal-consistency/documents-1440.png",
+    "bytes": 118478,
+    "overflowX": false
+  },
+  {
+    "page": "documents",
+    "width": 430,
+    "path": "docs/ui-qa/resident-portal-consistency/documents-430.png",
+    "bytes": 89093,
+    "overflowX": false
+  },
+  {
+    "page": "maintenance",
+    "width": 1440,
+    "path": "docs/ui-qa/resident-portal-consistency/maintenance-1440.png",
+    "bytes": 133095,
+    "overflowX": false
+  },
+  {
+    "page": "maintenance",
+    "width": 430,
+    "path": "docs/ui-qa/resident-portal-consistency/maintenance-430.png",
+    "bytes": 106391,
+    "overflowX": false
+  },
+  {
+    "page": "messages",
+    "width": 1440,
+    "path": "docs/ui-qa/resident-portal-consistency/messages-1440.png",
+    "bytes": 87057,
+    "overflowX": false
+  },
+  {
+    "page": "messages",
+    "width": 430,
+    "path": "docs/ui-qa/resident-portal-consistency/messages-430.png",
+    "bytes": 51224,
+    "overflowX": false
+  },
+  {
+    "page": "my-room",
+    "width": 1440,
+    "path": "docs/ui-qa/resident-portal-consistency/my-room-1440.png",
+    "bytes": 126520,
+    "overflowX": false
+  },
+  {
+    "page": "my-room",
+    "width": 430,
+    "path": "docs/ui-qa/resident-portal-consistency/my-room-430.png",
+    "bytes": 93562,
+    "overflowX": false
+  },
+  {
+    "page": "payments",
+    "width": 1024,
+    "path": "docs/ui-qa/resident-portal-consistency/payments-1024.png",
+    "bytes": 147290,
+    "overflowX": false
+  },
+  {
+    "page": "payments",
+    "width": 1440,
+    "path": "docs/ui-qa/resident-portal-consistency/payments-1440.png",
+    "bytes": 173068,
+    "overflowX": false
+  },
+  {
+    "page": "payments",
+    "width": 430,
+    "path": "docs/ui-qa/resident-portal-consistency/payments-430.png",
+    "bytes": 146965,
+    "overflowX": false
+  },
+  {
+    "page": "profile",
+    "width": 1024,
+    "path": "docs/ui-qa/resident-portal-consistency/profile-1024.png",
+    "bytes": 73348,
+    "overflowX": false
+  },
+  {
+    "page": "profile",
+    "width": 1440,
+    "path": "docs/ui-qa/resident-portal-consistency/profile-1440.png",
+    "bytes": 103653,
+    "overflowX": false
+  },
+  {
+    "page": "profile",
+    "width": 430,
+    "path": "docs/ui-qa/resident-portal-consistency/profile-430.png",
+    "bytes": 72213,
+    "overflowX": false
+  }
+]

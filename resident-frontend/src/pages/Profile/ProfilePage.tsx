@@ -1,25 +1,20 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { fetchResidentProfile, updateResidentProfile } from "../../api/resident";
 import { Button } from "../../components/common/Button";
 import { Card } from "../../components/common/Card";
+import { Detail } from "../../components/common/Detail";
 import { ErrorState } from "../../components/common/ErrorState";
 import { FormField } from "../../components/common/FormField";
+import { InfoHelp } from "../../components/common/InfoHelp";
 import { LoadingState } from "../../components/common/LoadingState";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { PageHeader } from "../../components/layout/PageHeader";
+import type { ResidentShellOutletContext } from "../../components/layout/ResidentShell";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import type { ResidentProfile } from "../../types/resident";
 import { safeAuthError } from "../../utils/errors";
 import { formatDateTime } from "../../utils/format";
-
-function Detail({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{label}</p>
-      <p className="mt-1 break-anywhere text-sm font-semibold text-text-primary">{value || "Not available"}</p>
-    </div>
-  );
-}
 
 export function ProfilePage() {
   const [profile, setProfile] = useState<ResidentProfile | null>(null);
@@ -31,6 +26,7 @@ export function ProfilePage() {
   const [formError, setFormError] = useState<string | null>(null);
   const submitLock = useRef(false);
   usePageTitle("Profile");
+  const outletContext = useOutletContext<ResidentShellOutletContext | null>();
 
   async function load() {
     setIsLoading(true);
@@ -54,6 +50,12 @@ export function ProfilePage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (!outletContext?.setChromeStatus) return;
+    outletContext.setChromeStatus(profile?.status ?? null);
+    return () => outletContext.setChromeStatus(null);
+  }, [profile?.status, outletContext]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,36 +98,68 @@ export function ProfilePage() {
 
   return (
     <>
-      <PageHeader title="Profile" description="Your resident profile is scoped to your authenticated Kissmet account." />
-      <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-        <Card>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-text-primary">{fullName || "Resident"}</h2>
-              <p className="mt-1 text-sm text-text-secondary">{profile.institution_name ?? "Institution not available"}</p>
+      <PageHeader
+        title="Profile"
+        description="Your Kissmet resident account details."
+        trailing={<div className="xl:hidden"><StatusBadge status={profile.status} /></div>}
+      />
+      <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
+        <div className="space-y-5">
+          <Card>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-text-primary">{fullName || "Resident"}</h2>
+                <p className="mt-1 text-sm text-text-secondary">Resident account</p>
+              </div>
+              <StatusBadge status={profile.status} />
             </div>
-            <StatusBadge status={profile.status} />
-          </div>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <Detail label="Kissmet resident code" value={profile.resident_code} />
-            <Detail label="Student ID" value={profile.student_id} />
-            <Detail label="Phone" value={profile.phone} />
-            <Detail label="Email" value={profile.email} />
-            <Detail label="Institution code" value={profile.institution_code} />
-            <Detail label="Phone verified" value={formatDateTime(profile.phone_verified_at)} />
-          </div>
-        </Card>
+          </Card>
+
+          <Card>
+            <h2 className="text-lg font-bold text-text-primary">Personal</h2>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Detail
+                label="Kissmet resident code"
+                value={profile.resident_code}
+                help={
+                  <InfoHelp label="About resident code">
+                    Your Kissmet resident code identifies your portal account. It is assigned by Kissmet and is not editable here.
+                  </InfoHelp>
+                }
+              />
+            </div>
+          </Card>
+
+          <Card>
+            <h2 className="text-lg font-bold text-text-primary">Institution</h2>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Detail label="Institution" value={profile.institution_name} />
+              <Detail label="Institution code" value={profile.institution_code} />
+              <Detail label="Student ID" value={profile.student_id} />
+            </div>
+          </Card>
+
+          <Card>
+            <h2 className="text-lg font-bold text-text-primary">Contact</h2>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Detail label="Phone" value={profile.phone} />
+              <Detail label="Email" value={profile.email} />
+              <Detail label="Phone verified" value={formatDateTime(profile.phone_verified_at)} />
+            </div>
+          </Card>
+        </div>
+
         <Card>
-          <h2 className="text-lg font-semibold text-text-primary">Edit Profile</h2>
-          <p className="mt-1 text-sm text-text-secondary">You may update only the fields currently supported by the backend: name and email.</p>
+          <h2 className="text-lg font-bold text-text-primary">Edit profile</h2>
+          <p className="mt-1 text-[13px] text-text-secondary">You can update name and email only.</p>
           <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
             <FormField label="First name" name="firstName" autoComplete="given-name" value={form.firstName} onChange={(event) => { const value = event.currentTarget.value; setForm((current) => ({ ...current, firstName: value })); }} disabled={isSaving} />
             <FormField label="Middle name" name="middleName" autoComplete="additional-name" value={form.middleName} onChange={(event) => { const value = event.currentTarget.value; setForm((current) => ({ ...current, middleName: value })); }} disabled={isSaving} />
             <FormField label="Last name" name="lastName" autoComplete="family-name" value={form.lastName} onChange={(event) => { const value = event.currentTarget.value; setForm((current) => ({ ...current, lastName: value })); }} disabled={isSaving} />
             <FormField label="Email" value={form.email} onChange={(event) => { const value = event.currentTarget.value; setForm((current) => ({ ...current, email: value })); }} disabled={isSaving} inputMode="email" autoComplete="email" />
             {formError ? <ErrorState message={formError} /> : null}
-            {success ? <p className="rounded-token bg-muted p-3 text-sm font-semibold text-success">{success}</p> : null}
-            <Button type="submit" disabled={isSaving}>{isSaving ? "Saving" : "Save profile"}</Button>
+            {success ? <p className="rounded-2xl bg-muted p-3 text-sm font-semibold text-success">{success}</p> : null}
+            <Button type="submit" className="rounded-full" disabled={isSaving}>{isSaving ? "Saving" : "Save profile"}</Button>
           </form>
         </Card>
       </div>

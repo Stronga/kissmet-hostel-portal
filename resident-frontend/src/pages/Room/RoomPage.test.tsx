@@ -149,7 +149,8 @@ describe("resident my room", () => {
     const assignment = screen.getByText("Your room assignment").closest("section") ?? document.body;
     expect(within(assignment as HTMLElement).getAllByText("A101 - North Room").length).toBeGreaterThan(0);
     expect(screen.getByText("B202 - Priced Room")).toBeInTheDocument();
-    expect(screen.getByText(/this room and bed come from your active allocation record/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "About allocation" }));
+    expect(await screen.findByText(/this room and bed come from your active allocation record/i)).toBeInTheDocument();
   });
 
   it("shows payment attention separately while keeping active allocation visible", async () => {
