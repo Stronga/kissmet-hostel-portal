@@ -11,15 +11,24 @@ const reception: AuthUser = { ...resident, userType: "staff", role: "reception",
 const manager: AuthUser = { ...reception, role: "manager" };
 
 class Sms {
-  last: { destination: string; otp: string } | null = null;
-  async sendOtp(destination: string, otp: string) { this.last = { destination, otp }; }
+  name = "mock";
+  last: { phone: string; code: string; expiresInMinutes: number } | null = null;
+  failNext = false;
+  async sendOtp(request: { phone: string; code: string; expiresInMinutes: number }) {
+    if (this.failNext) {
+      this.failNext = false;
+      return { ok: false as const, provider: this.name, errorCategory: "provider_5xx" as const };
+    }
+    this.last = request;
+    return { ok: true as const, provider: this.name, providerMessageId: "mock-1" };
+  }
 }
 
 class Repo {
   rows: Record<string, Record<string, unknown>[]> = {
     institutions: [{ id: 1, code: "ug", name: "University of Ghana", status: "active" }, { id: 2, code: "old", name: "Old", status: "inactive" }],
     academic_sessions: [{ id: 1, code: "2026", name: "2026 Academic Year", status: "active" }, { id: 2, code: "2025", name: "2025 Academic Year", status: "closed" }],
-    users: [{ id: 1, phone: "+2331", email: "ama@test", display_name: "Ama" }, { id: 2, phone: "+2332", email: "kojo@test", display_name: "Kojo" }],
+    users: [{ id: 1, phone: "233241111111", email: "ama@test", display_name: "Ama" }, { id: 2, phone: "233242222222", email: "kojo@test", display_name: "Kojo" }],
     residents: [{ id: 1, user_id: 1, institution_id: 1, resident_code: "KSM-RES-0001", student_id: "S1", first_name: "Ama", middle_name: null, last_name: "A", status: "applicant", phone_verified_at: "now" }, { id: 2, user_id: 2, institution_id: 1, resident_code: "KSM-RES-0002", student_id: "S2", first_name: "Kojo", last_name: "K", status: "applicant", phone_verified_at: "now" }],
     otp_codes: [],
     sessions: [],
@@ -246,15 +255,27 @@ describe("resident onboarding", () => {
 
   it("requests registration OTP and rejects invalid OTP", async () => {
     const { svc, sms } = make();
-    await svc.requestRegistrationOtp({ firstName: "New", lastName: "Student", phone: "+2339", institutionCode: "ug", studentId: "S9" });
-    expect(sms.last?.destination).toBe("+2339");
+    await svc.requestRegistrationOtp({ firstName: "New", lastName: "Student", phone: "0241234567", institutionCode: "ug", studentId: "S9" });
+    expect(sms.last?.phone).toBe("233241234567");
     await expect(svc.verifyRegistrationOtp("ug", "S9", "000000")).rejects.toThrow("Invalid or expired OTP");
+  });
+
+  it("does not treat delivery failure as successful registration OTP send", async () => {
+    const { svc, sms } = make();
+    sms.failNext = true;
+    const result = await svc.requestRegistrationOtp({ firstName: "New", lastName: "Student", phone: "0241234567", institutionCode: "ug", studentId: "S9" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(503);
+      expect(result.body.error).toMatch(/couldn't send your verification code/i);
+    }
+    expect(sms.last).toBeNull();
   });
 
   it("verifies phone, creates applicant resident, generates resident code, and issues session", async () => {
     const { svc, sms, repo } = make();
-    await svc.requestRegistrationOtp({ firstName: "New", middleName: "M", lastName: "Student", phone: "+2339", email: "new@test", institutionCode: "ug", studentId: "S9" });
-    const result = await svc.verifyRegistrationOtp("ug", "S9", sms.last!.otp) as Record<string, unknown>;
+    await svc.requestRegistrationOtp({ firstName: "New", middleName: "M", lastName: "Student", phone: "0241234567", email: "new@test", institutionCode: "ug", studentId: "S9" });
+    const result = await svc.verifyRegistrationOtp("ug", "S9", sms.last!.code) as Record<string, unknown>;
     expect(result.token).toBeTruthy();
     expect(repo.rows.residents.at(-1)?.resident_code).toBe("KSM-RES-0003");
     expect(repo.rows.sessions).toHaveLength(1);
@@ -262,7 +283,7 @@ describe("resident onboarding", () => {
 
   it("detects duplicate institution/student registration", async () => {
     const { svc, sms } = make();
-    await svc.requestRegistrationOtp({ firstName: "Dup", lastName: "Student", phone: "+2339", institutionCode: "ug", studentId: "S1" });
+    await svc.requestRegistrationOtp({ firstName: "Dup", lastName: "Student", phone: "0241234567", institutionCode: "ug", studentId: "S1" });
     expect(sms.last).toBeNull();
   });
 

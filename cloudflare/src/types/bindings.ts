@@ -15,4 +15,24 @@ export interface Env {
   MIKROTIK_CONNECTOR_URL?: string;
   /** Shared Bearer secret for Worker → connector (optional locally). */
   MIKROTIK_CONNECTOR_SECRET?: string;
+
+  /**
+   * OTP SMS delivery provider selection.
+   * - local/CI: omit or `mock` (default) — never sends paid SMS
+   * - production: must be `arkesel` (fail-closed otherwise)
+   * - staging: `arkesel` only when explicitly set
+   */
+  SMS_PROVIDER?: string;
+  /**
+   * Arkesel API key — Cloudflare Worker secret only. Never put in wrangler.toml.
+   * Used only by the Worker SMS adapter; browsers never receive this.
+   */
+  ARKESEL_API_KEY?: string;
+  /**
+   * Approved Arkesel Sender ID (configuration-driven; do not hard-code KISSMET).
+   * Non-secret var; set after NCA/business approval. Missing → fail-closed send.
+   */
+  ARKESEL_SENDER_ID?: string;
+  /** Optional override of Arkesel SMS send URL (tests). Defaults to official V2 endpoint. */
+  ARKESEL_SMS_ENDPOINT?: string;
 }

@@ -41,6 +41,8 @@ src/routes/
 src/services/
   auth.service.ts
   sms.service.ts
+  arkesel-sms.provider.ts
+  phone.ts
 ```
 
 ## Staff/Admin Flow
@@ -100,13 +102,102 @@ Student IDs are not assumed globally unique. The database enforces uniqueness on
 
 Ghana Card numbers are not used as authentication credentials.
 
-Development uses `MockSmsProvider`, which does not call a real SMS API. A Ghana SMS provider can later implement the same `SmsProvider` interface without rewriting auth flow logic.
+### Production OTP Phase 1 — Kissmet authority + Arkesel transport
 
-### Local OTP testability (R12)
+Kissmet remains the OTP authority. Arkesel is only the SMS *delivery* provider.
+
+```text
+Kissmet OTP Engine
+├── Arkesel SMS       [phase 1 — transport]
+└── WhatsApp Cloud    [later — not implemented]
+```
+
+| Responsibility | Owner |
+| --- | --- |
+| Generate OTP | Kissmet (`randomOtp`) |
+| Hash / store / expiry / attempts / single-use | Kissmet (D1 `otp_codes`) |
+| Verify OTP + issue session | Kissmet |
+| Deliver SMS | Arkesel SMS V2 (`POST /api/v2/sms/send`) |
+| Generate/verify via Arkesel OTP product | **Not used** |
+
+Provider interface (`cloudflare/src/services/sms.service.ts`):
+
+```ts
+sendOtp({ phone, code, expiresInMinutes }): Promise<OtpDeliveryResult>
+```
+
+Authentication code depends only on this interface — not on Arkesel response shapes — so Meta WhatsApp Cloud API can be added later without rewriting auth.
+
+#### Provider selection
+
+| Environment | Behavior |
+| --- | --- |
+| `local` / tests / CI | `MockSmsProvider` (default). Never calls Arkesel. Never sends paid SMS. |
+| `staging` | Mock unless `SMS_PROVIDER=arkesel` is set explicitly with complete config. |
+| `production` | Requires `SMS_PROVIDER=arkesel` plus `ARKESEL_API_KEY` and `ARKESEL_SENDER_ID`. Missing config fails closed (no invented sender, no silent mock success). |
+
+#### Secrets and configuration
+
+| Name | Where | Notes |
+| --- | --- | --- |
+| `ARKESEL_API_KEY` | Cloudflare Worker **secret** only | Never commit, never put in `wrangler.toml`, never log |
+| `ARKESEL_SENDER_ID` | Worker var / secret config | Configuration-driven. Do **not** hard-code `KISSMET`. Activate branded sender by config after NCA/business approval |
+| `SMS_PROVIDER` | Worker var | `mock` (local) or `arkesel` (production) |
+
+Browsers never call Arkesel. Recipients come from the authenticated/resident lookup flow (login) or validated registration input — not arbitrary SMS fan-out.
+
+#### Ghana phone normalization
+
+`normalizeGhanaPhoneForSms` accepts `0241234567`, `233241234567`, and `+233241234567`, and normalizes to Arkesel V2 format `233XXXXXXXXX` (no `+`). Malformed numbers are rejected.
+
+#### SMS content
+
+Concise GSM-friendly template (expiry from Kissmet config, currently 10 minutes for resident login/registration):
+
+```text
+Your Kissmet verification code is 123456. It expires in 10 minutes. Do not share this code.
+```
+
+Never include Student ID, Ghana Card, passwords, or other sensitive resident data. Never log the OTP code in production.
+
+#### Failure behavior
+
+- Bounded HTTP timeout (~10s) to Arkesel.
+- Mapped failure categories: config / auth / timeout / network / provider_4xx / provider_5xx / rate_limit / invalid_phone.
+- Resident-facing error: `We couldn't send your verification code right now. Please try again shortly.`
+- Provider failure is **never** represented as successful delivery and cannot create an authenticated session.
+- Exactly one OTP is generated per user action; ambiguous provider outcomes are not aggressively retried (SMS may already have been accepted).
+- Resend / rate-limit protections remain unchanged.
+- Safe logs may include provider name, success/failure, masked phone, safe provider message id, error category, correlation id. Never OTP, API key, `api-key` header, or raw provider bodies.
+
+#### Delivery receipts
+
+Arkesel SMS V2 supports an optional `callback_url` for delivery webhooks. Kissmet Phase 1 **defers** webhook ingestion. OTP verification does not depend on delivery receipts.
+
+#### Local OTP testability (R12)
 
 When `APP_ENV=local` (or `DEV_OTP_LOG=true` and not production), `MockSmsProvider` captures the last OTP in Worker memory and logs `[kissmet-dev-otp]` to the Wrangler console so local E2E can complete without live SMS. Capture is disabled for `APP_ENV=production`. OTPs remain PBKDF2-hashed in D1; there is no production HTTP route that returns OTP plaintext. Test helpers: `getLastDevOtpForTests` / `clearDevOtpsForTests`.
 
 Successful OTP verification marks the OTP as used and creates a normal application session in `sessions`.
+
+#### One-message Arkesel smoke test (opt-in only)
+
+Do **not** run this in CI. Do **not** send live SMS unless explicitly authorized.
+
+1. Confirm an approved Sender ID is configured (do not invent `KISSMET` before approval).
+2. Put secrets only in local `.dev.vars` (gitignored) or `wrangler secret`:
+   - `SMS_PROVIDER=arkesel`
+   - `ARKESEL_API_KEY=...`
+   - `ARKESEL_SENDER_ID=<approved>`
+   - `ARKESEL_SMOKE_TO=233XXXXXXXXX` (explicit test handset)
+   - `ARKESEL_SMOKE_OPT_IN=YES_SEND_ONE_MESSAGE`
+3. From `cloudflare/`: `node scripts/arkesel-sms-smoke.mjs`
+4. The script refuses to run unless `ARKESEL_SMOKE_OPT_IN` is exactly `YES_SEND_ONE_MESSAGE`, sends **exactly one** message, and prints only success/failure + masked phone (never API key or OTP).
+5. Revert local `.dev.vars` to `SMS_PROVIDER=mock` afterward.
+
+#### Future WhatsApp extension
+
+Add a WhatsApp Cloud delivery adapter implementing the same `SmsProvider` / OTP delivery interface. Auth and OTP authority stay in Kissmet. Fallback policy (WhatsApp → SMS) is deferred.
 
 ## Sessions
 
@@ -254,6 +345,12 @@ Covered cases:
 - expired OTP
 - OTP attempt limit
 - OTP reuse
+- OTP delivery failure cannot authenticate
+- Arkesel provider mocked success / config / 4xx / 5xx / timeout
+- Ghana phone normalization (three forms + malformed)
+- mock selected locally; production selects Arkesel explicitly
+- API key and OTP absent from provider error results
+- no live CI Arkesel calls
 - OTP rate limiting
 - valid session
 - expired session

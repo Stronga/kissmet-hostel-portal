@@ -143,3 +143,8 @@ Verified locally on `http://127.0.0.1:8787`:
 ## CORS / Allowed Origins (R12)
 
 `ADMIN_ALLOWED_ORIGINS` lists explicit Admin and Resident browser origins (no wildcards). Local Vite ports are pinned: Admin `5173`, Resident `5174`. Production includes `https://admin.kissmetgroup.org` and `https://portal.kissmetgroup.org`.
+
+
+## OTP SMS secrets (Phase 1)
+
+Production OTP SMS uses Arkesel as transport only. Store `ARKESEL_API_KEY` with Cloudflare Worker secrets (`wrangler secret put`), never in `wrangler.toml`. Configure `SMS_PROVIDER=arkesel` and `ARKESEL_SENDER_ID` as non-secret vars after sender approval. Local defaults to `SMS_PROVIDER=mock`. See `AUTHENTICATION.md`.

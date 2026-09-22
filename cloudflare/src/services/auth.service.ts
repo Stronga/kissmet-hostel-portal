@@ -3,9 +3,12 @@ import { AuthRepository } from "../repositories/auth.repository";
 import { hashPassword, randomOtp, randomToken, sha256Hex, verifyPassword } from "../auth/crypto";
 import { checkRateLimit } from "../auth/rate-limit";
 import type { SmsProvider } from "./sms.service";
+import { OTP_DELIVERY_FAILURE_MESSAGE } from "./sms.service";
+
+export const RESIDENT_OTP_MINUTES = 10;
 
 const SESSION_HOURS = 8;
-const OTP_MINUTES = 10;
+const OTP_MINUTES = RESIDENT_OTP_MINUTES;
 const OTP_RATE_LIMIT_WINDOW_MINUTES = 15;
 const OTP_RATE_LIMIT_MAX = 3;
 const STAFF_LOGIN_RATE_LIMIT_MAX = 5;
@@ -52,7 +55,7 @@ export class AuthService {
 
   async requestResidentOtp(institutionCode: string, studentId: string) {
     const resident = await this.repo.findResidentByStudentId(institutionCode, studentId);
-    const generic = { ok: true, message: "If the resident can receive OTP messages, an OTP has been sent." };
+    const generic = { ok: true as const, message: "If the resident can receive OTP messages, an OTP has been sent." };
 
     if (!resident || resident.user_status !== "active" || !resident.phone) {
       await this.repo.writeAudit(resident?.user_id ?? null, null, "auth.resident.otp_request_hidden", "resident", resident?.resident_id ?? null);
@@ -66,6 +69,7 @@ export class AuthService {
       return generic;
     }
 
+    // Generate exactly one code for this user action; hash before any provider call.
     const otp = randomOtp();
     await this.repo.createOtp({
       userId: resident.user_id,
@@ -75,9 +79,24 @@ export class AuthService {
       rateLimitKey,
       expiresAt: futureIso(OTP_MINUTES)
     });
-    await this.smsProvider.sendOtp(resident.phone, otp);
-    await this.repo.writeAudit(resident.user_id, null, "auth.resident.otp_requested", "resident", resident.resident_id);
 
+    const delivery = await this.smsProvider.sendOtp({
+      phone: resident.phone,
+      code: otp,
+      expiresInMinutes: OTP_MINUTES
+    });
+
+    if (!delivery.ok) {
+      // Provider failure must never look like successful delivery and cannot authenticate.
+      await this.repo.writeAudit(resident.user_id, null, "auth.resident.otp_delivery_failed", "resident", resident.resident_id);
+      return {
+        ok: false as const,
+        status: 503,
+        body: { error: OTP_DELIVERY_FAILURE_MESSAGE }
+      };
+    }
+
+    await this.repo.writeAudit(resident.user_id, null, "auth.resident.otp_requested", "resident", resident.resident_id);
     return generic;
   }
 

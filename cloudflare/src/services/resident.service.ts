@@ -4,6 +4,8 @@ import { checkRateLimit } from "../auth/rate-limit";
 import type { Env } from "../types/bindings";
 import { AdminRepository } from "../repositories/admin.repository";
 import type { SmsProvider } from "./sms.service";
+import { OTP_DELIVERY_FAILURE_MESSAGE } from "./sms.service";
+import { normalizeGhanaPhoneForSms } from "./phone";
 
 const OTP_MINUTES = 10;
 const SESSION_HOURS = 8;
@@ -35,27 +37,53 @@ export class ResidentService {
   }
 
   async requestRegistrationOtp(data: { firstName: string; middleName?: string | null; lastName: string; phone: string; email?: string | null; institutionCode: string; studentId: string }) {
+    const generic = { ok: true as const, message: "If registration can proceed, an OTP has been sent." };
+
+    // Validate phone before identity lookups so format errors do not leak student-ID availability.
+    const normalized = normalizeGhanaPhoneForSms(data.phone);
+    if (!normalized.ok) {
+      return {
+        ok: false as const,
+        status: 400,
+        body: { error: "Enter a valid Ghana phone number." }
+      };
+    }
+    const phone = normalized.e164Digits;
+
     const institution = await this.repo.first<{ id: number; code: string }>("SELECT id, code FROM institutions WHERE lower(code) = lower(?) AND status = 'active'", data.institutionCode);
-    const generic = { ok: true, message: "If registration can proceed, an OTP has been sent." };
     if (!institution) return generic;
     const duplicate = await this.repo.first("SELECT id FROM residents WHERE institution_id = ? AND student_id = ?", institution.id, data.studentId);
     if (duplicate) {
       await this.repo.audit(null, null, "resident.registration.existing_identity", "resident", null);
       return generic;
     }
+
     const key = `otp:phone_verification:${institution.code}:${data.studentId}`;
     const recent = await this.repo.first<{ count: number }>("SELECT COUNT(*) AS count FROM otp_codes WHERE rate_limit_key = ? AND purpose = 'phone_verification' AND requested_at >= ?", key, pastIso(15));
     if ((recent?.count ?? 0) >= 3 || !checkRateLimit(key, 3, 15 * 60_000)) return generic;
     const otp = randomOtp();
+    const payload = { ...data, phone, institutionId: institution.id };
     await this.repo.run(
       "INSERT INTO otp_codes (destination, purpose, code_hash, rate_limit_key, expires_at, registration_payload_json) VALUES (?, 'phone_verification', ?, ?, ?, ?)",
-      data.phone,
+      phone,
       await hashPassword(otp),
       key,
       futureIso(OTP_MINUTES),
-      JSON.stringify({ ...data, institutionId: institution.id })
+      JSON.stringify(payload)
     );
-    await this.sms.sendOtp(data.phone, otp);
+    const delivery = await this.sms.sendOtp({
+      phone,
+      code: otp,
+      expiresInMinutes: OTP_MINUTES
+    });
+    if (!delivery.ok) {
+      await this.repo.audit(null, null, "resident.registration.otp_delivery_failed", "registration", null);
+      return {
+        ok: false as const,
+        status: 503,
+        body: { error: OTP_DELIVERY_FAILURE_MESSAGE }
+      };
+    }
     await this.repo.audit(null, null, "resident.registration.initiated", "registration", null);
     return generic;
   }

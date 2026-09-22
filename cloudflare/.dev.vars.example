@@ -5,3 +5,13 @@ ADMIN_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localho
 # When APP_ENV=local, MockSmsProvider logs OTPs to the Worker console for local E2E.
 # Set DEV_OTP_LOG=false to suppress. Never enable in production.
 # DEV_OTP_LOG=true
+
+# OTP SMS delivery (Phase 1 — Arkesel transport)
+# Local/CI default is mock — never sends paid/live SMS.
+SMS_PROVIDER=mock
+# For an explicit one-message local smoke test ONLY (opt-in; see AUTHENTICATION.md):
+# SMS_PROVIDER=arkesel
+# ARKESEL_API_KEY=<from Cloudflare/local secret — never commit>
+# ARKESEL_SENDER_ID=<approved sender — do not invent KISSMET>
+# ARKESEL_SMOKE_TO=233XXXXXXXXX
+# ARKESEL_SMOKE_OPT_IN=YES_SEND_ONE_MESSAGE
