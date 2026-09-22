@@ -20,7 +20,7 @@ export function MobileNav({ isMoreOpen, onToggleMore, onCloseMore, onLogout }: M
   return (
     <>
       {isMoreOpen ? (
-        <div className="fixed inset-x-3 bottom-20 z-30 rounded-token border border-border bg-surface p-3 shadow-token lg:hidden">
+        <div className="fixed inset-x-3 bottom-20 z-30 rounded-token border border-border bg-surface p-3 shadow-token xl:hidden">
           <nav className="grid grid-cols-2 gap-2" aria-label="More resident navigation">
             {moreNavItems.map((item) => (
               <NavLink
@@ -41,7 +41,7 @@ export function MobileNav({ isMoreOpen, onToggleMore, onCloseMore, onLogout }: M
           <Button className="mt-3 w-full" variant="secondary" onClick={onLogout}>Logout</Button>
         </div>
       ) : null}
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface px-2 pb-2 pt-1 lg:hidden" aria-label="Primary resident navigation">
+      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface px-2 pb-2 pt-1 xl:hidden" aria-label="Primary resident navigation">
         <div className="mx-auto grid max-w-lg grid-cols-5 gap-1">
           {primaryNavItems.map((item) => (
             <NavLink

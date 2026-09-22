@@ -83,7 +83,8 @@ describe("resident home dashboard", () => {
     mockDashboard({ documents: documentSet });
     render(renderResidentApp(["/home"]));
 
-    expect(await screen.findByText("Welcome, Ama Resident")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Hello, Ama!" })).toBeInTheDocument();
+    expect(screen.getByText("Here's your accommodation overview.")).toBeInTheDocument();
     expect(screen.getByText("KSM-RES-0009")).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Accommodation journey" })).toBeInTheDocument();
     expect(screen.getByText("Start your hostel application")).toBeInTheDocument();
@@ -101,7 +102,8 @@ describe("resident home dashboard", () => {
     mockDashboard({ documents: documentSet, failApplications: true });
     render(renderResidentApp(["/home"]));
 
-    expect(await screen.findByText("Welcome, Ama Resident")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Hello, Ama!" })).toBeInTheDocument();
+    expect(screen.getByText("Here's your accommodation overview.")).toBeInTheDocument();
     expect(screen.getByText(/Some dashboard sections could not load/i)).toBeInTheDocument();
   });
 
@@ -254,7 +256,8 @@ describe("resident home dashboard", () => {
     mockDashboard({ documents: documentSet, failMessages: true });
     render(renderResidentApp(["/home"]));
 
-    expect(await screen.findByText("Welcome, Ama Resident")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Hello, Ama!" })).toBeInTheDocument();
+    expect(screen.getByText("Here's your accommodation overview.")).toBeInTheDocument();
     expect(screen.getByText(/Messages: Messages unavailable/i)).toBeInTheDocument();
   });
 

@@ -132,7 +132,7 @@ describe("resident login and OTP authentication", () => {
     await userEvent.type(await screen.findByLabelText("Verification code"), "123456");
     await userEvent.click(screen.getByRole("button", { name: "Verify" }));
 
-    expect(await screen.findByText(/Welcome, Ama Resident/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Hello, Ama!" })).toBeInTheDocument();
     expect(localStorage.getItem(RESIDENT_TOKEN_KEY)).toBe("resident-token");
   });
 
@@ -165,7 +165,7 @@ describe("resident login and OTP authentication", () => {
     mockFetch((url) => residentEndpointResponse(url) ?? json({ user: residentUser }));
     render(renderResidentApp(["/register"]));
 
-    expect(await screen.findByText(/Welcome, Ama Resident/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Hello, Ama!" })).toBeInTheDocument();
   });
 
   it("rejects a non-resident auth result during OTP verification", async () => {
@@ -277,7 +277,7 @@ describe("resident registration OTP authentication", () => {
     await userEvent.type(await screen.findByLabelText("Verification code"), "123456");
     await userEvent.click(screen.getByRole("button", { name: "Verify" }));
 
-    expect(await screen.findByText(/Welcome, Ama Resident/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Hello, Ama!" })).toBeInTheDocument();
     expect(localStorage.getItem(RESIDENT_TOKEN_KEY)).toBe("new-resident-token");
   });
 

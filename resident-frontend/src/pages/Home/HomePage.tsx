@@ -12,7 +12,8 @@ import {
   UserRound
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Link } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useOutletContext } from "react-router-dom";
 import hostelIllustration from "../../assets/hostel-illustration.png";
 import { Card } from "../../components/common/Card";
 import { EmptyState } from "../../components/common/EmptyState";
@@ -20,6 +21,7 @@ import { ErrorState } from "../../components/common/ErrorState";
 import { LoadingState } from "../../components/common/LoadingState";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { PageHeader } from "../../components/layout/PageHeader";
+import type { ResidentShellOutletContext } from "../../components/layout/ResidentShell";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { useResidentDashboard } from "../../hooks/useResidentDashboard";
 import type { DashboardData } from "../../types/resident";
@@ -32,7 +34,7 @@ function Detail({ label, value }: { label: string; value?: string | number | nul
   return (
     <div className="min-w-0">
       <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{label}</p>
-      <p className="mt-1 break-anywhere text-sm font-semibold text-text-primary">{value || "Not available"}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-text-primary">{value || "Not available"}</p>
     </div>
   );
 }
@@ -147,20 +149,31 @@ function HomeStatusBar({ data }: { data: DashboardData }) {
   ];
 
   return (
-    <section className="relative z-10 mb-6 overflow-hidden rounded-3xl border border-[#d6eae5] bg-gradient-to-br from-[#ebf8f5] to-[#f6fcfb] p-4 shadow-[0_2px_10px_rgba(0,0,0,0.02)] lg:mb-16 lg:mt-4 lg:overflow-visible lg:p-[15px]">
+    <section className="relative z-10 mb-6 overflow-hidden rounded-3xl border border-[#d6eae5] bg-gradient-to-br from-[#ebf8f5] to-[#f6fcfb] p-4 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:p-5 min-[1400px]:mb-16 min-[1400px]:mt-4 min-[1400px]:overflow-visible min-[1400px]:p-[15px]">
       <div
-        className="pointer-events-none absolute -top-14 right-0 z-0 hidden h-[calc(100%+3.5rem)] w-[40%] bg-contain bg-right-bottom bg-no-repeat lg:block"
+        className="pointer-events-none absolute -top-14 right-0 z-0 hidden h-[calc(100%+3.5rem)] w-[40%] bg-contain bg-right-bottom bg-no-repeat min-[1400px]:block"
         style={{ backgroundImage: `url(${hostelIllustration})` }}
         aria-hidden="true"
       />
+      {/*
+        Breakpoints:
+        - default: vertical stack
+        - sm–lg (tablet / small desktop without sidebar): clean 2×2 grid — never 4 squeezed columns
+        - xl (1200–1399 with sidebar): keep 2×2 so summary is not squeezed beside the sidebar
+        - min 1400px: horizontal 4-column row + illustration
+      */}
       <div className="relative z-[1] flex items-stretch justify-between gap-6">
-        <div className="grid w-full gap-0 sm:grid-cols-2 lg:flex lg:w-[62%] lg:items-stretch lg:gap-6">
+        <div className="grid w-full grid-cols-1 gap-0 sm:grid-cols-2 min-[1400px]:flex min-[1400px]:w-[62%] min-[1400px]:items-stretch min-[1400px]:gap-6">
           {items.map((item, index) => (
             <div key={item.key} className="contents">
-              {index > 0 ? <div className="hidden w-px self-stretch bg-[#d1e6e0] lg:my-2 lg:block" aria-hidden="true" /> : null}
+              {index > 0 ? <div className="hidden w-px self-stretch bg-[#d1e6e0] min-[1400px]:my-2 min-[1400px]:block" aria-hidden="true" /> : null}
               <div
-                className={`flex min-w-0 flex-1 flex-col items-start p-4 lg:p-2 ${
-                  index > 0 ? "border-t border-[#dce8e4] sm:border-l sm:border-t-0 lg:border-0" : ""
+                className={`flex min-w-0 flex-1 flex-col items-start p-4 sm:p-4 min-[1400px]:p-2 ${
+                  index > 0
+                    ? "border-t border-[#dce8e4] sm:border-t-0 sm:border-l-0 min-[1400px]:border-0 " +
+                      (index % 2 === 1 ? "sm:border-l sm:border-[#dce8e4] " : "") +
+                      (index >= 2 ? "sm:border-t sm:border-[#dce8e4] " : "")
+                    : ""
                 }`}
               >
                 <div className="mb-3 flex items-center gap-2">
@@ -173,16 +186,17 @@ function HomeStatusBar({ data }: { data: DashboardData }) {
                   )}
                   <p className={`text-xs font-semibold ${item.labelClass}`}>{item.label}</p>
                 </div>
-                <p className="break-anywhere text-[22px] font-bold leading-tight text-text-primary lg:text-[22px]">{item.value}</p>
-                <p className="mt-1 mb-4 break-anywhere text-xs leading-snug text-text-secondary">{item.detail}</p>
-                {item.secondary ? <p className="mb-1 break-anywhere text-xs font-semibold text-text-secondary">{item.secondary}</p> : null}
+                {/* Avoid break-anywhere here — it letter-breaks short status words when columns squeeze. */}
+                <p className="text-[20px] font-bold leading-tight text-text-primary sm:text-[22px]">{item.value}</p>
+                <p className="mt-1 mb-4 text-xs leading-snug text-text-secondary">{item.detail}</p>
+                {item.secondary ? <p className="mb-1 text-xs font-semibold text-text-secondary">{item.secondary}</p> : null}
                 {item.tertiary ? <p className="sr-only">{item.tertiary}</p> : null}
                 <MiniBadge status={item.status} label={item.badge} tone={item.badgeTone} icon={item.badgeIcon} />
               </div>
             </div>
           ))}
         </div>
-        <div className="relative z-[2] hidden w-[38%] shrink-0 lg:block" aria-hidden="true" />
+        <div className="relative z-[2] hidden w-[38%] shrink-0 min-[1400px]:block" aria-hidden="true" />
       </div>
     </section>
   );
@@ -215,7 +229,7 @@ function progressPercent(stages: JourneyStage[]) {
 function AccommodationJourney({ stages }: { stages: JourneyStage[] }) {
   const progress = progressPercent(stages);
   return (
-    <Card className="!rounded-3xl border-[#eaeff2] !p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+    <Card className="!rounded-3xl border-[#eaeff2] !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-bold text-text-primary">Your Accommodation Journey</h2>
@@ -229,7 +243,8 @@ function AccommodationJourney({ stages }: { stages: JourneyStage[] }) {
           <ArrowRight size={16} aria-hidden="true" />
         </Link>
       </div>
-      <div className="relative hidden overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] lg:block [&::-webkit-scrollbar]:hidden">
+      {/* Horizontal journey only when labels fit (xl+ with sidebar room, or lg+ full-width tablet). */}
+      <div className="relative hidden overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] lg:block xl:hidden min-[1400px]:block [&::-webkit-scrollbar]:hidden">
         <div className="relative min-w-[700px] px-5 py-2.5">
           <div className="absolute left-[60px] right-[60px] top-8 hidden h-0.5 rounded-full bg-[#e2e8f0] lg:block" aria-hidden="true" />
           <div
@@ -258,8 +273,8 @@ function AccommodationJourney({ stages }: { stages: JourneyStage[] }) {
           </ol>
         </div>
       </div>
-      {/* Mobile stacked journey — same stages, no HTML mobile tabs */}
-      <ol className="mt-4 space-y-3 lg:hidden" aria-label="Accommodation journey mobile">
+      {/* Stacked journey below lg — same stages, no duplication of data */}
+      <ol className="mt-4 space-y-3 lg:hidden xl:block min-[1400px]:hidden" aria-label="Accommodation journey mobile">
         {stages.map((stage) => {
           const Icon = journeyIcons[stage.key] ?? FileText;
           const active = stage.status === "complete" || stage.status === "current";
@@ -286,7 +301,7 @@ function AccommodationJourney({ stages }: { stages: JourneyStage[] }) {
 
 function NextActionCard({ action }: { action: ReturnType<typeof nextAction> }) {
   return (
-    <Card className="!rounded-3xl border-[#eaeff2] !p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+    <Card className="!rounded-3xl border-[#eaeff2] !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6">
       <div>
         <h2 className="text-lg font-bold text-text-primary">Next Action</h2>
         <p className="mt-1 text-[13px] text-text-secondary">Your next step to complete your accommodation.</p>
@@ -296,7 +311,7 @@ function NextActionCard({ action }: { action: ReturnType<typeof nextAction> }) {
           <CreditCard size={24} aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="break-anywhere text-[15px] font-bold text-text-primary">{action.label}</h3>
+          <h3 className="break-words text-[15px] font-bold text-text-primary">{action.label}</h3>
           <p className="mt-1 text-[13px] text-text-secondary">{action.description}</p>
         </div>
         <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white" aria-hidden="true">
@@ -364,7 +379,7 @@ function recentActivity(data: DashboardData): ActivityItem[] {
 function RecentActivity({ data }: { data: DashboardData }) {
   const activity = recentActivity(data);
   return (
-    <Card className="!rounded-3xl border-[#eaeff2] !p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+    <Card className="!rounded-3xl border-[#eaeff2] !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-bold text-text-primary">Recent activity</h2>
@@ -374,15 +389,17 @@ function RecentActivity({ data }: { data: DashboardData }) {
       {activity.length ? (
         <div className="flex flex-col gap-5">
           {activity.map((item) => (
-            <div key={item.key} className="flex items-start gap-4">
+            <div key={item.key} className="flex items-start gap-3 sm:gap-4">
               <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${item.color}`}>
                 <item.icon size={20} aria-hidden="true" />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="break-anywhere text-sm font-semibold text-text-primary">{item.title}</p>
-                <p className="mt-1 break-anywhere text-[13px] leading-snug text-text-secondary">{item.detail}</p>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <p className="break-words text-sm font-semibold text-text-primary">{item.title}</p>
+                  <p className="shrink-0 text-xs text-[#9aa7b1]">{formatDateTime(item.date)}</p>
+                </div>
+                <p className="mt-1 break-words text-[13px] leading-snug text-text-secondary">{item.detail}</p>
               </div>
-              <p className="whitespace-nowrap text-xs text-[#9aa7b1]">{formatDateTime(item.date)}</p>
             </div>
           ))}
         </div>
@@ -434,7 +451,7 @@ function ResidentUpdates({ data }: { data: DashboardData }) {
   }>;
 
   return (
-    <Card className="!rounded-3xl border-[#eaeff2] !p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+    <Card className="!rounded-3xl border-[#eaeff2] !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-text-primary">Updates</h2>
@@ -442,7 +459,7 @@ function ResidentUpdates({ data }: { data: DashboardData }) {
         </div>
         <div className="flex items-center gap-2">
           {unread ? <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold text-primary">{unread} unread</span> : null}
-          <Link to="/messages" className="hidden items-center gap-1 rounded-full bg-[#f3f6f8] px-3 py-2 text-[13px] font-semibold text-text-primary hover:bg-[#e8ecef] lg:inline-flex">
+          <Link to="/messages" className="hidden items-center gap-1 rounded-full bg-[#f3f6f8] px-3 py-2 text-[13px] font-semibold text-text-primary hover:bg-[#e8ecef] xl:inline-flex">
             View All
             <ArrowRight size={14} aria-hidden="true" />
           </Link>
@@ -451,22 +468,24 @@ function ResidentUpdates({ data }: { data: DashboardData }) {
       {updates.length ? (
         <div className="flex flex-col gap-4">
           {updates.map((item) => (
-            <Link key={item.key} to={item.href} className="flex items-start gap-4 rounded-xl hover:bg-[#fbfcfd]">
+            <Link key={item.key} to={item.href} className="flex items-start gap-3 rounded-xl hover:bg-[#fbfcfd] sm:gap-4">
               <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${item.color}`}>
                 <item.icon size={18} aria-hidden="true" />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block break-anywhere text-sm font-semibold text-text-primary">{item.title}</span>
+                <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <span className="break-words text-sm font-semibold text-text-primary">{item.title}</span>
+                  <span className="shrink-0 text-xs text-[#9aa7b1]">{formatDateTime(item.date)}</span>
+                </span>
                 <span className="mt-1 block text-[13px] text-text-secondary">{item.description}</span>
               </span>
-              <span className="whitespace-nowrap text-xs text-[#9aa7b1]">{formatDateTime(item.date)}</span>
             </Link>
           ))}
         </div>
       ) : (
         <EmptyState title="No updates right now." message="Announcements and private messages will appear here." />
       )}
-      <div className="mt-5 flex flex-wrap gap-4 lg:hidden">
+      <div className="mt-5 flex flex-wrap gap-4 xl:hidden">
         <Link to="/messages" className="text-sm font-semibold text-primary">
           View messages
         </Link>
@@ -482,7 +501,7 @@ function NeedHelpCard() {
   return (
     <Link
       to="/maintenance"
-      className="group relative flex min-h-[88px] items-center gap-4 overflow-hidden rounded-3xl bg-primary px-8 py-6 text-white shadow-[0_10px_30px_rgba(5,98,104,0.22)]"
+      className="group relative flex min-h-[88px] items-center gap-4 overflow-hidden rounded-3xl bg-primary px-6 py-6 text-white shadow-[0_10px_30px_rgba(5,98,104,0.22)] sm:px-8"
     >
       <span className="pointer-events-none absolute -right-5 -top-14 h-[200px] w-[150px] rounded-full bg-white/5" aria-hidden="true" />
       <span className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/10 text-white">
@@ -502,20 +521,32 @@ function NeedHelpCard() {
 export function HomePage() {
   const { data, isLoading, error, retry } = useResidentDashboard();
   usePageTitle("Home");
+  const outletContext = useOutletContext<ResidentShellOutletContext | null>();
+
+  useEffect(() => {
+    if (!outletContext?.setChromeStatus) return;
+    if (data?.profile.status) {
+      outletContext.setChromeStatus(data.profile.status);
+    } else {
+      outletContext.setChromeStatus(null);
+    }
+    return () => outletContext.setChromeStatus(null);
+  }, [data?.profile.status, outletContext]);
 
   if (isLoading) return <LoadingState label="Loading your dashboard" />;
   if (error || !data) {
     return <ErrorState title="Dashboard unavailable" message={error ?? "Unable to load your dashboard."} onRetry={() => void retry()} />;
   }
 
-  const fullName = [data.profile.first_name, data.profile.middle_name, data.profile.last_name].filter(Boolean).join(" ");
   const firstName = data.profile.first_name || "Resident";
   const action = nextAction(data);
   const journey = buildJourney(data);
+  const institution = data.profile.institution_name ?? "Institution not available";
+  const studentId = data.profile.student_id ?? "Student ID unavailable";
 
   return (
     <>
-      <div className="lg:hidden">
+      <div className="xl:hidden">
         <PageHeader title="Home" description="Track your accommodation journey and what needs your attention." />
       </div>
 
@@ -530,38 +561,45 @@ export function HomePage() {
         </div>
       ) : null}
 
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between lg:mb-10 lg:items-start">
-        <div>
-          <h1 className="hidden text-[26px] font-bold text-text-primary lg:block">Hello, {firstName}!</h1>
-          <p className="text-sm text-text-secondary lg:mt-1.5 lg:text-sm">Welcome, {fullName || "Resident"}</p>
-          <p className="hidden text-sm text-text-secondary lg:mt-1 lg:block">Good afternoon — here's your accommodation overview.</p>
-          <p className="text-xs text-text-secondary lg:hidden">Your dashboard summarizes your current accommodation status.</p>
-          <p className="text-xs text-text-secondary">
-            {data.profile.institution_name ?? "Institution not available"} · {data.profile.student_id ?? "Student ID unavailable"}
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between xl:mb-10">
+        <div className="min-w-0">
+          <h1 className="text-[22px] font-bold text-text-primary sm:text-[26px]">Hello, {firstName}!</h1>
+          <p className="mt-1.5 text-sm text-text-secondary">Here&apos;s your accommodation overview.</p>
+          <p className="mt-1.5 text-xs text-text-secondary sm:text-[13px]">
+            {institution}
+            <span className="mx-1.5 text-[#c5d3d0]" aria-hidden="true">
+              •
+            </span>
+            {studentId}
           </p>
         </div>
-        <StatusBadge status={data.profile.status} />
+        {/* Mobile/tablet status pill — desktop status lives in shell chrome */}
+        <div className="xl:hidden">
+          <StatusBadge status={data.profile.status} />
+        </div>
       </div>
 
       <HomeStatusBar data={data} />
 
-      <div className="mt-6">
-        <InternetAccessCard />
-      </div>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-        <div className="space-y-6">
+      {/*
+        Desktop (xl): two columns — Journey/Activity/IA | NextAction/Updates/NeedHelp
+        Tablet/small desktop (lg–xl): still usable two columns without sidebar
+        Narrower: single column preserving mobile order
+      */}
+      <div className="mt-6 grid gap-5 sm:gap-6 lg:grid-cols-[1.5fr_1fr]">
+        <div className="space-y-5 sm:space-y-6">
           <AccommodationJourney stages={journey} />
           <RecentActivity data={data} />
+          <InternetAccessCard />
         </div>
-        <div className="space-y-6">
+        <div className="space-y-5 sm:space-y-6">
           <NextActionCard action={action} />
           <ResidentUpdates data={data} />
           <NeedHelpCard />
         </div>
       </div>
 
-      <Card className="mt-5 lg:hidden">
+      <Card className="mt-5 !rounded-3xl border-[#eaeff2] !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6 xl:hidden">
         <h2 className="text-base font-semibold text-text-primary">Resident identity</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <Detail label="Kissmet resident code" value={data.profile.resident_code} />
