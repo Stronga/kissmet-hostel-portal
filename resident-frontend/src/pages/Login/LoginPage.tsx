@@ -11,6 +11,7 @@ import { loginContext, saveVerificationContext } from "../../auth/verificationCo
 import { useInstitutions } from "../../hooks/useInstitutions";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { safeAuthError } from "../../utils/errors";
+import hostelIllustration from "../../assets/hostel-illustration.png";
 
 export function LoginPage() {
   const { isAuthenticated } = useAuth();
@@ -66,8 +67,13 @@ export function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
-      <Card className="w-full max-w-md">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-8">
+      <div
+        className="pointer-events-none absolute bottom-0 right-0 z-0 h-[40vh] w-[85%] max-w-xl bg-contain bg-right-bottom bg-no-repeat opacity-90 sm:h-[55vh] sm:w-[65%] sm:max-w-2xl lg:h-[70vh] lg:w-[55%] lg:max-w-3xl"
+        style={{ backgroundImage: `url(${hostelIllustration})` }}
+        aria-hidden="true"
+      />
+      <Card className="relative z-10 w-full max-w-md">
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">Kissmet</p>
         <h1 className="mt-2 text-2xl font-semibold text-text-primary">Resident Portal</h1>
         <p className="mt-2 text-sm text-text-secondary">Sign in with your institution, student ID, and the OTP sent to your registered phone.</p>
