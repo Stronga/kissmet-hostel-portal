@@ -1,4 +1,5 @@
 import { hashPassword, randomToken } from "../auth/crypto";
+import { validateUploadFile } from "../http/uploads";
 import type { AuthUser } from "../auth/context";
 import { AdminRepository } from "../repositories/admin.repository";
 import { MockAnnouncementDeliveryProvider, type AnnouncementDeliveryProvider, type ExternalAnnouncementChannel } from "./announcement-delivery.service";
@@ -464,20 +465,18 @@ export class AdminService {
     if (!payment) throw new Error("Payment not found");
     const booking = await this.get("bookings", Number(payment.booking_id)) as Record<string, unknown> | null;
     if (!booking || Number(booking.resident_id) !== Number(payment.resident_id)) throw new Error("Payment resident/booking mismatch");
-    const allowed = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
-    if (!allowed.has(file.type)) throw new Error("Unsupported payment slip file type");
-    if (file.size > 5 * 1024 * 1024) throw new Error("Payment slip file too large");
-    const key = `payment-slips/${payment.payment_reference}/${crypto.randomUUID()}-${file.name.replace(/[^A-Za-z0-9_.-]/g, "_")}`;
-    await this.documents.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+    const validated = validateUploadFile(file, "Payment slip");
+    const key = `payment-slips/${payment.payment_reference}/${crypto.randomUUID()}-${validated.safeFilename}`;
+    await this.documents.put(key, file.stream(), { httpMetadata: { contentType: validated.contentType } });
     const res = await this.repo.run(
       "INSERT INTO documents (owner_user_id, resident_id, booking_id, payment_id, document_type, status, r2_bucket, r2_key, original_filename, content_type, size_bytes, uploaded_by_user_id) SELECT u.id, ?, ?, ?, 'payment_slip', 'uploaded', 'DOCUMENTS', ?, ?, ?, ?, ? FROM residents r JOIN users u ON u.id = r.user_id WHERE r.id = ?",
       payment.resident_id,
       payment.booking_id,
       paymentId,
       key,
-      file.name,
-      file.type,
-      file.size,
+      validated.safeFilename,
+      validated.contentType,
+      validated.size,
       actor.id,
       payment.resident_id
     );

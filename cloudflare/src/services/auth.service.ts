@@ -30,9 +30,19 @@ export class AuthService {
   }
 
   async loginStaff(identifier: string, password: string, userAgent?: string) {
-    const loginKey = `staff-login:${await sha256Hex(identifier.toLowerCase())}`;
+    const identifierHash = await sha256Hex(identifier.toLowerCase());
+    const loginKey = `staff-login:${identifierHash}`;
+
+    // Isolate-local fast path (not distributed across Worker isolates).
     if (!checkRateLimit(loginKey, STAFF_LOGIN_RATE_LIMIT_MAX, STAFF_LOGIN_RATE_LIMIT_WINDOW_MS)) {
-      await this.repo.writeAudit(null, null, "auth.staff.login_rate_limited", "user", null);
+      await this.repo.writeAudit(null, null, "auth.staff.login_rate_limited", "user", null, { identifierHash });
+      return { ok: false as const, status: 429, body: { error: "Too many login attempts" } };
+    }
+
+    // Durable D1-backed counter — improves multi-isolate behavior but is still not edge-global.
+    const recentFailures = await this.repo.countRecentStaffLoginFailures(identifierHash, pastIso(15));
+    if ((recentFailures?.count ?? 0) >= STAFF_LOGIN_RATE_LIMIT_MAX) {
+      await this.repo.writeAudit(null, null, "auth.staff.login_rate_limited", "user", null, { identifierHash });
       return { ok: false as const, status: 429, body: { error: "Too many login attempts" } };
     }
 
@@ -40,7 +50,7 @@ export class AuthService {
     const valid = staff && staff.user_status === "active" && staff.staff_status === "active" && await verifyPassword(password, staff.password_hash);
 
     if (!valid) {
-      await this.repo.writeAudit(staff?.user_id ?? null, staff?.staff_id ?? null, "auth.staff.login_failed", "user", staff?.user_id ?? null);
+      await this.repo.writeAudit(staff?.user_id ?? null, staff?.staff_id ?? null, "auth.staff.login_failed", "user", staff?.user_id ?? null, { identifierHash });
       return { ok: false as const, status: 401, body: { error: "Invalid credentials" } };
     }
 

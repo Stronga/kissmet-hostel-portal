@@ -6,6 +6,7 @@ import { AdminRepository } from "../repositories/admin.repository";
 import type { SmsProvider } from "./sms.service";
 import { OTP_DELIVERY_FAILURE_MESSAGE } from "./sms.service";
 import { normalizeGhanaPhoneForSms } from "./phone";
+import { validateUploadFile } from "../http/uploads";
 
 const OTP_MINUTES = 10;
 const SESSION_HOURS = 8;
@@ -89,7 +90,9 @@ export class ResidentService {
   }
 
   async verifyRegistrationOtp(institutionCode: string, studentId: string, otp: string, userAgent?: string) {
-    const keySuffix = `${institutionCode}:${studentId}`;
+    // Normalize institution code to DB value so request/verify keys match case-insensitively.
+    const institution = await this.repo.first<{ code: string }>("SELECT code FROM institutions WHERE lower(code) = lower(?) AND status = 'active'", institutionCode);
+    const keySuffix = `${institution?.code ?? institutionCode}:${studentId}`;
     const record = await this.repo.first<{ id: number; code_hash: string; attempt_count: number; max_attempts: number; expires_at: string; registration_payload_json: string }>(
       "SELECT id, code_hash, attempt_count, max_attempts, expires_at, registration_payload_json FROM otp_codes WHERE purpose = 'phone_verification' AND status = 'pending' AND rate_limit_key = ? ORDER BY requested_at DESC LIMIT 1",
       `otp:phone_verification:${keySuffix}`
@@ -144,12 +147,10 @@ export class ResidentService {
   async uploadIdentityDocument(actor: AuthUser, type: "student_card" | "ghana_card", file: File) {
     if (!actor.residentId) throw new Error("Resident session required");
     if (!this.documents) throw new Error("Document storage is not configured");
-    const allowed = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
-    if (!allowed.has(file.type)) throw new Error("Unsupported document type");
-    if (file.size > 5 * 1024 * 1024) throw new Error("Document file too large");
-    const key = `identity/${actor.residentId}/${type}/${crypto.randomUUID()}-${file.name.replace(/[^A-Za-z0-9_.-]/g, "_")}`;
-    await this.documents.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
-    const res = await this.repo.run("INSERT INTO documents (owner_user_id, resident_id, document_type, status, r2_bucket, r2_key, original_filename, content_type, size_bytes, uploaded_by_user_id) VALUES (?, ?, ?, 'uploaded', 'DOCUMENTS', ?, ?, ?, ?, ?)", actor.id, actor.residentId, type, key, file.name, file.type, file.size, actor.id);
+    const validated = validateUploadFile(file, "Document");
+    const key = `identity/${actor.residentId}/${type}/${crypto.randomUUID()}-${validated.safeFilename}`;
+    await this.documents.put(key, file.stream(), { httpMetadata: { contentType: validated.contentType } });
+    const res = await this.repo.run("INSERT INTO documents (owner_user_id, resident_id, document_type, status, r2_bucket, r2_key, original_filename, content_type, size_bytes, uploaded_by_user_id) VALUES (?, ?, ?, 'uploaded', 'DOCUMENTS', ?, ?, ?, ?, ?)", actor.id, actor.residentId, type, key, validated.safeFilename, validated.contentType, validated.size, actor.id);
     await this.repo.audit(actor.id, null, `resident.document.${type}_uploaded`, "document", res.meta.last_row_id);
     return this.ownDocument(actor, Number(res.meta.last_row_id));
   }
@@ -339,11 +340,9 @@ export class ResidentService {
     const payment = await this.repo.first<Record<string, unknown>>("SELECT * FROM payments WHERE id = ? AND resident_id = ?", paymentId, actor.residentId);
     if (!payment) throw new Error("Payment not found");
     if (!["pending", "submitted"].includes(String(payment.status))) throw new Error("Invalid workflow transition");
-    const allowed = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
-    if (!allowed.has(file.type)) throw new Error("Unsupported payment slip file type");
-    if (file.size > 5 * 1024 * 1024) throw new Error("Payment slip file too large");
-    const key = `payment-slips/${payment.payment_reference}/${crypto.randomUUID()}-${file.name.replace(/[^A-Za-z0-9_.-]/g, "_")}`;
-    await this.documents.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+    const validated = validateUploadFile(file, "Payment slip");
+    const key = `payment-slips/${payment.payment_reference}/${crypto.randomUUID()}-${validated.safeFilename}`;
+    await this.documents.put(key, file.stream(), { httpMetadata: { contentType: validated.contentType } });
     const res = await this.repo.run(
       "INSERT INTO documents (owner_user_id, resident_id, booking_id, payment_id, document_type, status, r2_bucket, r2_key, original_filename, content_type, size_bytes, uploaded_by_user_id) VALUES (?, ?, ?, ?, 'payment_slip', 'uploaded', 'DOCUMENTS', ?, ?, ?, ?, ?)",
       actor.id,
@@ -351,9 +350,9 @@ export class ResidentService {
       payment.booking_id,
       paymentId,
       key,
-      file.name,
-      file.type,
-      file.size,
+      validated.safeFilename,
+      validated.contentType,
+      validated.size,
       actor.id
     );
     await this.repo.audit(actor.id, null, "resident.payment.slip_uploaded", "document", res.meta.last_row_id, { paymentId });

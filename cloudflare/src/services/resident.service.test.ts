@@ -449,7 +449,7 @@ describe("resident onboarding", () => {
     expect(puts[0]).toContain("payment-slips/KSM-PAY-0001/");
     expect(repo.rows.documents.at(-1)).toMatchObject({ document_type: "payment_slip", resident_id: 1, payment_id: payment.id });
     await expect(svc.uploadPaymentSlip(otherResident, Number(payment.id), new File(["x"], "slip.pdf", { type: "application/pdf" }))).rejects.toThrow("Payment not found");
-    await expect(svc.uploadPaymentSlip(resident, Number(payment.id), new File(["x"], "bad.txt", { type: "text/plain" }))).rejects.toThrow("Unsupported payment slip file type");
+    await expect(svc.uploadPaymentSlip(resident, Number(payment.id), new File(["x"], "bad.txt", { type: "text/plain" }))).rejects.toThrow("Unsupported payment slip type");
     expect(repo.audits).toContain("resident.payment.submitted");
     expect(repo.audits).toContain("resident.payment.slip_uploaded");
   });
