@@ -1,4 +1,5 @@
 import { ArrowRight, Headset, LogOut, UserRound } from "lucide-react";
+import kissmetSidebarLogo from "../../assets/kissmet-sidebar-logo.png";
 import { useCallback, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
@@ -51,12 +52,12 @@ export function ResidentShell() {
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 py-5 xl:mx-0 xl:max-w-none xl:min-h-screen xl:grid-cols-[280px_minmax(0,1fr)] xl:gap-0 xl:px-0 xl:py-0">
         <aside className="sticky top-[73px] hidden self-start rounded-token border border-border bg-surface p-3 shadow-token xl:sticky xl:top-0 xl:flex xl:h-screen xl:max-h-screen xl:flex-col xl:overflow-y-auto xl:rounded-none xl:border-0 xl:border-r xl:border-[#eaeff2] xl:bg-white xl:p-8 xl:shadow-none">
           <div className="mb-10 flex items-center gap-3 px-2">
-            <div
-              className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-primary text-lg font-bold text-white"
+            <img
+              src={kissmetSidebarLogo}
+              alt=""
+              className="h-10 w-auto max-w-[52px] shrink-0 object-contain"
               aria-hidden="true"
-            >
-              K
-            </div>
+            />
             <div>
               <p className="text-lg font-bold leading-tight text-text-primary">Kissmet</p>
               <p className="text-[11px] font-semibold tracking-wide text-text-secondary">HOSTEL</p>

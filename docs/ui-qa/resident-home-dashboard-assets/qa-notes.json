@@ -1,0 +1,95 @@
+[
+  {
+    "width": 1440,
+    "path": "/workspace/kissmet-hostel-portal/docs/ui-qa/resident-home-dashboard-assets/home-1440.png",
+    "overflowX": false,
+    "hasIA": true,
+    "hasUpdates": true,
+    "hasNeedHelp": true,
+    "hasJourney": true,
+    "squeezed": false,
+    "scrollWidth": 1440,
+    "innerWidth": 1440,
+    "greeting": true,
+    "overview": true,
+    "branding": {
+      "imgs": [
+        {
+          "src": "http://127.0.0.1:4173/assets/kissmet-sidebar-logo-CVSlPyvE.png",
+          "w": 791,
+          "h": 541,
+          "displayW": 52,
+          "displayH": 40
+        }
+      ],
+      "asideImgs": [
+        "http://127.0.0.1:4173/assets/kissmet-sidebar-logo-CVSlPyvE.png"
+      ],
+      "bgEls": [
+        "background-image: url(\"/assets/hostel-dashboard-CN3e4e0B.png\");"
+      ]
+    }
+  },
+  {
+    "width": 1024,
+    "path": "/workspace/kissmet-hostel-portal/docs/ui-qa/resident-home-dashboard-assets/home-1024.png",
+    "overflowX": false,
+    "hasIA": true,
+    "hasUpdates": true,
+    "hasNeedHelp": true,
+    "hasJourney": true,
+    "squeezed": false,
+    "scrollWidth": 1024,
+    "innerWidth": 1024,
+    "greeting": true,
+    "overview": true,
+    "branding": {
+      "imgs": [
+        {
+          "src": "http://127.0.0.1:4173/assets/kissmet-sidebar-logo-CVSlPyvE.png",
+          "w": 791,
+          "h": 541,
+          "displayW": 0,
+          "displayH": 0
+        }
+      ],
+      "asideImgs": [
+        "http://127.0.0.1:4173/assets/kissmet-sidebar-logo-CVSlPyvE.png"
+      ],
+      "bgEls": [
+        "background-image: url(\"/assets/hostel-dashboard-CN3e4e0B.png\");"
+      ]
+    }
+  },
+  {
+    "width": 430,
+    "path": "/workspace/kissmet-hostel-portal/docs/ui-qa/resident-home-dashboard-assets/home-430.png",
+    "overflowX": false,
+    "hasIA": true,
+    "hasUpdates": true,
+    "hasNeedHelp": true,
+    "hasJourney": true,
+    "squeezed": false,
+    "scrollWidth": 430,
+    "innerWidth": 430,
+    "greeting": true,
+    "overview": true,
+    "branding": {
+      "imgs": [
+        {
+          "src": "http://127.0.0.1:4173/assets/kissmet-sidebar-logo-CVSlPyvE.png",
+          "w": 791,
+          "h": 541,
+          "displayW": 0,
+          "displayH": 0
+        }
+      ],
+      "asideImgs": [
+        "http://127.0.0.1:4173/assets/kissmet-sidebar-logo-CVSlPyvE.png"
+      ],
+      "bgEls": [
+        "background-image: url(\"/assets/hostel-dashboard-CN3e4e0B.png\");"
+      ]
+    }
+  }
+]

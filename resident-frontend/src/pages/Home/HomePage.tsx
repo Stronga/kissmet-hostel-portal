@@ -14,7 +14,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import hostelIllustration from "../../assets/hostel-illustration.png";
+import hostelDashboard from "../../assets/hostel-dashboard.png";
 import { Card } from "../../components/common/Card";
 import { EmptyState } from "../../components/common/EmptyState";
 import { ErrorState } from "../../components/common/ErrorState";
@@ -152,7 +152,7 @@ function HomeStatusBar({ data }: { data: DashboardData }) {
     <section className="relative z-10 mb-6 overflow-hidden rounded-3xl border border-[#d6eae5] bg-gradient-to-br from-[#ebf8f5] to-[#f6fcfb] p-4 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:p-5 min-[1400px]:mb-16 min-[1400px]:mt-4 min-[1400px]:overflow-visible min-[1400px]:p-[15px]">
       <div
         className="pointer-events-none absolute -top-14 right-0 z-0 hidden h-[calc(100%+3.5rem)] w-[40%] bg-contain bg-right-bottom bg-no-repeat min-[1400px]:block"
-        style={{ backgroundImage: `url(${hostelIllustration})` }}
+        style={{ backgroundImage: `url(${hostelDashboard})` }}
         aria-hidden="true"
       />
       {/*
