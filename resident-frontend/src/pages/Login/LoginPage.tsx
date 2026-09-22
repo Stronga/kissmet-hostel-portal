@@ -12,6 +12,7 @@ import { useInstitutions } from "../../hooks/useInstitutions";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { safeAuthError } from "../../utils/errors";
 import hostelIllustration from "../../assets/hostel-illustration.png";
+import kissmetLogo from "../../assets/kissmet-logo.png";
 
 export function LoginPage() {
   const { isAuthenticated } = useAuth();
@@ -74,9 +75,15 @@ export function LoginPage() {
         aria-hidden="true"
       />
       <Card className="relative z-10 w-full max-w-md">
-        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Kissmet</p>
-        <h1 className="mt-2 text-2xl font-semibold text-text-primary">Resident Portal</h1>
-        <p className="mt-2 text-sm text-text-secondary">Sign in with your institution, student ID, and the OTP sent to your registered phone.</p>
+        <div className="flex justify-center">
+          <img
+            src={kissmetLogo}
+            alt="Kissmet Hostel"
+            className="h-10 w-auto object-contain sm:h-12"
+          />
+        </div>
+        <h1 className="mt-3 text-center text-2xl font-semibold text-text-primary">Resident Portal</h1>
+        <p className="mt-2 text-center text-sm text-text-secondary">Sign in with your institution, student ID, and the OTP sent to your registered phone.</p>
         {sessionExpiredMessage ? (
           <div className="mt-4 rounded-token border border-warning/40 bg-amber-50 p-3 text-sm text-warning" role="status">
             {sessionExpiredMessage}

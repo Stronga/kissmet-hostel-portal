@@ -10,6 +10,8 @@ import { registrationContext, saveVerificationContext } from "../../auth/verific
 import { useInstitutions } from "../../hooks/useInstitutions";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { safeAuthError } from "../../utils/errors";
+import hostelIllustration from "../../assets/hostel-illustration.png";
+import kissmetLogo from "../../assets/kissmet-logo.png";
 
 export function RegisterPage() {
   const { isAuthenticated } = useAuth();
@@ -83,10 +85,22 @@ export function RegisterPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
-      <Card className="w-full max-w-2xl">
-        <h1 className="text-2xl font-semibold text-text-primary">Resident Registration</h1>
-        <p className="mt-2 text-sm text-text-secondary">Create your applicant account after verifying the phone number attached to your student identity.</p>
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-8">
+      <div
+        className="pointer-events-none absolute bottom-0 left-0 z-0 h-[40vh] w-[85%] max-w-xl bg-contain bg-left-bottom bg-no-repeat opacity-90 sm:h-[55vh] sm:w-[65%] sm:max-w-2xl lg:h-[70vh] lg:w-[55%] lg:max-w-3xl"
+        style={{ backgroundImage: `url(${hostelIllustration})` }}
+        aria-hidden="true"
+      />
+      <Card className="relative z-10 w-full max-w-2xl">
+        <div className="flex justify-center">
+          <img
+            src={kissmetLogo}
+            alt="Kissmet Hostel"
+            className="h-10 w-auto object-contain sm:h-12"
+          />
+        </div>
+        <h1 className="mt-3 text-center text-2xl font-semibold text-text-primary">Resident Registration</h1>
+        <p className="mt-2 text-center text-sm text-text-secondary">Create your applicant account after verifying the phone number attached to your student identity.</p>
         {institutionError ? <div className="mt-4"><ErrorState message={institutionError} /></div> : null}
         <form className="mt-6 grid gap-4 sm:grid-cols-2" onSubmit={handleSubmit}>
           <FormField label="First name" name="firstName" value={form.firstName} onChange={(event) => updateField("firstName", event.currentTarget.value)} disabled={isSubmitting} error={errors.firstName} autoComplete="given-name" />
