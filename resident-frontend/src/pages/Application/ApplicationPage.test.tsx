@@ -166,7 +166,7 @@ describe("resident application workflow", () => {
     const states = [
       { status: "submitted", text: "Your application has been submitted and is waiting for review." },
       { status: "under_review", text: "Kissmet staff are reviewing your application." },
-      { status: "approved", text: "Approval means you are eligible for booking. It does not assign a room, create a payment, or confirm accommodation by itself." },
+      { status: "approved", text: "Your application has been approved.", help: "Approval means you are eligible for booking. It does not assign a room, create a payment, or confirm accommodation by itself." },
       { status: "rejected", text: "Documents are unclear." },
       { status: "archived", text: "This application is archived." }
     ];
@@ -188,6 +188,10 @@ describe("resident application workflow", () => {
       });
       render(renderResidentApp(["/application"]));
       expect(await screen.findByText(state.text)).toBeInTheDocument();
+      if ("help" in state && state.help) {
+        await userEvent.click(screen.getByRole("button", { name: "About application status" }));
+        expect(await screen.findByText(state.help)).toBeInTheDocument();
+      }
       expect(screen.queryByText(/Room 101|Assigned bed|Paid/i)).not.toBeInTheDocument();
     }
   });

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card } from "../../components/common/Card";
+import { Detail } from "../../components/common/Detail";
 import { EmptyState } from "../../components/common/EmptyState";
 import { ErrorState } from "../../components/common/ErrorState";
+import { InfoHelp } from "../../components/common/InfoHelp";
 import { LoadingState } from "../../components/common/LoadingState";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { PageHeader } from "../../components/layout/PageHeader";
@@ -19,47 +21,57 @@ interface BookingData {
   paymentSummary: ResidentPaymentSummary | null;
 }
 
-function Detail({ label, value }: { label: string; value?: string | number | null }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{label}</p>
-      <p className="mt-1 break-anywhere text-sm font-semibold text-text-primary">{value || "Unavailable"}</p>
-    </div>
-  );
-}
-
 function BookingSummary({ booking, allocation }: { booking: ResidentBooking; allocation: ResidentAllocation | null }) {
   const pricedRoom = pricedRoomLabel(booking);
   const attention = Boolean(booking.payment_attention_required);
   return (
     <Card>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-semibold text-text-secondary">Current booking</p>
-          <h2 className="mt-1 break-anywhere text-2xl font-semibold text-text-primary">{booking.booking_number}</h2>
-          <p className="mt-1 text-sm text-text-secondary">{bookingStatusDescription(booking, allocation)}</p>
+          <h2 className="mt-1 break-words text-2xl font-bold text-text-primary">{booking.booking_number}</h2>
+          <p className="mt-1 text-[13px] text-text-secondary">{bookingStatusDescription(booking, allocation)}</p>
         </div>
-        <StatusBadge status={bookingStatusLabel(booking.status)} />
+        <span className="inline-flex items-center gap-1">
+          <StatusBadge status={bookingStatusLabel(booking.status)} />
+          <InfoHelp label="About booking status">
+            {booking.status === "confirmed"
+              ? "Booking confirmed means staff confirmed your booking. It does not itself create a room or bed assignment."
+              : "Booking status follows the hostel booking workflow. Payment threshold met does not automatically confirm the booking."}
+          </InfoHelp>
+        </span>
       </div>
       {attention ? (
-        <div className="mt-5 rounded-token border border-danger/30 bg-danger/5 p-4 text-sm text-text-primary" role="alert">
+        <div className="mt-5 rounded-2xl border border-danger/30 bg-danger/5 p-4 text-sm text-text-primary" role="alert">
           <p className="font-semibold text-danger">Payment attention required</p>
           <p className="mt-1">{booking.payment_attention_reason || "This booking needs payment review. Contact hostel management if you need more information."}</p>
         </div>
       ) : null}
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <Detail label="Captured booking amount" value={bookingAmount(booking)} />
+        <Detail
+          label="Captured booking amount"
+          value={bookingAmount(booking)}
+          help={
+            <InfoHelp label="About captured booking amount">
+              This amount is the booking's captured total and currency. It is not recalculated from current room rates.
+            </InfoHelp>
+          }
+        />
         <Detail label="Academic session" value={booking.academic_session_name ?? booking.academic_session_code} />
         <Detail label="Related application" value={booking.application_number} />
-        <Detail label="Room used for booking price" value={pricedRoom ?? "Not exposed"} />
+        <Detail
+          label="Room used for booking price"
+          value={pricedRoom ?? "Not exposed"}
+          help={
+            <InfoHelp label="About priced room">
+              The room used for booking price is not your assigned room. Actual room and bed assignment comes only from an active allocation.
+            </InfoHelp>
+          }
+        />
         <Detail label="Booked" value={formatDateTime(booking.booked_at ?? booking.created_at)} />
         <Detail label="Expires" value={formatDateTime(booking.expires_at)} />
         <Detail label="Cancelled" value={formatDateTime(booking.cancelled_at)} />
         <Detail label="Completed" value={formatDateTime(booking.completed_at)} />
-      </div>
-      <div className="mt-5 rounded-token border border-border bg-muted/50 p-4 text-sm text-text-secondary">
-        <p><span className="font-semibold text-text-primary">Pricing basis:</span> this amount is the booking's captured `total_amount_minor` and `currency`. It is not recalculated from current room rates.</p>
-        <p className="mt-2"><span className="font-semibold text-text-primary">Priced room ≠ assigned room:</span> the room used for booking price is not your assigned room. Actual room and bed assignment comes only from an active allocation.</p>
       </div>
     </Card>
   );
@@ -103,8 +115,8 @@ export function BookingPage() {
 
   return (
     <>
-      <PageHeader title="Booking" description="Review your booking lifecycle, captured amount, and next step." />
-      <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+      <PageHeader title="Booking" description="Review your booking, amount, and next step." />
+      <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
         {booking ? (
           <BookingSummary booking={booking} allocation={data.allocation} />
         ) : (
@@ -112,36 +124,50 @@ export function BookingPage() {
             <EmptyState title="No booking yet" message={noBookingMessage(application)} actionHref="/application" actionLabel="View application" />
           </Card>
         )}
-        <div className="space-y-4">
+        <div className="space-y-5">
           <Card>
             <p className="text-sm font-semibold text-text-secondary">Next step</p>
-            <h2 className="mt-2 text-xl font-semibold text-text-primary">{next.label}</h2>
+            <h2 className="mt-2 text-xl font-bold text-text-primary">{next.label}</h2>
             <p className="mt-2 text-sm text-text-secondary">{next.detail}</p>
-            <Link to={next.href} className="mt-4 inline-flex min-h-11 items-center rounded-token bg-primary px-4 py-2 text-sm font-semibold text-white">
+            <Link to={next.href} className="mt-4 inline-flex min-h-11 items-center rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white">
               Continue
             </Link>
           </Card>
           <Card>
-            <h2 className="text-lg font-semibold text-text-primary">Payment stage</h2>
+            <h2 className="inline-flex items-center gap-1 text-lg font-bold text-text-primary">
+              Payment stage
+              <InfoHelp label="About payment progress">
+                Meeting the payment threshold does not confirm the booking automatically. Payment submission and verification are handled in the payment stage.
+              </InfoHelp>
+            </h2>
             {booking ? (
               <div className="mt-3 space-y-3 text-sm text-text-secondary">
                 <Detail label="Captured amount due" value={bookingAmount(booking)} />
                 <Detail label="Verified payments" value={data.paymentSummary ? formatMoneyMinor(data.paymentSummary.verifiedTotalMinor, data.paymentSummary.currency) : "Unavailable"} />
                 <Detail label="Outstanding" value={data.paymentSummary ? formatMoneyMinor(data.paymentSummary.outstandingMinor, data.paymentSummary.currency) : "Unavailable"} />
-                <p>Payment submission and verification are handled in the payment stage. Meeting the payment threshold does not confirm the booking automatically.</p>
-                <Link to="/payments" className="inline-flex min-h-11 items-center rounded-token border border-border bg-surface px-4 py-2 text-sm font-semibold text-text-primary">Go to payments</Link>
+                <p>Meeting the payment threshold does not confirm the booking automatically.</p>
+                <Link to="/payments" className="inline-flex min-h-11 items-center rounded-full border border-border bg-surface px-4 py-2 text-sm font-semibold text-text-primary">
+                  Go to payments
+                </Link>
               </div>
             ) : (
               <EmptyState title="No payment requirement yet" message="Payment details will appear after a booking exists." />
             )}
           </Card>
           <Card>
-            <h2 className="text-lg font-semibold text-text-primary">Room assignment</h2>
+            <h2 className="inline-flex items-center gap-1 text-lg font-bold text-text-primary">
+              Room assignment
+              <InfoHelp label="About booking vs room assignment">
+                A confirmed booking does not itself create a room assignment. Assigned room and bed come only from an active allocation.
+              </InfoHelp>
+            </h2>
             {data.allocation ? (
               <div className="mt-3 space-y-3">
                 <Detail label="Assigned room" value={data.allocation.room_name ? `${data.allocation.room_code} - ${data.allocation.room_name}` : data.allocation.room_code} />
                 <Detail label="Assigned bed" value={data.allocation.label ?? data.allocation.bed_code} />
-                <Link to="/room" className="inline-flex min-h-11 items-center rounded-token border border-border bg-surface px-4 py-2 text-sm font-semibold text-text-primary">View My Room</Link>
+                <Link to="/room" className="inline-flex min-h-11 items-center rounded-full border border-border bg-surface px-4 py-2 text-sm font-semibold text-text-primary">
+                  View My Room
+                </Link>
               </div>
             ) : (
               <EmptyState title="No room or bed assigned" message="A confirmed booking does not itself create a room assignment." />
@@ -150,15 +176,15 @@ export function BookingPage() {
         </div>
       </div>
       <Card className="mt-5">
-        <h2 className="text-lg font-semibold text-text-primary">Booking history</h2>
+        <h2 className="text-lg font-bold text-text-primary">Booking history</h2>
         {history.length ? (
           <div className="mt-4 space-y-3">
             {history.map((item) => (
-              <div key={item.id} className="rounded-token border border-border bg-white p-3">
+              <div key={item.id} className="rounded-xl border border-border bg-white p-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-semibold text-text-primary">{item.booking_number}</p>
-                    <p className="mt-1 text-sm text-text-secondary">{bookingAmount(item)} captured for {item.academic_session_name ?? item.academic_session_code ?? "session unavailable"}</p>
+                    <p className="mt-1 text-[13px] text-text-secondary">{bookingAmount(item)} captured for {item.academic_session_name ?? item.academic_session_code ?? "session unavailable"}</p>
                   </div>
                   <StatusBadge status={bookingStatusLabel(item.status)} />
                 </div>
@@ -166,7 +192,9 @@ export function BookingPage() {
             ))}
           </div>
         ) : (
-          <EmptyState title="No booking history" message="Historical cancelled, expired, completed, or archived bookings will appear here when available." />
+          <div className="mt-4">
+            <EmptyState title="No booking history" message="Historical cancelled, expired, completed, or archived bookings will appear here when available." />
+          </div>
         )}
       </Card>
     </>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/common/Button";
 import { Card } from "../../components/common/Card";
 import { ErrorState } from "../../components/common/ErrorState";
+import { InfoHelp } from "../../components/common/InfoHelp";
 import { LoadingState } from "../../components/common/LoadingState";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { PageHeader } from "../../components/layout/PageHeader";
@@ -20,15 +21,26 @@ function initialUploadState(): UploadState {
   };
 }
 
+function whyRequired(type: IdentityDocumentType) {
+  if (type === "student_card") {
+    return "A Student Card is required for application readiness and identity verification.";
+  }
+  return "A Ghana Card is required for application readiness and identity verification.";
+}
+
 function RequirementSummary({ documents }: { documents: Record<IdentityDocumentType, ResidentDocument | null> }) {
   const uploadedCount = identityDocumentTypes.filter((type) => isDocumentUploaded(documents[type])).length;
   return (
     <Card className="mb-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-semibold text-text-secondary">Readiness</p>
-          <h2 className="mt-1 text-xl font-semibold text-text-primary">{uploadedCount} of 2 uploaded</h2>
-          <p className="mt-1 text-sm text-text-secondary">Upload completeness and staff verification are tracked separately.</p>
+          <p className="inline-flex items-center gap-1 text-sm font-semibold text-text-secondary">
+            Required documents
+            <InfoHelp label="About required documents">
+              Upload completeness and staff verification are tracked separately. Both Student Card and Ghana Card are required before application submission.
+            </InfoHelp>
+          </p>
+          <h2 className="mt-1 text-xl font-bold text-text-primary">{uploadedCount} of 2 uploaded</h2>
         </div>
         <StatusBadge status={uploadedCount === 2 ? "uploaded" : "pending"} />
       </div>
@@ -44,16 +56,24 @@ function DocumentCard({ type, document, state, onUpload }: { type: IdentityDocum
   return (
     <Card>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-text-primary">{label}</h2>
-          <p className="mt-1 text-sm text-text-secondary">Private identity document stored through secure Kissmet document storage.</p>
+        <div className="min-w-0">
+          <h2 className="inline-flex items-center gap-1 text-lg font-bold text-text-primary">
+            {label}
+            <InfoHelp label={`Why ${label} is required`}>{whyRequired(type)}</InfoHelp>
+          </h2>
+          <p className="mt-1 text-[13px] text-text-secondary">Private identity document via secure Kissmet storage.</p>
         </div>
-        <StatusBadge status={documentStatusLabel(document?.status)} />
+        <span className="inline-flex items-center gap-1">
+          <StatusBadge status={documentStatusLabel(document?.status)} />
+          <InfoHelp label={`About ${label} status`}>
+            Uploaded documents await staff verification. Rejected documents must be uploaded again. Secure viewing is not exposed by the current resident backend.
+          </InfoHelp>
+        </span>
       </div>
       <dl className="mt-5 grid gap-4 sm:grid-cols-2">
         <div>
           <dt className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Current file</dt>
-          <dd className="mt-1 break-anywhere text-sm font-semibold text-text-primary">{document?.original_filename ?? "Not uploaded"}</dd>
+          <dd className="mt-1 break-words text-sm font-semibold text-text-primary">{document?.original_filename ?? "Not uploaded"}</dd>
         </div>
         <div>
           <dt className="text-xs font-semibold uppercase tracking-wide text-text-secondary">File size</dt>
@@ -69,7 +89,7 @@ function DocumentCard({ type, document, state, onUpload }: { type: IdentityDocum
         </div>
       </dl>
       {rejected ? (
-        <div className="mt-4 rounded-token border border-danger/30 bg-danger/5 p-3 text-sm text-text-primary">
+        <div className="mt-4 rounded-2xl border border-danger/30 bg-danger/5 p-3 text-sm text-text-primary">
           {document.rejection_reason || "This document needs to be uploaded again."}
         </div>
       ) : null}
@@ -81,17 +101,16 @@ function DocumentCard({ type, document, state, onUpload }: { type: IdentityDocum
           name={`${type}-file`}
           type="file"
           accept="application/pdf,image/jpeg,image/png,image/webp"
-          className="block w-full rounded-token border border-border bg-white px-3 py-2 text-sm text-text-primary file:mr-3 file:rounded-token file:border-0 file:bg-muted file:px-3 file:py-2 file:text-sm file:font-semibold file:text-text-primary"
+          className="block w-full rounded-xl border border-border bg-white px-3 py-2 text-sm text-text-primary file:mr-3 file:rounded-full file:border-0 file:bg-muted file:px-3 file:py-2 file:text-sm file:font-semibold file:text-text-primary"
         />
         <p className="text-xs text-text-secondary">PDF, JPEG, PNG, or WebP. Maximum 5 MB.</p>
         {state.error ? <p className="text-sm font-semibold text-danger" role="alert">{state.error}</p> : null}
         {state.success ? <p className="text-sm font-semibold text-success">{state.success}</p> : null}
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Button className="w-full sm:w-auto" disabled={state.isUploading} onClick={() => onUpload(type, inputRef.current?.files?.[0] ?? null)}>
+          <Button className="w-full rounded-full sm:w-auto" disabled={state.isUploading} onClick={() => onUpload(type, inputRef.current?.files?.[0] ?? null)}>
             {state.isUploading ? "Uploading..." : documentActionLabel(type, document)}
           </Button>
         </div>
-        <p className="text-xs text-text-secondary">Secure viewing is not exposed by the current resident backend. No public document URL is shown.</p>
       </div>
     </Card>
   );
@@ -150,9 +169,9 @@ export function DocumentsPage() {
 
   return (
     <>
-      <PageHeader title="Documents" description="Upload the documents required for your hostel application." />
+      <PageHeader title="Documents" description="Upload required identity documents for your application." />
       <RequirementSummary documents={identityDocuments} />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2">
         {identityDocumentTypes.map((type) => (
           <DocumentCard key={type} type={type} document={identityDocuments[type]} state={uploadState[type]} onUpload={(docType, file) => void handleUpload(docType, file)} />
         ))}

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/common/Button";
 import { Card } from "../../components/common/Card";
+import { Detail } from "../../components/common/Detail";
 import { EmptyState } from "../../components/common/EmptyState";
 import { ErrorState } from "../../components/common/ErrorState";
+import { InfoHelp } from "../../components/common/InfoHelp";
 import { LoadingState } from "../../components/common/LoadingState";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { PageHeader } from "../../components/layout/PageHeader";
@@ -12,28 +14,24 @@ import type { MaintenanceCategory, MaintenancePriority, ResidentMaintenanceReque
 import { formatDateTime } from "../../utils/format";
 import { maintenanceCategories, maintenanceCategoryLabel, maintenanceLocation, maintenancePriorities, maintenancePriorityLabel, maintenanceStatusLabel, splitMaintenanceRequests } from "../../utils/maintenance";
 
-function Detail({ label, value }: { label: string; value?: string | number | null }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{label}</p>
-      <p className="mt-1 break-anywhere text-sm font-semibold text-text-primary">{value || "Not available"}</p>
-    </div>
-  );
-}
-
 function RequestCard({ request }: { request: ResidentMaintenanceRequest }) {
   return (
-    <article className="rounded-token border border-border bg-white p-4">
+    <article className="rounded-xl border border-border bg-white p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="break-anywhere text-sm font-semibold text-primary">{request.request_number}</p>
+        <div className="min-w-0">
+          <p className="break-words text-sm font-semibold text-primary">{request.request_number}</p>
           <h3 className="mt-1 text-base font-semibold text-text-primary">{request.title}</h3>
-          <p className="mt-1 text-sm text-text-secondary">{maintenanceCategoryLabel(request.category)} / {maintenancePriorityLabel(request.priority)} priority</p>
+          <p className="mt-1 text-[13px] text-text-secondary">{maintenanceCategoryLabel(request.category)} / {maintenancePriorityLabel(request.priority)} priority</p>
         </div>
-        <StatusBadge status={maintenanceStatusLabel(request.status)} />
+        <span className="inline-flex items-center gap-1">
+          <StatusBadge status={maintenanceStatusLabel(request.status)} />
+          <InfoHelp label="About maintenance status">
+            Open, assigned, and in-progress requests are active. Resolved, closed, cancelled, and archived requests move to history.
+          </InfoHelp>
+        </span>
       </div>
       {request.description ? <p className="mt-3 text-sm text-text-secondary">{request.description}</p> : null}
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Detail label="Location" value={maintenanceLocation(request)} />
         <Detail label="Submitted" value={formatDateTime(request.opened_at)} />
         <Detail label="Assigned" value={formatDateTime(request.assigned_at)} />
@@ -110,58 +108,67 @@ export function MaintenancePage() {
 
   return (
     <>
-      <PageHeader title="Maintenance" description="Report and track maintenance issues for your hostel stay." />
+      <PageHeader title="Maintenance" description="Report and track hostel maintenance issues." />
       {actionError ? <div className="mb-5"><ErrorState title="Request not submitted" message={actionError} /></div> : null}
-      {actionSuccess ? <div className="mb-5 rounded-token border border-success/30 bg-success/5 p-4 text-sm font-semibold text-success">{actionSuccess}</div> : null}
+      {actionSuccess ? <div className="mb-5 rounded-2xl border border-success/30 bg-success/5 p-4 text-sm font-semibold text-success">{actionSuccess}</div> : null}
 
-      <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
+      <div className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
         <Card>
-          <h2 className="text-lg font-semibold text-text-primary">Report a maintenance issue</h2>
+          <h2 className="text-lg font-bold text-text-primary">Report a maintenance issue</h2>
           <div className="mt-4 space-y-4">
             <div>
               <label className="block text-sm font-semibold text-text-primary" htmlFor="maintenance-title">Issue title</label>
-              <input id="maintenance-title" className="mt-2 min-h-11 w-full rounded-token border border-border px-3 py-3 text-sm" disabled={isSubmitting} autoComplete="off" value={title} onChange={(event) => setTitle(event.currentTarget.value)} placeholder="Briefly describe the issue" />
+              <input id="maintenance-title" className="mt-2 min-h-11 w-full rounded-xl border border-border px-3 py-3 text-sm" disabled={isSubmitting} autoComplete="off" value={title} onChange={(event) => setTitle(event.currentTarget.value)} placeholder="Briefly describe the issue" />
             </div>
             <div>
               <label className="block text-sm font-semibold text-text-primary" htmlFor="maintenance-category">Category</label>
-              <select id="maintenance-category" className="mt-2 min-h-11 w-full rounded-token border border-border px-3 py-3 text-sm" disabled={isSubmitting} value={category} onChange={(event) => setCategory(event.currentTarget.value as MaintenanceCategory)}>
+              <select id="maintenance-category" className="mt-2 min-h-11 w-full rounded-xl border border-border px-3 py-3 text-sm" disabled={isSubmitting} value={category} onChange={(event) => setCategory(event.currentTarget.value as MaintenanceCategory)}>
                 {maintenanceCategories.map((item) => <option key={item} value={item}>{maintenanceCategoryLabel(item)}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-semibold text-text-primary" htmlFor="maintenance-priority">Priority</label>
-              <select id="maintenance-priority" className="mt-2 min-h-11 w-full rounded-token border border-border px-3 py-3 text-sm" disabled={isSubmitting} value={priority} onChange={(event) => setPriority(event.currentTarget.value as MaintenancePriority)}>
+              <select id="maintenance-priority" className="mt-2 min-h-11 w-full rounded-xl border border-border px-3 py-3 text-sm" disabled={isSubmitting} value={priority} onChange={(event) => setPriority(event.currentTarget.value as MaintenancePriority)}>
                 {maintenancePriorities.map((item) => <option key={item} value={item}>{maintenancePriorityLabel(item)}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-semibold text-text-primary" htmlFor="maintenance-description">Description</label>
-              <textarea id="maintenance-description" className="mt-2 min-h-28 w-full rounded-token border border-border px-3 py-3 text-sm" disabled={isSubmitting} value={description} onChange={(event) => setDescription(event.currentTarget.value)} placeholder="Add details staff may need" />
+              <textarea id="maintenance-description" className="mt-2 min-h-28 w-full rounded-xl border border-border px-3 py-3 text-sm" disabled={isSubmitting} value={description} onChange={(event) => setDescription(event.currentTarget.value)} placeholder="Add details staff may need" />
             </div>
-            <Button className="w-full" disabled={isSubmitting} onClick={() => void submit()}>{isSubmitting ? "Submitting..." : "Submit request"}</Button>
-            <p className="text-xs text-text-secondary">Kissmet generates the request number and links your current room or bed when an active allocation exists.</p>
+            <Button className="w-full rounded-full" disabled={isSubmitting} onClick={() => void submit()}>{isSubmitting ? "Submitting..." : "Submit request"}</Button>
+            <p className="inline-flex items-start gap-1 text-xs text-text-secondary">
+              <span>Kissmet generates the request number and links your current room when allocated.</span>
+              <InfoHelp label="About maintenance requests">
+                Kissmet generates the request number and links your current room or bed when an active allocation exists.
+              </InfoHelp>
+            </p>
           </div>
         </Card>
 
-        <div className="space-y-4">
+        <div className="space-y-5">
           <Card>
-            <h2 className="text-lg font-semibold text-text-primary">Active requests</h2>
+            <h2 className="text-lg font-bold text-text-primary">Active requests</h2>
             {grouped.active.length ? (
               <div className="mt-4 space-y-3">
                 {grouped.active.map((request) => <RequestCard key={request.id} request={request} />)}
               </div>
             ) : (
-              <EmptyState title="No active requests" message="Open, assigned, and in-progress requests will appear here." />
+              <div className="mt-4">
+                <EmptyState title="No active requests" message="Open, assigned, and in-progress requests will appear here." />
+              </div>
             )}
           </Card>
           <Card>
-            <h2 className="text-lg font-semibold text-text-primary">Request history</h2>
+            <h2 className="text-lg font-bold text-text-primary">Request history</h2>
             {grouped.history.length ? (
               <div className="mt-4 space-y-3">
                 {grouped.history.map((request) => <RequestCard key={request.id} request={request} />)}
               </div>
             ) : (
-              <EmptyState title="No maintenance history" message="Resolved, closed, cancelled, and archived requests will appear here." />
+              <div className="mt-4">
+                <EmptyState title="No maintenance history" message="Resolved, closed, cancelled, and archived requests will appear here." />
+              </div>
             )}
           </Card>
         </div>
