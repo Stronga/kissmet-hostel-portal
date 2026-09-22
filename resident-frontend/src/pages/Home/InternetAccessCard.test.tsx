@@ -238,6 +238,10 @@ describe("Home Internet Access card", () => {
     render(renderResidentApp(["/home"]));
     expect(await screen.findByText("Welcome, Ama Resident")).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Accommodation journey mobile" })).toBeInTheDocument();
-    expect(screen.getByTestId("internet-access-card")).toBeInTheDocument();
+    const card = await screen.findByTestId("internet-access-card");
+    expect(card).toBeInTheDocument();
+    expect(
+      await within(card).findByText(/Internet access has not been activated for your account yet/i)
+    ).toBeInTheDocument();
   });
 });

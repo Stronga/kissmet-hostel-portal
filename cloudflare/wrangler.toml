@@ -1,3 +1,20 @@
+# Kissmet Hostel Portal API — Wrangler environments
+#
+# Environment separation (Phase 2):
+#   local      — developer machine; mock SMS; local D1/R2
+#   test       — CI / automated tests; mock SMS; isolated resource names
+#   staging    — pre-prod; placeholders until real CF resources exist
+#   production — live; workers_dev=false; HTTPS origins only; real secrets via `wrangler secret put`
+#
+# NEVER point production at local/test D1, R2, mock SMS, localhost CORS, or the WireGuard .5 connector.
+# Production D1/R2 IDs below are PLACEHOLDERS — replace after Cloudflare dashboard resource creation
+# (PRODUCTION DASHBOARD ACTION REQUIRED / Requires production resources).
+#
+# Secrets (never commit; never put in [vars]):
+#   npx wrangler secret put ARKESEL_API_KEY --env production
+#   npx wrangler secret put MIKROTIK_CONNECTOR_SECRET --env production
+# Optional non-secret vars after approval: SMS_PROVIDER=arkesel, ARKESEL_SENDER_ID, MIKROTIK_CONNECTOR_URL
+
 name = "kissmet-hostel-api"
 main = "src/index.ts"
 compatibility_date = "2026-08-27"
@@ -21,6 +38,7 @@ migrations_dir = "migrations"
 binding = "DOCUMENTS"
 bucket_name = "kissmet-hostel-local-documents"
 
+# --- local ---
 [env.local]
 name = "kissmet-hostel-api-local"
 workers_dev = true
@@ -43,6 +61,30 @@ migrations_dir = "migrations"
 binding = "DOCUMENTS"
 bucket_name = "kissmet-hostel-local-documents"
 
+# --- test (CI) ---
+[env.test]
+name = "kissmet-hostel-api-test"
+workers_dev = true
+
+[env.test.vars]
+APP_NAME = "Kissmet Hostel Portal API"
+APP_ENV = "local"
+APP_VERSION = "0.1.0"
+PUBLIC_BASE_URL = "http://localhost:8787"
+ADMIN_ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
+SMS_PROVIDER = "mock"
+
+[[env.test.d1_databases]]
+binding = "DB"
+database_name = "kissmet-hostel-test"
+database_id = "test-kissmet-hostel-db"
+migrations_dir = "migrations"
+
+[[env.test.r2_buckets]]
+binding = "DOCUMENTS"
+bucket_name = "kissmet-hostel-test-documents"
+
+# --- staging ---
 [env.staging]
 name = "kissmet-hostel-api-staging"
 workers_dev = true
@@ -53,10 +95,13 @@ APP_ENV = "staging"
 APP_VERSION = "0.1.0"
 PUBLIC_BASE_URL = "https://staging-api.kissmetgroup.org"
 ADMIN_ALLOWED_ORIGINS = "https://staging-admin.kissmetgroup.org,https://staging-portal.kissmetgroup.org"
+# SMS_PROVIDER = "arkesel"  # only when staging Arkesel + secrets are intentionally enabled
+# ARKESEL_SENDER_ID = "<approved-sender>"
 
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "kissmet-hostel-staging"
+# PLACEHOLDER — replace with real staging D1 database_id from Cloudflare dashboard
 database_id = "replace-with-staging-d1-database-id"
 migrations_dir = "migrations"
 
@@ -64,6 +109,7 @@ migrations_dir = "migrations"
 binding = "DOCUMENTS"
 bucket_name = "kissmet-hostel-staging-documents"
 
+# --- production ---
 [env.production]
 name = "kissmet-hostel-api-production"
 workers_dev = false
@@ -77,15 +123,22 @@ APP_ENV = "production"
 APP_VERSION = "0.1.0"
 PUBLIC_BASE_URL = "https://api.kissmetgroup.org"
 ADMIN_ALLOWED_ORIGINS = "https://admin.kissmetgroup.org,https://portal.kissmetgroup.org"
-# Production OTP SMS: set SMS_PROVIDER = "arkesel" and ARKESEL_SENDER_ID after approval.
-# Store ARKESEL_API_KEY via `wrangler secret put ARKESEL_API_KEY --env production` only.
+# Production OTP SMS (after approval):
+# SMS_PROVIDER = "arkesel"
+# ARKESEL_SENDER_ID = "<approved-sender>"
+# Store ARKESEL_API_KEY via: wrangler secret put ARKESEL_API_KEY --env production
+# Store MIKROTIK_CONNECTOR_SECRET via: wrangler secret put MIKROTIK_CONNECTOR_SECRET --env production
+# MIKROTIK_CONNECTOR_URL = "https://<tunnel-hostname>"  # after Pi Tunnel commissioning
+# Never set SMS_PROVIDER=mock, DEV_OTP_LOG=true, or localhost origins here.
 
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "kissmet-hostel-production"
+# PLACEHOLDER — replace with real production D1 database_id from Cloudflare dashboard
 database_id = "replace-with-production-d1-database-id"
 migrations_dir = "migrations"
 
 [[env.production.r2_buckets]]
 binding = "DOCUMENTS"
+# Private bucket — no public access / public bucket URL. Worker binding only.
 bucket_name = "kissmet-hostel-production-documents"
