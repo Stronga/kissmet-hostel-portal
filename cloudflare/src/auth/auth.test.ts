@@ -110,6 +110,28 @@ describe("staff authentication", () => {
     }
     expect((await authService(repo).loginStaff("missing", "wrong")).status).toBe(429);
   });
+
+  it("rate limits when durable failure count reaches threshold for the same identifierHash", async () => {
+    const repo = new FakeRepo();
+    repo.staffLoginFailures = 5;
+    const result = await authService(repo).loginStaff("admin", "Password123!");
+    expect(result.status).toBe(429);
+    expect(repo.sessions).toBe(0);
+    expect(repo.audit).toContain("auth.staff.login_rate_limited");
+  });
+
+  it("does not apply durable failure count from a different identifier when count is zero", async () => {
+    const repo = new FakeRepo();
+    repo.staffLoginFailures = 0;
+    repo.staff = {
+      user_id: 1, email: "admin@kissmetgroup.org", username: "admin", display_name: "Admin",
+      user_status: "active", password_hash: await hashPassword("Password123!"), staff_id: 1,
+      staff_status: "active", role_code: "super_admin"
+    };
+    const result = await authService(repo).loginStaff("admin", "Password123!");
+    expect(result.status).toBe(200);
+    expect(repo.sessions).toBe(1);
+  });
 });
 
 describe("resident OTP authentication", () => {

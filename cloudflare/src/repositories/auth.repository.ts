@@ -124,12 +124,14 @@ export class AuthRepository {
    * Complements isolate-local Map limiting; still not a global edge distributed limiter.
    */
   countRecentStaffLoginFailures(identifierHash: string, since: string) {
+    // Use json_extract — D1 rejects long LIKE/GLOB patterns such as
+    // `%"identifierHash":"<sha256>"%` with "LIKE or GLOB pattern too complex".
     return this.db.prepare(`
       SELECT COUNT(*) AS count FROM audit_logs
       WHERE action = 'auth.staff.login_failed'
         AND created_at >= ?
-        AND metadata_json LIKE ?
-    `).bind(since, `%"identifierHash":"${identifierHash}"%`).first<{ count: number }>();
+        AND json_extract(metadata_json, '$.identifierHash') = ?
+    `).bind(since, identifierHash).first<{ count: number }>();
   }
 
   findPendingOtp(institutionCode: string, studentId: string) {

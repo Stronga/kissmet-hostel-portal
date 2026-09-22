@@ -123,9 +123,9 @@ APP_ENV = "production"
 APP_VERSION = "0.1.0"
 PUBLIC_BASE_URL = "https://api.kissmetgroup.org"
 ADMIN_ALLOWED_ORIGINS = "https://admin.kissmetgroup.org,https://portal.kissmetgroup.org"
-# Production OTP SMS (after approval):
-# SMS_PROVIDER = "arkesel"
-# ARKESEL_SENDER_ID = "<approved-sender>"
+# Production OTP SMS (Stage 2F):
+SMS_PROVIDER = "arkesel"
+ARKESEL_SENDER_ID = "KISSMET"
 # Store ARKESEL_API_KEY via: wrangler secret put ARKESEL_API_KEY --env production
 # Store MIKROTIK_CONNECTOR_SECRET via: wrangler secret put MIKROTIK_CONNECTOR_SECRET --env production
 # MIKROTIK_CONNECTOR_URL = "https://<tunnel-hostname>"  # after Pi Tunnel commissioning
