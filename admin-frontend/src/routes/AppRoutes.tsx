@@ -16,6 +16,7 @@ import { ReportsPage } from "../pages/Reports/ReportsPage";
 import { ResidentsPage } from "../pages/Residents/ResidentsPage";
 import { RoomsPage } from "../pages/Rooms/RoomsPage";
 import { SettingsPage } from "../pages/Settings/SettingsPage";
+import { SetupPage } from "../pages/Setup/SetupPage";
 import { StaffPage } from "../pages/Staff/StaffPage";
 import { ProtectedRoute } from "./ProtectedRoute";
 
@@ -40,6 +41,7 @@ export function AppRoutes() {
           <Route path="/messages" element={<MessagesPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/staff" element={<StaffPage />} />
+          <Route path="/setup" element={<SetupPage />} />
           <Route path="/audit-logs" element={<AuditLogsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>

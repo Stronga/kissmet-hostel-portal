@@ -1,4 +1,4 @@
-import { BarChart3, BedDouble, Bell, BookOpenCheck, Building2, ClipboardList, CreditCard, FileText, LayoutDashboard, MessageSquare, ReceiptText, Settings, ShieldCheck, Users, Wifi, Wrench } from "lucide-react";
+import { BarChart3, BedDouble, Bell, BookOpenCheck, Building2, ClipboardList, CreditCard, FileText, LayoutDashboard, MessageSquare, ReceiptText, School, Settings, ShieldCheck, Users, Wifi, Wrench } from "lucide-react";
 import type { ComponentType } from "react";
 import type { RoleCode } from "../../types/api";
 
@@ -33,6 +33,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   ] },
   { label: "Administration", items: [
     { label: "Staff", to: "/staff", icon: ShieldCheck, roles: ["super_admin", "manager"] },
+    { label: "Setup", to: "/setup", icon: School, roles: ["super_admin", "manager"] },
     { label: "Audit Logs", to: "/audit-logs", icon: FileText, roles: ["super_admin", "manager"] },
     { label: "Settings", to: "/settings", icon: Settings, roles: ["super_admin", "manager"] }
   ] }
