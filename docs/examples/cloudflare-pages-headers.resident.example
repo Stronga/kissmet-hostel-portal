@@ -1,0 +1,16 @@
+# CONFIGURATION PREPARED — Cloudflare Pages `_headers` for Resident Portal
+# Copy to resident-frontend/public/_headers (or Pages project) after HTTPS domains verified.
+# Do NOT enable HSTS here until production TLS for portal.kissmetgroup.org is confirmed.
+# Adjust connect-src if API hostname differs. Avoid unsafe-eval; Vite production builds do not need it.
+# unsafe-inline for style may be required by some CSS-in-JS — prefer hashes/nonces when feasible.
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://api.kissmetgroup.org; worker-src 'self' blob:; upgrade-insecure-requests
+# Strict-Transport-Security: max-age=31536000; includeSubDomains
+# ^^^ Enable ONLY after portal HTTPS verified (PRODUCTION DASHBOARD / edge action).

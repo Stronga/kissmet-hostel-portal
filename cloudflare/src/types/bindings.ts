@@ -1,3 +1,4 @@
+/** Runtime APP_ENV. Wrangler also defines a `test` deploy env that sets APP_ENV=local for CI. */
 export type AppEnv = "local" | "staging" | "production";
 
 export interface Env {

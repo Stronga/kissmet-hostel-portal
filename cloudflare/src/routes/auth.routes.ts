@@ -3,8 +3,10 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { Env } from "../types/bindings";
 import { parseJsonObject, requiredString } from "../auth/validation";
 import { requireAuth } from "../middleware/auth.middleware";
+import { productionAuthConfigGuard } from "../middleware/production-config.middleware";
 import { AuthService } from "../services/auth.service";
 import { createSmsProvider } from "../services/sms.service";
+import { clientIpFromRequest } from "../config/production-secrets";
 
 type Variables = { authUser: import("../auth/context").AuthUser };
 
@@ -14,6 +16,17 @@ function service(c: { env: Env }) {
   return new AuthService(c.env, createSmsProvider(c.env));
 }
 
+function clientCtx(c: { req: { raw: Request; header: (name: string) => string | undefined } }) {
+  return {
+    ip: clientIpFromRequest(c.req.raw),
+    userAgent: c.req.header("User-Agent")
+  };
+}
+
+authRoutes.use("/staff/login", productionAuthConfigGuard);
+authRoutes.use("/resident/request-otp", productionAuthConfigGuard);
+authRoutes.use("/resident/verify-otp", productionAuthConfigGuard);
+
 authRoutes.post("/staff/login", async (c) => {
   const input = parseJsonObject(await c.req.json().catch(() => null));
   if (!input) return c.json({ error: "Invalid request body" }, 400);
@@ -22,7 +35,7 @@ authRoutes.post("/staff/login", async (c) => {
   const password = requiredString(input, "password", 256);
   if (!identifier || !password) return c.json({ error: "Invalid credentials" }, 401);
 
-  const result = await service(c).loginStaff(identifier, password, c.req.header("User-Agent"));
+  const result = await service(c).loginStaff(identifier, password, clientCtx(c));
   return c.json(result.body, result.status as ContentfulStatusCode);
 });
 
@@ -34,7 +47,7 @@ authRoutes.post("/resident/request-otp", async (c) => {
   const studentId = requiredString(input, "studentId", 64);
   if (!institutionCode || !studentId) return c.json({ ok: true, message: "If the resident can receive OTP messages, an OTP has been sent." });
 
-  const result = await service(c).requestResidentOtp(institutionCode, studentId);
+  const result = await service(c).requestResidentOtp(institutionCode, studentId, clientCtx(c));
   if (!result.ok) {
     return c.json(result.body, result.status as ContentfulStatusCode);
   }
@@ -50,7 +63,7 @@ authRoutes.post("/resident/verify-otp", async (c) => {
   const otp = requiredString(input, "otp", 12);
   if (!institutionCode || !studentId || !otp) return c.json({ error: "Invalid or expired OTP" }, 401);
 
-  const result = await service(c).verifyResidentOtp(institutionCode, studentId, otp, c.req.header("User-Agent"));
+  const result = await service(c).verifyResidentOtp(institutionCode, studentId, otp, clientCtx(c));
   return c.json(result.body, result.status as ContentfulStatusCode);
 });
 

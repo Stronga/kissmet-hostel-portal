@@ -32,17 +32,19 @@ const SAFE_PREFIXES = [
   "Invalid workflow",
   "Payment would exceed",
   "Confirmation threshold",
-  "required"
+  "required",
+  "Service temporarily",
+  "Misconfigured"
 ];
 
 function looksUnsafe(message: string): boolean {
   const lower = message.toLowerCase();
   return (
-    lower.includes("unique constraint") ||
-    lower.includes("unique") && lower.includes("constraint") ||
+    (lower.includes("unique") && lower.includes("constraint")) ||
     message.includes("UNIQUE") ||
     lower.includes("sqlite") ||
     lower.includes("d1_error") ||
+    lower.includes("d1_") ||
     lower.includes("sql ") ||
     lower.includes(" at ") ||
     lower.includes(".ts:") ||
@@ -50,13 +52,25 @@ function looksUnsafe(message: string): boolean {
     lower.includes("r2") ||
     lower.includes("stack") ||
     lower.includes("password") ||
-    lower.includes("connector") && lower.includes("http") ||
+    (lower.includes("connector") && (lower.includes("http") || lower.includes("://" ))) ||
     lower.includes("authorization") ||
     lower.includes("wireguard") ||
     lower.includes("token") ||
-    lower.includes("otp") && lower.includes("hash") ||
+    (lower.includes("otp") && lower.includes("hash")) ||
     lower.includes("/workspace") ||
-    lower.includes("node_modules")
+    lower.includes("node_modules") ||
+    lower.includes("arkesel") ||
+    lower.includes("mikrotik") ||
+    lower.includes("routeros") ||
+    lower.includes("8728") ||
+    lower.includes("8729") ||
+    lower.includes("cloudflare") && (lower.includes("binding") || lower.includes("worker")) ||
+    lower.includes("env.") ||
+    lower.includes("secret") ||
+    lower.includes("api_key") ||
+    lower.includes("apikey") ||
+    lower.includes("ghana card") ||
+    lower.includes("ghanacard")
   );
 }
 
@@ -76,7 +90,7 @@ export function publicErrorMessage(e: unknown, fallback = "Request failed"): str
   return message;
 }
 
-export function routeError(e: unknown, options?: { fallback?: string; conflictOnUnique?: boolean }) {
+export function routeError(e: unknown, options?: { fallback?: string; conflictOnUnique?: boolean; correlationId?: string }) {
   const raw = e instanceof Error ? e.message : "";
   const fallback = options?.fallback ?? "Request failed";
   const message = publicErrorMessage(e, fallback);
@@ -86,6 +100,11 @@ export function routeError(e: unknown, options?: { fallback?: string; conflictOn
     : /forbidden/i.test(raw) ? 403
     : /UNIQUE|already exists|Conflict|exceed/i.test(raw) ? 409
     : /too many|attempt limit|rate/i.test(raw) ? 429
+    : /misconfigured|temporarily unavailable|couldn't send/i.test(raw) ? 503
     : 400;
-  return { body: error(message), status };
+  const body = error(message) as { ok: false; error: { message: string; correlationId?: string } };
+  if (options?.correlationId) {
+    body.error.correlationId = options.correlationId;
+  }
+  return { body, status };
 }

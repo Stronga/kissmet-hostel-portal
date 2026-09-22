@@ -40,4 +40,12 @@ describe("CORS origins", () => {
     const denied = await app.fetch(new Request("http://localhost/ping", { headers: { Origin: "https://evil.example" } }), env);
     expect(denied.headers.get("Access-Control-Allow-Origin")).toBeNull();
   });
+
+  it("strips localhost from production misconfiguration", () => {
+    const origins = allowedOrigins({
+      APP_ENV: "production",
+      ADMIN_ALLOWED_ORIGINS: "http://localhost:5173,https://admin.kissmetgroup.org"
+    } as Env);
+    expect(origins).toEqual(["https://admin.kissmetgroup.org"]);
+  });
 });

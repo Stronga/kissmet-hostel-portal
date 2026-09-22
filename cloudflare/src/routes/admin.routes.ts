@@ -10,12 +10,14 @@ import { asObject, intField, pagination, stringField } from "../http/input";
 import { error, listOk, ok } from "../http/responses";
 import { routeError } from "../http/safe-error";
 import { contentDispositionAttachment } from "../http/uploads";
+import { adminWriteAbuseMiddleware } from "../middleware/admin-abuse.middleware";
 import { internetAccessRoutes } from "./internet-access.routes";
 
 type Variables = { authUser: AuthUser };
 const routes = new Hono<{ Bindings: Env; Variables: Variables }>();
 routes.use("*", requireAuth);
 routes.use("*", requireStaff());
+routes.use("*", adminWriteAbuseMiddleware);
 
 function service(c: { env: Env }) {
   return new AdminService(new AdminRepository(c.env.DB), c.env.DOCUMENTS);

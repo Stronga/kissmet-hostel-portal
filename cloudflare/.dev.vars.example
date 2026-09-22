@@ -15,3 +15,11 @@ SMS_PROVIDER=mock
 # ARKESEL_SENDER_ID=<approved sender — do not invent KISSMET>
 # ARKESEL_SMOKE_TO=233XXXXXXXXX
 # ARKESEL_SMOKE_OPT_IN=YES_SEND_ONE_MESSAGE
+
+# MikroTik connector (optional locally — missing → sync_failed safely)
+# MIKROTIK_CONNECTOR_URL=http://127.0.0.1:8788
+# MIKROTIK_CONNECTOR_SECRET=<local shared secret — never commit>
+
+# Production secret placement (documentation only — use wrangler secret put):
+#   npx wrangler secret put ARKESEL_API_KEY --env production
+#   npx wrangler secret put MIKROTIK_CONNECTOR_SECRET --env production
