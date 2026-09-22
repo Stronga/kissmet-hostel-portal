@@ -78,7 +78,7 @@ export function LoginPage() {
         <img
           src={kissmetLogo}
           alt="Kissmet Hostel"
-          className="h-12 w-auto object-contain sm:h-14"
+          className="h-16 w-auto object-contain sm:h-20"
         />
         <Card className="w-full">
         <h1 className="text-2xl font-semibold text-text-primary">Resident Portal</h1>
