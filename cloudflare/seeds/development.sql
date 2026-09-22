@@ -8,8 +8,8 @@ INSERT OR IGNORE INTO roles (code, name, description, is_system) VALUES
   ('maintenance', 'Maintenance', 'Maintenance request handling.', 1);
 
 INSERT OR IGNORE INTO users (email, username, phone, display_name, user_type, status, password_hash) VALUES
-  ('admin@kissmetgroup.org', 'admin', '+233000000001', 'Kissmet Admin', 'staff', 'active', 'pbkdf2-sha256$210000$dev-staff-salt-0001$67838b5f4afa2b33806b8c7f9b338bfbe11be699988ba94b1a83df9287961dda'),
-  ('manager@kissmetgroup.org', 'manager', '+233000000002', 'Kissmet Manager', 'staff', 'active', 'pbkdf2-sha256$210000$dev-staff-salt-0001$67838b5f4afa2b33806b8c7f9b338bfbe11be699988ba94b1a83df9287961dda'),
+  ('admin@kissmetgroup.org', 'admin', '+233000000001', 'Kissmet Admin', 'staff', 'active', 'pbkdf2-sha256$100000$dev-staff-salt-0001$c2d10545a395c149c27013ac9ddb1761be311c7b56d8d1e34566e5875998df0a'),
+  ('manager@kissmetgroup.org', 'manager', '+233000000002', 'Kissmet Manager', 'staff', 'active', 'pbkdf2-sha256$100000$dev-staff-salt-0001$c2d10545a395c149c27013ac9ddb1761be311c7b56d8d1e34566e5875998df0a'),
   ('ama.resident@example.com', NULL, '+233000000101', 'Ama Resident', 'resident', 'active', NULL),
   ('kojo.resident@example.com', NULL, '+233000000102', 'Kojo Resident', 'resident', 'active', NULL);
 

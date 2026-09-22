@@ -1,5 +1,11 @@
 const encoder = new TextEncoder();
 
+/** Cloudflare Workers WebCrypto rejects PBKDF2 iterations above this value. */
+export const PBKDF2_MAX_ITERATIONS = 100_000;
+
+/** Default iterations for newly created password/OTP hashes (Workers-compatible). */
+export const PBKDF2_ITERATIONS = 100_000;
+
 export function bytesToHex(bytes: ArrayBuffer): string {
   return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -42,23 +48,38 @@ export async function sha256Hex(value: string): Promise<string> {
   return bytesToHex(await crypto.subtle.digest("SHA-256", encoder.encode(value)));
 }
 
-export async function hashPassword(password: string, salt = randomToken(16)): Promise<string> {
+async function derivePbkdf2Bits(password: string, salt: string, iterations: number): Promise<string> {
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations: 210000 },
+    { name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations },
     key,
     256
   );
-
-  return `pbkdf2-sha256$210000$${salt}$${bytesToHex(bits)}`;
+  return bytesToHex(bits);
 }
 
+export async function hashPassword(password: string, salt = randomToken(16)): Promise<string> {
+  const digest = await derivePbkdf2Bits(password, salt, PBKDF2_ITERATIONS);
+  return `pbkdf2-sha256$${PBKDF2_ITERATIONS}$${salt}$${digest}`;
+}
+
+/**
+ * Verifies a stored `pbkdf2-sha256$<iterations>$<salt>$<hex>` hash.
+ * Iteration count is read from the stored hash. Counts above
+ * {@link PBKDF2_MAX_ITERATIONS} are rejected without calling WebCrypto
+ * (Workers cannot derive them). Unsupported hashes are never treated as valid.
+ */
 export async function verifyPassword(password: string, storedHash: string | null): Promise<boolean> {
   if (!storedHash) return false;
 
-  const [algorithm, iterations, salt, hash] = storedHash.split("$");
-  if (algorithm !== "pbkdf2-sha256" || iterations !== "210000" || !salt || !hash) return false;
+  const [algorithm, iterationsRaw, salt, hash] = storedHash.split("$");
+  if (algorithm !== "pbkdf2-sha256" || !iterationsRaw || !salt || !hash) return false;
 
-  const candidate = await hashPassword(password, salt);
-  return timingSafeEqualHex(candidate, storedHash);
+  const iterations = Number.parseInt(iterationsRaw, 10);
+  if (!Number.isFinite(iterations) || iterations < 1) return false;
+  // Workers WebCrypto: iteration counts above 100000 are not supported.
+  if (iterations > PBKDF2_MAX_ITERATIONS) return false;
+
+  const digest = await derivePbkdf2Bits(password, salt, iterations);
+  return timingSafeEqualHex(digest, hash);
 }

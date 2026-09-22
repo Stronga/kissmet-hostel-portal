@@ -64,7 +64,7 @@ Request body:
 
 The identifier may be email or username. The service looks up the user through `users`, `staff`, and `roles`, verifies active user/staff state, verifies the password hash, creates a cryptographically random session token, stores only the SHA-256 token hash in `sessions`, and returns the plaintext token once to the caller.
 
-Passwords are hashed with PBKDF2-SHA256 using Web Crypto, per-password salt, and 210,000 iterations.
+Passwords are hashed with PBKDF2-SHA256 using Web Crypto, per-password salt, and 100,000 iterations (Cloudflare Workers WebCrypto maximum).
 
 ## Resident OTP Flow
 

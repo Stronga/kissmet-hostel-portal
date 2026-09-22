@@ -71,7 +71,7 @@ Database:
 | API error safety | **PASS** | sanitized messages; UNIQUE/SQL not returned raw |
 | Gender policy gap | **MUST-FIX BEFORE LAUNCH / operational** | schema+allocation enforce when gender present; public onboarding still does not collect gender — classify as launch process gap, not R12 redesign |
 | Staff rate limit | **ACCEPTABLE for launch with note** | isolate-local Map; resets on new isolate — harden later with Durable Object/KV if multi-isolate abuse appears |
-| PBKDF2 210k | **ACCEPTABLE / monitor** | kept at 210k; Workers CPU risk under burst staff logins — do not lower; consider caching/warm isolates operationally |
+| PBKDF2 100k | **REQUIRED** | capped at 100k — Cloudflare Workers WebCrypto rejects PBKDF2 iterations above 100000 |
 | D1 backup | **DOCUMENTED expectation** | export/migration/restore process required before production cutover; system not built in R12 |
 | R2 privacy | **PASS after fix** | private bucket; no public URLs; keys stripped from resident + admin metadata responses; streaming download remains deferred |
 
@@ -102,7 +102,7 @@ Database:
 7. Apply migrations remotely; seed only non-production data intentionally.
 8. Establish D1 export/backup + restore drill before go-live.
 9. Operational gender capture process for allocations until onboarding collects gender.
-10. Load-test staff login PBKDF2 under expected concurrent admins.
+10. Load-test staff login PBKDF2 (100k iterations) under expected concurrent admins.
 
 ## Readiness recommendation
 
