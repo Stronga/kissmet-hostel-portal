@@ -38,7 +38,7 @@ describe("resident routes", () => {
     seedResidentToken();
     mockFetch((url) => residentEndpointResponse(url) ?? Response.json({ user: residentUser }));
     render(renderResidentApp(["/"]));
-    expect(await screen.findByText(/Welcome, Ama Resident/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Hello, Ama!" })).toBeInTheDocument();
   });
 
   it("redirects protected routes when unauthenticated", async () => {
@@ -82,7 +82,7 @@ describe("resident routes", () => {
     mockFetch((url) => residentEndpointResponse(url) ?? Response.json({ user: residentUser }));
     render(renderResidentApp(["/home"]));
 
-    expect(await screen.findByText(/Your dashboard summarizes/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Here's your accommodation overview/i)).toBeInTheDocument();
     expect(screen.queryByText(/Paid|Confirmed|Room 101/i)).not.toBeInTheDocument();
   });
 
@@ -94,7 +94,7 @@ describe("resident routes", () => {
     });
     render(renderResidentApp(["/home"]));
 
-    expect(await screen.findByText(/Welcome, Kojo Mensah/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Hello, Kojo!" })).toBeInTheDocument();
   });
 
   it("opens the mobile More menu with secondary resident routes", async () => {
@@ -102,7 +102,7 @@ describe("resident routes", () => {
     mockFetch((url) => residentEndpointResponse(url) ?? Response.json({ user: residentUser }));
     render(renderResidentApp(["/home"]));
 
-    await screen.findByText(/Welcome, Ama Resident/i);
+    await screen.findByRole("heading", { name: "Hello, Ama!" });
     await userEvent.click(screen.getByRole("button", { name: "More" }));
     await waitFor(() => expect(screen.getByRole("navigation", { name: /More resident navigation/i })).toBeInTheDocument());
     expect(screen.getAllByText("Maintenance").length).toBeGreaterThan(0);

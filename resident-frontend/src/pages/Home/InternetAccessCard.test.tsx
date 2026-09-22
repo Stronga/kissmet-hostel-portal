@@ -236,7 +236,7 @@ describe("Home Internet Access card", () => {
   it("preserves mobile home shell with internet card present", async () => {
     mockHomeWithInternet();
     render(renderResidentApp(["/home"]));
-    expect(await screen.findByText("Welcome, Ama Resident")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Hello, Ama!" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Accommodation journey mobile" })).toBeInTheDocument();
     const card = await screen.findByTestId("internet-access-card");
     expect(card).toBeInTheDocument();

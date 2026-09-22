@@ -25,7 +25,7 @@ describe("resident auth provider", () => {
     mockFetch((url) => residentEndpointResponse(url) ?? Response.json({ user: residentUser }));
     render(renderResidentApp(["/home"]));
 
-    expect(await screen.findByText(/Welcome, Ama Resident/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Hello, Ama!" })).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith("http://localhost:8787/auth/me", expect.objectContaining({
       headers: expect.any(Headers)
     }));
@@ -58,7 +58,7 @@ describe("resident auth provider", () => {
     });
     render(renderResidentApp(["/home"]));
 
-    await screen.findByText(/Welcome, Ama Resident/i);
+    await screen.findByRole("heading", { name: "Hello, Ama!" });
     await userEvent.click(screen.getAllByRole("button", { name: /logout/i })[0]);
 
     await waitFor(() => expect(localStorage.getItem(RESIDENT_TOKEN_KEY)).toBeNull());

@@ -4,6 +4,11 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      screens: {
+        // Full desktop chrome (sidebar + 4-col summary) starts at ~1200px
+        // so 1024–1199 never squeezes desktop layout into a tiny content column.
+        xl: "1200px"
+      },
       colors: {
         background: "var(--color-background)",
         surface: "var(--color-surface)",

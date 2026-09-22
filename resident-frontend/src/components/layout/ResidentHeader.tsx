@@ -7,10 +7,10 @@ interface ResidentHeaderProps {
   onLogout: () => void;
 }
 
-/** Mobile top bar. Desktop branding lives in the sidebar; user/logout sits in the main column. */
+/** Mobile/tablet top bar. Desktop branding lives in the sidebar; user/logout sits in the main column. */
 export function ResidentHeader({ displayName, onLogout }: ResidentHeaderProps) {
   return (
-    <header className="sticky top-0 z-20 border-b border-border bg-surface/95 px-4 py-3 backdrop-blur lg:hidden">
+    <header className="sticky top-0 z-20 border-b border-border bg-surface/95 px-4 py-3 backdrop-blur xl:hidden">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-primary">Kissmet</p>
