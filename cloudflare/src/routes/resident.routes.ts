@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env } from "../types/bindings";
 import type { AuthUser } from "../auth/context";
-import { requireAuth } from "../middleware/auth.middleware";
+import { requireAuth, requireResident } from "../middleware/auth.middleware";
 import { asObject, intField, stringField } from "../http/input";
 import { ok } from "../http/responses";
 import { routeError } from "../http/safe-error";
@@ -60,9 +60,9 @@ residentRoutes.post("/register/verify-otp", async (c) => {
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 
-residentRoutes.use("/me/*", requireAuth);
-residentRoutes.get("/me", requireAuth, async (c) => c.json(ok(await service(c).me(c.get("authUser")))));
-residentRoutes.patch("/me", requireAuth, async (c) => {
+residentRoutes.use("/me/*", requireAuth, requireResident());
+residentRoutes.get("/me", requireAuth, requireResident(), async (c) => c.json(ok(await service(c).me(c.get("authUser")))));
+residentRoutes.patch("/me", requireAuth, requireResident(), async (c) => {
   try {
     const input = await body(c);
     return c.json(ok(await service(c).updateMe(c.get("authUser"), {

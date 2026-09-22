@@ -21,10 +21,21 @@ export function randomToken(byteLength = 32): string {
   return bytesToHex(bytes.buffer);
 }
 
+/**
+ * Unbiased decimal OTP via rejection sampling (avoids modulo bias from `byte % 10`).
+ */
 export function randomOtp(length = 6): string {
-  const digits = new Uint8Array(length);
-  crypto.getRandomValues(digits);
-  return [...digits].map((digit) => String(digit % 10)).join("");
+  const digits: string[] = [];
+  while (digits.length < length) {
+    const buf = new Uint8Array(length - digits.length);
+    crypto.getRandomValues(buf);
+    for (const byte of buf) {
+      if (byte >= 250) continue; // 250–255 would bias 0–5
+      digits.push(String(byte % 10));
+      if (digits.length === length) break;
+    }
+  }
+  return digits.join("");
 }
 
 export async function sha256Hex(value: string): Promise<string> {

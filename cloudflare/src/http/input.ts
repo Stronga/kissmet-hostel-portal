@@ -21,7 +21,9 @@ export function intField(input: Record<string, unknown>, key: string, required =
 }
 
 export function pagination(url: URL) {
-  const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 25), 1), 100);
-  const offset = Math.max(Number(url.searchParams.get("offset") ?? 0), 0);
+  const rawLimit = Number(url.searchParams.get("limit") ?? 25);
+  const rawOffset = Number(url.searchParams.get("offset") ?? 0);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.trunc(rawLimit), 1), 100) : 25;
+  const offset = Number.isFinite(rawOffset) ? Math.max(Math.trunc(rawOffset), 0) : 0;
   return { limit, offset };
 }

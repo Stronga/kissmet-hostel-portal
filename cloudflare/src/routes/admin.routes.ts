@@ -2,18 +2,20 @@ import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { Env } from "../types/bindings";
 import type { AuthUser } from "../auth/context";
-import { requireAuth, requirePermission, requireRole } from "../middleware/auth.middleware";
+import { requireAuth, requirePermission, requireRole, requireStaff } from "../middleware/auth.middleware";
 import { hasPermission } from "../auth/permissions";
 import { AdminRepository } from "../repositories/admin.repository";
 import { AdminService } from "../services/admin.service";
 import { asObject, intField, pagination, stringField } from "../http/input";
 import { error, listOk, ok } from "../http/responses";
 import { routeError } from "../http/safe-error";
+import { contentDispositionAttachment } from "../http/uploads";
 import { internetAccessRoutes } from "./internet-access.routes";
 
 type Variables = { authUser: AuthUser };
 const routes = new Hono<{ Bindings: Env; Variables: Variables }>();
 routes.use("*", requireAuth);
+routes.use("*", requireStaff());
 
 function service(c: { env: Env }) {
   return new AdminService(new AdminRepository(c.env.DB), c.env.DOCUMENTS);
@@ -378,9 +380,15 @@ routes.post("/payments", requirePermission("payment:write"), async (c) => {
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.get("/payments/:id", requirePermission("payment:read"), async (c) => c.json(ok(await service(c).get("payments", Number(c.req.param("id"))))));
-routes.patch("/payments/:id/status", requirePermission("payment:write"), async (c) => {
-  try { const input = await body(c); return c.json(ok(await service(c).updatePaymentStatus(c.get("authUser"), Number(c.req.param("id")), stringField(input, "status")! as never, stringField(input, "notes", false, 2000)))); }
-  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+routes.patch("/payments/:id/status", async (c) => {
+  try {
+    const input = await body(c);
+    const status = stringField(input, "status")!;
+    // Reject/refund transitions require payment:verify (same gate as dedicated verify/reject/refund routes).
+    const permission = status === "rejected" || status === "refunded" ? "payment:verify" : "payment:write";
+    if (!hasPermission(c.get("authUser").role, permission)) return c.json(error("Forbidden", "forbidden"), 403);
+    return c.json(ok(await service(c).updatePaymentStatus(c.get("authUser"), Number(c.req.param("id")), status as never, stringField(input, "notes", false, 2000))));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/payments/:id/verify", requirePermission("payment:verify"), async (c) => {
   try { const input = await body(c); return c.json(ok(await service(c).verifyPayment(c.get("authUser"), Number(c.req.param("id")), stringField(input, "notes", false, 2000)))); }
@@ -423,7 +431,15 @@ routes.get("/documents/:id/content", requirePermission("document:read"), async (
   try {
     const allowGhana = hasPermission(c.get("authUser").role, "document:ghana_card");
     const result = await service(c).identityDocumentContent(c.get("authUser"), Number(c.req.param("id")), allowGhana);
-    return new Response(result.object.body, { headers: { "Content-Type": String(result.document.content_type ?? "application/octet-stream"), "Cache-Control": "private, max-age=60" } });
+    const filename = String(result.document.original_filename ?? "document");
+    return new Response(result.object.body, {
+      headers: {
+        "Content-Type": String(result.document.content_type ?? "application/octet-stream"),
+        "Content-Disposition": contentDispositionAttachment(filename),
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, no-store"
+      }
+    });
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/documents/:id/verify", requirePermission("document:write"), async (c) => {

@@ -34,6 +34,7 @@ export interface SessionRecord {
   session_status: string;
   expires_at: string;
   staff_id: number | null;
+  staff_status: string | null;
   resident_id: number | null;
   role_code: string | null;
 }
@@ -78,7 +79,7 @@ export class AuthRepository {
     return this.db.prepare(`
       SELECT s.id AS session_id, u.id AS user_id, u.display_name, u.email, u.user_type,
         u.status AS user_status, s.status AS session_status, s.expires_at,
-        st.id AS staff_id, res.id AS resident_id, roles.code AS role_code
+        st.id AS staff_id, st.status AS staff_status, res.id AS resident_id, roles.code AS role_code
       FROM sessions s
       JOIN users u ON u.id = s.user_id
       LEFT JOIN staff st ON st.user_id = u.id
@@ -116,6 +117,19 @@ export class AuthRepository {
       SELECT COUNT(*) AS count FROM otp_codes
       WHERE rate_limit_key = ? AND purpose = 'resident_login' AND requested_at >= ?
     `).bind(rateLimitKey, since).first<{ count: number }>();
+  }
+
+  /**
+   * Durable (D1) staff-login failure counter keyed by hashed identifier.
+   * Complements isolate-local Map limiting; still not a global edge distributed limiter.
+   */
+  countRecentStaffLoginFailures(identifierHash: string, since: string) {
+    return this.db.prepare(`
+      SELECT COUNT(*) AS count FROM audit_logs
+      WHERE action = 'auth.staff.login_failed'
+        AND created_at >= ?
+        AND metadata_json LIKE ?
+    `).bind(since, `%"identifierHash":"${identifierHash}"%`).first<{ count: number }>();
   }
 
   findPendingOtp(institutionCode: string, studentId: string) {

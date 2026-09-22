@@ -6,10 +6,12 @@ import { adminRoutes } from "./routes/admin.routes";
 import { publicRoutes } from "./routes/public.routes";
 import { residentRoutes } from "./routes/resident.routes";
 import { corsMiddleware } from "./middleware/cors.middleware";
+import { securityHeadersMiddleware } from "./middleware/security-headers.middleware";
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.use("*", corsMiddleware);
+app.use("*", securityHeadersMiddleware);
 
 app.get("/", (c) => {
   return c.json({

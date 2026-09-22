@@ -35,6 +35,8 @@ class FakeRepo {
   async markOtpUsed() { this.otpUsed = true; }
   async markOtpExpired() { this.otpExpired = true; }
   async writeAudit(_actorUserId: number | null, _actorStaffId: number | null, action: string) { this.audit.push(action); }
+  async countRecentStaffLoginFailures() { return { count: this.staffLoginFailures }; }
+  staffLoginFailures = 0;
 }
 
 function authService(repo: FakeRepo, sms = new MockSmsProvider()) {
@@ -52,6 +54,7 @@ function activeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
     session_status: "active",
     expires_at: new Date(Date.now() + 60_000).toISOString(),
     staff_id: 1,
+    staff_status: "active",
     resident_id: null,
     role_code: "manager",
     ...overrides
@@ -228,5 +231,18 @@ describe("authorization middleware", () => {
   it("enforces role-restricted routes", async () => {
     expect((await requestWithSession(activeSession({ role_code: "accounts" }), "/manager")).status).toBe(403);
     expect((await requestWithSession(activeSession({ role_code: "manager" }), "/manager")).status).toBe(200);
+  });
+
+  it("rejects inactive staff sessions even if user is active", async () => {
+    expect((await requestWithSession(activeSession({ staff_status: "inactive" }))).status).toBe(401);
+  });
+
+  it("does not attach residentId on staff sessions", async () => {
+    const res = await requestWithSession(activeSession({ resident_id: 99 }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as { user: { residentId: number | null; staffId: number | null; userType: string } };
+    expect(body.user.userType).toBe("staff");
+    expect(body.user.residentId).toBeNull();
+    expect(body.user.staffId).toBe(1);
   });
 });
