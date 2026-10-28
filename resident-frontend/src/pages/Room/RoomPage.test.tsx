@@ -196,4 +196,29 @@ describe("resident my room", () => {
     await userEvent.click(screen.getByRole("link", { name: "View Booking" }));
     expect(await screen.findByRole("heading", { name: "Booking" })).toBeInTheDocument();
   });
+
+  it("shows CY allocation with null academic session safely", async () => {
+    seedResidentToken();
+    const cyAllocation = {
+      ...allocation,
+      academic_session_code: undefined,
+      academic_session_name: undefined,
+      lease_kind: "calendar_year",
+      booking_number: "KSM-BKG-CY"
+    };
+    delete (cyAllocation as { academic_session_code?: string }).academic_session_code;
+    delete (cyAllocation as { academic_session_name?: string }).academic_session_name;
+    mockRoom({
+      allocation: cyAllocation,
+      allocations: [cyAllocation],
+      bookings: [{ ...pricedBooking, academic_session_id: null, lease_kind: "calendar_year", booking_number: "KSM-BKG-CY" }]
+    });
+    render(renderResidentApp(["/room"]));
+    expect(await screen.findByText("Your room assignment")).toBeInTheDocument();
+    expect(screen.getAllByText("A101 - North Room").length).toBeGreaterThan(0);
+    expect(screen.getByText("Calendar Year")).toBeInTheDocument();
+    expect(screen.queryByText("2026/2027")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /transfer|allocate|choose|change/i })).not.toBeInTheDocument();
+  });
+
 });

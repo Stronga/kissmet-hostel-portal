@@ -59,6 +59,36 @@ class WorkflowRepo {
       const room = this.rows.rooms.find((r) => r.id === bed?.room_id);
       return bed && room ? { ...bed, room_status: room.status, gender_policy: room.gender_policy, gender: resident?.gender } as T : null;
     }
+    if (sql.includes("FROM allocations") && sql.includes("bed_id = ?") && sql.includes("status IN")) {
+      const [bedId, ignoreId, startsOn, endsOn] = binds as [number, number, string, string | null];
+      const hit = this.rows.allocations.find((a) => {
+        if (a.bed_id !== bedId || a.id === ignoreId) return false;
+        if (!["active", "transferred", "ended"].includes(String(a.status))) return false;
+        const aEnd = a.ends_on == null ? null : String(a.ends_on);
+        const aStart = String(a.starts_on);
+        const aEndsBefore = aEnd != null && aEnd !== "" && aEnd < startsOn;
+        const bEndsBefore = endsOn != null && endsOn !== "" && endsOn < aStart;
+        return !(aEndsBefore || bEndsBefore);
+      });
+      return (hit ?? null) as T;
+    }
+    if (sql.includes("FROM allocations") && sql.includes("resident_id = ?") && sql.includes("status IN")) {
+      const [residentId, ignoreId, startsOn, endsOn] = binds as [number, number, string, string | null];
+      const hit = this.rows.allocations.find((a) => {
+        if (a.resident_id !== residentId || a.id === ignoreId) return false;
+        if (!["active", "transferred", "ended"].includes(String(a.status))) return false;
+        const aEnd = a.ends_on == null ? null : String(a.ends_on);
+        const aStart = String(a.starts_on);
+        const aEndsBefore = aEnd != null && aEnd !== "" && aEnd < startsOn;
+        const bEndsBefore = endsOn != null && endsOn !== "" && endsOn < aStart;
+        return !(aEndsBefore || bEndsBefore);
+      });
+      return (hit ?? null) as T;
+    }
+    if (sql.startsWith("SELECT room_id FROM beds")) {
+      const bed = this.rows.beds.find((b) => b.id === binds[0]);
+      return (bed ? { room_id: bed.room_id } : null) as T;
+    }
     if (sql.startsWith("SELECT id FROM allocations WHERE bed_id")) return (this.rows.allocations.find((a) => a.bed_id === binds[0] && a.status === "active" && a.id !== binds[1]) ?? null) as T;
     if (sql.startsWith("SELECT id FROM allocations WHERE resident_id")) return (this.rows.allocations.find((a) => a.resident_id === binds[0] && a.academic_session_id === binds[1] && a.status === "active" && a.id !== binds[2]) ?? null) as T;
     return null;
@@ -145,12 +175,27 @@ class WorkflowRepo {
     }
     if (sql.startsWith("INSERT INTO allocations")) {
       const id = this.rows.allocations.length + 1;
-      this.rows.allocations.push({ id, booking_id: binds[0], resident_id: binds[1], academic_session_id: binds[2], bed_id: binds[3], status: "active", starts_on: binds[4] });
+      // booking_id, resident_id, academic_session_id, bed_id, starts_on, ends_on, assigned_by, notes
+      this.rows.allocations.push({
+        id,
+        booking_id: binds[0],
+        resident_id: binds[1],
+        academic_session_id: binds[2],
+        bed_id: binds[3],
+        status: "active",
+        starts_on: binds[4],
+        ends_on: binds[5] ?? null,
+      });
       return { meta: { last_row_id: id, changes: 1 } };
     }
     if (sql.startsWith("UPDATE allocations")) {
-      const row = this.rows.allocations.find((a) => a.id === binds[1]);
-      if (row) Object.assign(row, { status: sql.includes("'transferred'") ? "transferred" : binds[0] });
+      if (sql.includes("'transferred'")) {
+        const row = this.rows.allocations.find((a) => a.id === binds[1] && a.status === "active");
+        if (row) Object.assign(row, { status: "transferred", ends_on: binds[0] });
+      } else {
+        const row = this.rows.allocations.find((a) => a.id === binds[1]);
+        if (row) Object.assign(row, { status: binds[0], ends_on: row.ends_on ?? "2026-12-31" });
+      }
     }
     return { meta: { last_row_id: Math.max(1, ...Object.values(this.rows).flat().map((r) => Number(r.id) || 0)), changes: 1 } };
   }
@@ -291,7 +336,7 @@ describe("phase 5 workflows", () => {
     await expect(svc.createAllocation(manager, { bookingId: 1, residentId: 1, academicSessionId: 1, bedId: 1, startsOn: "2026-09-01" })).resolves.toMatchObject({ status: "active" });
   });
 
-  it("rejects allocation to a differently priced room than the booking financial basis", async () => {
+  it("rejects allocation outside the approved booking room", async () => {
     const { svc, repo } = service();
     repo.rows.room_rates.push({ id: 2, room_id: 3, academic_session_id: 1, amount_minor: 300000, currency: "GHS", status: "active" });
     await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
@@ -301,10 +346,10 @@ describe("phase 5 workflows", () => {
     await svc.createBooking(manager, { applicationId: 1, roomId: 1 });
     repo.rows.bookings[0].status = "confirmed";
 
-    await expect(svc.createAllocation(manager, { bookingId: 1, residentId: 1, academicSessionId: 1, bedId: 4, startsOn: "2026-09-01" })).rejects.toThrow("Destination room rate differs from booking financial basis");
+    await expect(svc.createAllocation(manager, { bookingId: 1, residentId: 1, academicSessionId: 1, bedId: 4, startsOn: "2026-09-01" })).rejects.toThrow("Bed must belong to the approved booking room");
   });
 
-  it("allows allocation to a different room only when active rate and currency match", async () => {
+  it("rejects same-priced cross-room create; bed must match approved booking room", async () => {
     const { svc, repo } = service();
     repo.rows.room_rates.push({ id: 2, room_id: 3, academic_session_id: 1, amount_minor: 250000, currency: "GHS", status: "active" });
     await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
@@ -314,7 +359,7 @@ describe("phase 5 workflows", () => {
     await svc.createBooking(manager, { applicationId: 1, roomId: 1 });
     repo.rows.bookings[0].status = "confirmed";
 
-    await expect(svc.createAllocation(manager, { bookingId: 1, residentId: 1, academicSessionId: 1, bedId: 4, startsOn: "2026-09-01" })).resolves.toMatchObject({ status: "active" });
+    await expect(svc.createAllocation(manager, { bookingId: 1, residentId: 1, academicSessionId: 1, bedId: 4, startsOn: "2026-09-01" })).rejects.toThrow("Bed must belong to the approved booking room");
     expect(repo.rows.bookings[0]).toMatchObject({ total_amount_minor: 250000, currency: "GHS", priced_room_id: 1 });
   });
 

@@ -51,7 +51,31 @@ const staffStatuses = new Set(["active", "inactive", "archived"]);
 const userStatuses = new Set(["active", "inactive", "suspended", "archived"]);
 const staffRoleCodes = new Set(["super_admin", "manager", "reception", "accounts", "maintenance"]);
 const sensitiveAuditKeys = new Set(["password", "password_hash", "temporary_password", "temporaryPassword", "initialPassword", "token", "session_token", "sessionToken", "session_token_hash", "authorization", "authorization_header", "otp", "otp_code", "code_hash", "otp_hash", "secret", "api_key", "apiKey", "cloudflare_token", "sms_secret", "r2_secret"]);
+
 const confirmationTypes = new Set(["full", "fixed", "percentage"]);
+
+/** Inclusive occupancy intervals: conflict unless one ends strictly before the other starts. NULL end = open-ended. */
+export function allocationIntervalsOverlap(
+  aStart: string,
+  aEnd: string | null | undefined,
+  bStart: string,
+  bEnd: string | null | undefined,
+): boolean {
+  const aEndsBeforeB = aEnd != null && aEnd !== "" && aEnd < bStart;
+  const bEndsBeforeA = bEnd != null && bEnd !== "" && bEnd < aStart;
+  return !(aEndsBeforeB || bEndsBeforeA);
+}
+
+/** Calendar day before YYYY-MM-DD (UTC), for transfer close-before-open inclusive semantics. */
+export function dayBeforeIsoDate(isoDate: string): string {
+  const day = isoDate.slice(0, 10);
+  const d = new Date(`${day}T00:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) throw new Error("Invalid date");
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+const occupyingAllocationStatuses = ["active", "transferred", "ended"] as const;
 
 export class AdminService {
   constructor(
@@ -1309,44 +1333,175 @@ export class AdminService {
     return rows.results ?? [];
   }
 
-  async createAllocation(actor: AuthUser, data: { bookingId: number; residentId: number; academicSessionId: number; bedId: number; startsOn: string; notes?: string | null }) {
-    await this.validateAllocation(data);
+  /**
+   * Agreement-aware physical availability: beds in the approved booking room that have
+   * no occupying allocation spell overlapping [startsOn, endsOn] (inclusive; NULL end = open).
+   * Does not require room_rates or academic_session.
+   */
+  async availabilityForAgreement(bookingId: number, startsOn: string, endsOn?: string | null, ignoreAllocationId?: number | null) {
+    const booking = await this.get("bookings", bookingId) as Record<string, unknown> | null;
+    if (!booking) throw new Error("Booking not found");
+    if (booking.status !== "confirmed") throw new Error("Booking is not eligible for allocation");
+    if (!booking.priced_room_id) throw new Error("Booking has no approved room");
+    if (!startsOn) throw new Error("Allocation start date is required");
+    const resolvedEnds = endsOn === undefined ? null : endsOn;
+    if (resolvedEnds != null && resolvedEnds !== "" && startsOn > resolvedEnds) throw new Error("Invalid allocation dates: starts_on must be <= ends_on");
+
+    const resident = await this.repo.first<{ gender: string | null }>("SELECT gender FROM residents WHERE id = ?", booking.resident_id);
+    const gender = resident?.gender ?? null;
+    const roomId = Number(booking.priced_room_id);
+    const ignoreId = ignoreAllocationId ?? 0;
+
+    const rows = await this.repo.all(`
+      SELECT r.id AS room_id, r.room_code, r.room_name, r.capacity, r.gender_policy,
+             b.id AS bed_id, b.bed_code, b.label,
+             COALESCE(bk.total_amount_minor, 0) AS amount_minor,
+             COALESCE(bk.currency, 'GHS') AS currency
+      FROM beds b
+      JOIN rooms r ON r.id = b.room_id
+      JOIN bookings bk ON bk.id = ?
+      WHERE b.room_id = ?
+        AND r.status = 'available'
+        AND b.status = 'available'
+        AND (r.gender_policy = 'any' OR ? IS NULL OR r.gender_policy = ?)
+        AND (SELECT COUNT(*) FROM beds bx WHERE bx.room_id = r.id AND bx.status <> 'archived') <= r.capacity
+        AND NOT EXISTS (
+          SELECT 1 FROM allocations a
+          WHERE a.bed_id = b.id
+            AND a.id <> ?
+            AND a.status IN ('active', 'transferred', 'ended')
+            AND NOT (
+              (a.ends_on IS NOT NULL AND a.ends_on < ?)
+              OR (? IS NOT NULL AND ? != '' AND ? < a.starts_on)
+            )
+        )
+      ORDER BY b.label
+    `, bookingId, roomId, gender, gender, ignoreId, startsOn, resolvedEnds, resolvedEnds, resolvedEnds);
+    return rows.results ?? [];
+  }
+
+  async createAllocation(actor: AuthUser, data: {
+    bookingId: number;
+    bedId: number;
+    startsOn: string;
+    endsOn?: string | null;
+    notes?: string | null;
+    residentId?: number | null;
+    academicSessionId?: number | null;
+  }) {
+    const booking = await this.get("bookings", data.bookingId) as Record<string, unknown> | null;
+    if (!booking) throw new Error("Booking not found");
+    const residentId = Number(booking.resident_id);
+    if (data.residentId != null && Number(data.residentId) !== residentId) throw new Error("Booking/resident mismatch");
+    const sessionFromBooking = booking.academic_session_id == null ? null : Number(booking.academic_session_id);
+    if (data.academicSessionId != null && sessionFromBooking != null && Number(data.academicSessionId) !== sessionFromBooking) {
+      throw new Error("Session mismatch");
+    }
+    if (data.academicSessionId != null && sessionFromBooking == null) {
+      throw new Error("Session mismatch");
+    }
+
+    let endsOn = data.endsOn === undefined ? null : data.endsOn;
+    if ((endsOn == null || endsOn === "") && booking.ends_on != null && String(booking.ends_on) !== "") {
+      endsOn = String(booking.ends_on);
+    }
+
+    await this.validateAllocation({
+      bookingId: data.bookingId,
+      residentId,
+      academicSessionId: sessionFromBooking,
+      bedId: data.bedId,
+      startsOn: data.startsOn,
+      endsOn,
+      allowCrossRoom: false,
+    });
+
     const res = await this.repo.run(
-      "INSERT INTO allocations (booking_id, resident_id, academic_session_id, bed_id, status, starts_on, assigned_by_staff_id, notes) VALUES (?, ?, ?, ?, 'active', ?, ?, ?)",
+      "INSERT INTO allocations (booking_id, resident_id, academic_session_id, bed_id, status, starts_on, ends_on, assigned_by_staff_id, notes) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
       data.bookingId,
-      data.residentId,
-      data.academicSessionId,
+      residentId,
+      sessionFromBooking,
       data.bedId,
       data.startsOn,
+      endsOn,
       actor.staffId,
       data.notes ?? null
     );
-    await this.repo.audit(actor.id, actor.staffId, "admin.allocation.create", "allocation", res.meta.last_row_id, { bookingId: data.bookingId, bedId: data.bedId });
+    await this.repo.audit(actor.id, actor.staffId, "admin.allocation.create", "allocation", res.meta.last_row_id, {
+      bookingId: data.bookingId,
+      bedId: data.bedId,
+      leaseKind: booking.lease_kind ?? null,
+      startsOn: data.startsOn,
+      endsOn,
+    });
     return this.get("allocations", Number(res.meta.last_row_id));
   }
 
-  async transferAllocation(actor: AuthUser, id: number, data: { destinationBedId: number; startsOn: string; notes?: string | null }) {
+  async transferAllocation(actor: AuthUser, id: number, data: { destinationBedId: number; startsOn: string; endsOn?: string | null; notes?: string | null }) {
     const allocation = await this.get("allocations", id) as Record<string, unknown> | null;
     if (!allocation) throw new Error("Allocation not found");
     if (allocation.status !== "active") throw new Error("Invalid workflow transition");
+    const booking = await this.get("bookings", Number(allocation.booking_id)) as Record<string, unknown> | null;
+    if (!booking) throw new Error("Booking not found");
+
+    const oldStarts = String(allocation.starts_on).slice(0, 10);
+    const transferStarts = data.startsOn.slice(0, 10);
+    if (transferStarts <= oldStarts) throw new Error("Transfer date must be after the current allocation start");
+
+    const closedEndsOn = dayBeforeIsoDate(transferStarts);
+    const sessionId = allocation.academic_session_id == null ? null : Number(allocation.academic_session_id);
+
+    let endsOn = data.endsOn === undefined ? null : data.endsOn;
+    if ((endsOn == null || endsOn === "") && booking.ends_on != null && String(booking.ends_on) !== "") {
+      endsOn = String(booking.ends_on);
+    }
+
+    const sourceBed = await this.repo.first<{ room_id: number }>("SELECT room_id FROM beds WHERE id = ?", allocation.bed_id);
+    const destBed = await this.repo.first<{ room_id: number }>("SELECT room_id FROM beds WHERE id = ?", data.destinationBedId);
+    if (!sourceBed || !destBed) throw new Error("Bed not found");
+    const crossRoom = Number(sourceBed.room_id) !== Number(destBed.room_id);
+    const isFlexible = booking.lease_period_id != null || booking.academic_session_id == null
+      || booking.lease_kind === "calendar_year" || booking.lease_kind === "short_term";
+    if (crossRoom && isFlexible) {
+      throw new Error("Cross-room transfer for flexible agreements is not supported in this stage; update the agreement room first");
+    }
+
     await this.validateAllocation({
       bookingId: Number(allocation.booking_id),
       residentId: Number(allocation.resident_id),
-      academicSessionId: Number(allocation.academic_session_id),
-      bedId: data.destinationBedId
-    }, id);
-    await this.repo.run("UPDATE allocations SET status = 'transferred', ends_on = ?, released_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = 'active'", data.startsOn, id);
+      academicSessionId: sessionId,
+      bedId: data.destinationBedId,
+      startsOn: transferStarts,
+      endsOn,
+      allowCrossRoom: crossRoom && !isFlexible,
+      ignoreAllocationId: id,
+    });
+
+    await this.repo.run(
+      "UPDATE allocations SET status = 'transferred', ends_on = ?, released_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = 'active'",
+      closedEndsOn,
+      id
+    );
     const res = await this.repo.run(
-      "INSERT INTO allocations (booking_id, resident_id, academic_session_id, bed_id, status, starts_on, assigned_by_staff_id, notes) VALUES (?, ?, ?, ?, 'active', ?, ?, ?)",
+      "INSERT INTO allocations (booking_id, resident_id, academic_session_id, bed_id, status, starts_on, ends_on, assigned_by_staff_id, notes) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
       allocation.booking_id,
       allocation.resident_id,
-      allocation.academic_session_id,
+      sessionId,
       data.destinationBedId,
-      data.startsOn,
+      transferStarts,
+      endsOn,
       actor.staffId,
       data.notes ?? null
     );
-    await this.repo.audit(actor.id, actor.staffId, "admin.allocation.transfer", "allocation", res.meta.last_row_id, { fromAllocationId: id, fromBedId: allocation.bed_id, toBedId: data.destinationBedId });
+    await this.repo.audit(actor.id, actor.staffId, "admin.allocation.transfer", "allocation", res.meta.last_row_id, {
+      fromAllocationId: id,
+      fromBedId: allocation.bed_id,
+      toBedId: data.destinationBedId,
+      leaseKind: booking.lease_kind ?? null,
+      startsOn: transferStarts,
+      endsOn,
+      closedPriorEndsOn: closedEndsOn,
+    });
     return this.get("allocations", Number(res.meta.last_row_id));
   }
 
@@ -1359,7 +1514,7 @@ export class AdminService {
     return this.get("allocations", id);
   }
 
-  async bookingPaymentSummary(bookingId: number) {
+    async bookingPaymentSummary(bookingId: number) {
     const booking = await this.get("bookings", bookingId) as Record<string, unknown> | null;
     if (!booking) throw new Error("Booking not found");
     const paid = await this.repo.first<{ verified_paid_minor: number }>("SELECT COALESCE(SUM(amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'", bookingId);
@@ -2206,12 +2361,37 @@ export class AdminService {
     return total;
   }
 
-  private async validateAllocation(data: { bookingId: number; residentId: number; academicSessionId: number; bedId: number }, ignoreAllocationId?: number) {
+  private async validateAllocation(data: {
+    bookingId: number;
+    residentId: number;
+    academicSessionId: number | null;
+    bedId: number;
+    startsOn: string;
+    endsOn?: string | null;
+    allowCrossRoom?: boolean;
+    ignoreAllocationId?: number;
+  }) {
     const booking = await this.get("bookings", data.bookingId) as Record<string, unknown> | null;
     if (!booking) throw new Error("Booking not found");
     if (Number(booking.resident_id) !== data.residentId) throw new Error("Booking/resident mismatch");
-    if (Number(booking.academic_session_id) !== data.academicSessionId) throw new Error("Session mismatch");
+    const bookingSession = booking.academic_session_id == null ? null : Number(booking.academic_session_id);
+    if (bookingSession !== (data.academicSessionId == null ? null : Number(data.academicSessionId))) {
+      throw new Error("Session mismatch");
+    }
     if (booking.status !== "confirmed") throw new Error("Booking is not eligible for allocation");
+    if (!data.startsOn) throw new Error("Allocation start date is required");
+    const endsOn = data.endsOn == null || data.endsOn === "" ? null : String(data.endsOn);
+    if (endsOn != null && data.startsOn > endsOn) throw new Error("Invalid allocation dates: starts_on must be <= ends_on");
+
+    if (booking.starts_on != null && String(booking.starts_on) !== "" && data.startsOn < String(booking.starts_on).slice(0, 10)) {
+      throw new Error("Allocation starts before agreement period");
+    }
+    if (booking.ends_on != null && String(booking.ends_on) !== "") {
+      const agreementEnd = String(booking.ends_on).slice(0, 10);
+      if (endsOn == null) throw new Error("Allocation end date is required when the agreement has an end date");
+      if (endsOn > agreementEnd) throw new Error("Allocation ends after agreement period");
+    }
+
     const bed = await this.repo.first<{ id: number; status: string; room_id: number; room_status: string; gender_policy: string; gender: string | null }>(`
       SELECT b.id, b.status, b.room_id, r.status AS room_status, r.gender_policy, res.gender
       FROM beds b
@@ -2223,7 +2403,16 @@ export class AdminService {
     if (bed.room_status !== "available") throw new Error("Inactive room");
     if (bed.status !== "available") throw new Error("Inactive bed");
     if (bed.gender_policy !== "any" && bed.gender && bed.gender_policy !== bed.gender) throw new Error("Gender-policy mismatch");
-    if (booking.priced_room_id && Number(booking.priced_room_id) !== Number(bed.room_id)) {
+
+    const pricedRoomId = booking.priced_room_id == null ? null : Number(booking.priced_room_id);
+    if (pricedRoomId != null && Number(bed.room_id) !== pricedRoomId) {
+      if (!data.allowCrossRoom) {
+        throw new Error("Bed must belong to the approved booking room");
+      }
+      // Legacy Path A cross-room: destination active room_rate must match booking financial basis.
+      if (data.academicSessionId == null) {
+        throw new Error("Bed must belong to the approved booking room");
+      }
       const destinationRate = await this.repo.first<{ amount_minor: number; currency: string }>(
         "SELECT amount_minor, currency FROM room_rates WHERE room_id = ? AND academic_session_id = ? AND status = 'active' LIMIT 1",
         bed.room_id,
@@ -2232,20 +2421,46 @@ export class AdminService {
       if (!destinationRate || Number(destinationRate.amount_minor) !== Number(booking.total_amount_minor) || destinationRate.currency !== booking.currency) {
         throw new Error("Destination room rate differs from booking financial basis");
       }
-    } else if (!booking.priced_room_id) {
-      const destinationRate = await this.repo.first<{ amount_minor: number; currency: string }>(
-        "SELECT amount_minor, currency FROM room_rates WHERE room_id = ? AND academic_session_id = ? AND status = 'active' LIMIT 1",
-        bed.room_id,
-        data.academicSessionId
-      );
-      if (!destinationRate || Number(destinationRate.amount_minor) !== Number(booking.total_amount_minor) || destinationRate.currency !== booking.currency) {
-        throw new Error("Destination room rate differs from booking financial basis");
+    } else if (pricedRoomId == null) {
+      // Legacy bookings without priced_room_id: require matching active room_rate when session present.
+      if (data.academicSessionId != null) {
+        const destinationRate = await this.repo.first<{ amount_minor: number; currency: string }>(
+          "SELECT amount_minor, currency FROM room_rates WHERE room_id = ? AND academic_session_id = ? AND status = 'active' LIMIT 1",
+          bed.room_id,
+          data.academicSessionId
+        );
+        if (!destinationRate || Number(destinationRate.amount_minor) !== Number(booking.total_amount_minor) || destinationRate.currency !== booking.currency) {
+          throw new Error("Destination room rate differs from booking financial basis");
+        }
       }
     }
-    const occupied = await this.repo.first("SELECT id FROM allocations WHERE bed_id = ? AND status = 'active' AND id <> ?", data.bedId, ignoreAllocationId ?? 0);
-    if (occupied) throw new Error("Unavailable bed");
-    const allocated = await this.repo.first("SELECT id FROM allocations WHERE resident_id = ? AND academic_session_id = ? AND status = 'active' AND id <> ?", data.residentId, data.academicSessionId, ignoreAllocationId ?? 0);
-    if (allocated) throw new Error("Resident already allocated");
+
+    const ignoreId = data.ignoreAllocationId ?? 0;
+    const bedConflict = await this.repo.first<{ id: number }>(`
+      SELECT id FROM allocations
+      WHERE bed_id = ?
+        AND id <> ?
+        AND status IN ('active', 'transferred', 'ended')
+        AND NOT (
+          (ends_on IS NOT NULL AND ends_on < ?)
+          OR (? IS NOT NULL AND ? != '' AND ? < starts_on)
+        )
+      LIMIT 1
+    `, data.bedId, ignoreId, data.startsOn, endsOn, endsOn, endsOn);
+    if (bedConflict) throw new Error("Unavailable bed");
+
+    const residentConflict = await this.repo.first<{ id: number }>(`
+      SELECT id FROM allocations
+      WHERE resident_id = ?
+        AND id <> ?
+        AND status IN ('active', 'transferred', 'ended')
+        AND NOT (
+          (ends_on IS NOT NULL AND ends_on < ?)
+          OR (? IS NOT NULL AND ? != '' AND ? < starts_on)
+        )
+      LIMIT 1
+    `, data.residentId, ignoreId, data.startsOn, endsOn, endsOn, endsOn);
+    if (residentConflict) throw new Error("Resident already allocated");
   }
 
   async listStaff(limit: number, offset: number, search?: string) {

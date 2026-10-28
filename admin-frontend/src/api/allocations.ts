@@ -12,11 +12,11 @@ export async function getAllocation(id: number) {
   return (await apiRequest<DataEnvelope<Allocation>>(`/admin/allocations/${id}`)).data;
 }
 
-export async function createAllocation(input: { bookingId: number; residentId: number; academicSessionId: number; bedId: number; startsOn: string; notes?: string }) {
+export async function createAllocation(input: { bookingId: number; bedId: number; startsOn: string; endsOn?: string; notes?: string; residentId?: number; academicSessionId?: number | null }) {
   return (await apiRequest<DataEnvelope<Allocation>>("/admin/allocations", { method: "POST", body: JSON.stringify(input) })).data;
 }
 
-export async function transferAllocation(id: number, input: { destinationBedId: number; startsOn: string; notes?: string }) {
+export async function transferAllocation(id: number, input: { destinationBedId: number; startsOn: string; endsOn?: string; notes?: string }) {
   return (await apiRequest<DataEnvelope<Allocation>>(`/admin/allocations/${id}/transfer`, { method: "POST", body: JSON.stringify(input) })).data;
 }
 
@@ -24,9 +24,17 @@ export async function updateAllocationStatus(id: number, status: "ended" | "canc
   return (await apiRequest<DataEnvelope<Allocation>>(`/admin/allocations/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) })).data;
 }
 
+/** Legacy session-based availability (Path A). */
 export async function listAvailability(academicSessionId: number, residentId?: number) {
   const query = new URLSearchParams({ academicSessionId: String(academicSessionId) });
   if (residentId) query.set("residentId", String(residentId));
+  return (await apiRequest<DataEnvelope<AvailabilityBed[]>>(`/admin/availability?${query.toString()}`)).data;
+}
+
+/** Agreement-aware availability by booking + proposed dates. */
+export async function listAgreementAvailability(bookingId: number, startsOn: string, endsOn?: string) {
+  const query = new URLSearchParams({ bookingId: String(bookingId), startsOn });
+  if (endsOn) query.set("endsOn", endsOn);
   return (await apiRequest<DataEnvelope<AvailabilityBed[]>>(`/admin/availability?${query.toString()}`)).data;
 }
 

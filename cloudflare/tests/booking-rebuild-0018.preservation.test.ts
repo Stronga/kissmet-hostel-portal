@@ -120,13 +120,15 @@ const accountsActor: AuthUser = {
 };
 
 describe("Stage 2L-G-R repaired 0018 booking rebuild", () => {
-  it("lists migrations 0001–0018 with 0018 last and no 0019", () => {
+  it("lists migrations 0001–0018 intact with 0019 as a later forward migration", () => {
     const files = listMigrationFiles();
     expect(files[0]).toBe("0001_canonical_schema.sql");
     expect(files).toContain(THROUGH_0017);
     expect(files).toContain(MIGRATION_0018);
-    expect(files.filter((f) => f.startsWith("0019"))).toEqual([]);
-    expect(files[files.length - 1]).toBe(MIGRATION_0018);
+    expect(files.indexOf(MIGRATION_0018)).toBeGreaterThan(files.indexOf(THROUGH_0017));
+    // 0019 is Stage 2L-H; 0001–0018 remain immutable and present.
+    expect(files).toContain("0019_agreement_aware_allocations.sql");
+    expect(files.indexOf("0019_agreement_aware_allocations.sql")).toBeGreaterThan(files.indexOf(MIGRATION_0018));
   });
 
   it("preserves every pre-0018 bookings column; only academic_session_id notnull changes", async () => {

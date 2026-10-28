@@ -32,6 +32,13 @@ function allocationSession(allocation: ResidentAllocation) {
   return allocation.academic_session_name ?? allocation.academic_session_code ?? null;
 }
 
+function leaseTermLabel(kind?: string | null) {
+  if (kind === "academic_calendar") return "Academic Calendar";
+  if (kind === "calendar_year") return "Calendar Year";
+  if (kind === "short_term") return "Short-Term";
+  return null;
+}
+
 function noAllocationMessage(booking: ResidentBooking | null, latest: ResidentBooking | null) {
   const source = booking ?? latest;
   if (!source) return "Your room has not been assigned yet. A booking is required before room allocation.";
@@ -52,7 +59,7 @@ function HistoryCard({ allocation }: { allocation: ResidentAllocation }) {
         <StatusBadge status={statusLabel(allocation.status)} />
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <Detail label="Academic session" value={allocationSession(allocation)} />
+        {allocationSession(allocation) ? <Detail label="Academic session" value={allocationSession(allocation)} /> : <Detail label="Approved term" value={leaseTermLabel(allocation.lease_kind) ?? "Agreement"} />}
         <Detail label="Started" value={formatDateTime(allocation.starts_on ?? allocation.assigned_at)} />
         <Detail label="Ended" value={formatDateTime(allocation.ends_on ?? allocation.released_at)} />
       </div>
@@ -117,7 +124,8 @@ export function RoomPage() {
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <Detail label="Room" value={allocationRoom(data.allocation)} />
               <Detail label="Bed" value={allocationBed(data.allocation)} />
-              <Detail label="Academic session" value={allocationSession(data.allocation)} />
+              <Detail label="Approved term" value={leaseTermLabel(data.allocation.lease_kind) ?? (allocationSession(data.allocation) ? "Academic Calendar" : "Agreement")} />
+              {allocationSession(data.allocation) ? <Detail label="Academic session" value={allocationSession(data.allocation)} /> : null}
               <Detail label="Booking" value={data.allocation.booking_number} />
               <Detail label="Allocation start" value={formatDateTime(data.allocation.starts_on ?? data.allocation.assigned_at)} />
               <Detail label="Room type" value={data.allocation.room_gender_policy ? `${statusLabel(data.allocation.room_gender_policy)} occupancy` : null} />

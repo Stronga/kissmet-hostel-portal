@@ -469,11 +469,11 @@ export class ResidentService {
              room.room_code, room.room_name, room.gender_policy AS room_gender_policy, room.status AS room_status,
              b.bed_code, b.label,
              s.code AS academic_session_code, s.name AS academic_session_name,
-             bk.booking_number
+             bk.booking_number, bk.lease_kind, bk.starts_on AS agreement_starts_on, bk.ends_on AS agreement_ends_on
       FROM allocations a
       JOIN beds b ON b.id = a.bed_id
       JOIN rooms room ON room.id = b.room_id
-      JOIN academic_sessions s ON s.id = a.academic_session_id
+      LEFT JOIN academic_sessions s ON s.id = a.academic_session_id
       JOIN bookings bk ON bk.id = a.booking_id
       WHERE a.resident_id = ? AND a.status = 'active'
       ORDER BY a.id DESC
@@ -488,11 +488,11 @@ export class ResidentService {
              room.room_code, room.room_name, room.gender_policy AS room_gender_policy, room.status AS room_status,
              b.bed_code, b.label,
              s.code AS academic_session_code, s.name AS academic_session_name,
-             bk.booking_number
+             bk.booking_number, bk.lease_kind, bk.starts_on AS agreement_starts_on, bk.ends_on AS agreement_ends_on
       FROM allocations a
       JOIN beds b ON b.id = a.bed_id
       JOIN rooms room ON room.id = b.room_id
-      JOIN academic_sessions s ON s.id = a.academic_session_id
+      LEFT JOIN academic_sessions s ON s.id = a.academic_session_id
       JOIN bookings bk ON bk.id = a.booking_id
       WHERE a.resident_id = ?
       ORDER BY CASE WHEN a.status = 'active' THEN 0 ELSE 1 END, COALESCE(a.starts_on, a.assigned_at) DESC, a.id DESC

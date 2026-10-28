@@ -2,12 +2,13 @@ import { DataTable } from "../../components/common/DataTable";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import type { AcademicSession, Allocation, Bed, Booking, Resident, Room } from "../../types/api";
 import { formatDateTime } from "../../utils/format";
-import { placementLabel, residentName, sessionName } from "./allocationView";
+import { leaseTermLabel, placementLabel, residentName, sessionName } from "./allocationView";
 
 export function AllocationsTable({ allocations, residentsById, bookingsById, sessions, rooms, bedsByRoom, onView }: { allocations: Allocation[]; residentsById: Map<number, Resident>; bookingsById: Map<number, Booking>; sessions: AcademicSession[]; rooms: Room[]; bedsByRoom: Map<number, Bed[]>; onView: (allocation: Allocation) => void }) {
   return <DataTable rows={allocations} emptyMessage="No allocations match the current criteria." columns={[
     { key: "resident", header: "Resident", render: (allocation) => residentName(residentsById.get(allocation.resident_id)) },
     { key: "booking", header: "Booking", render: (allocation) => bookingsById.get(allocation.booking_id)?.booking_number ?? `Booking #${allocation.booking_id}` },
+    { key: "term", header: "Approved Term", render: (allocation) => leaseTermLabel(bookingsById.get(allocation.booking_id)?.lease_kind) ?? (allocation.academic_session_id != null ? "Academic Calendar" : "—") },
     { key: "session", header: "Academic Session", render: (allocation) => sessionName(allocation.academic_session_id, sessions) },
     { key: "placement", header: "Room / Bed", render: (allocation) => placementLabel(allocation.bed_id, rooms, bedsByRoom).label },
     { key: "status", header: "Status", render: (allocation) => <StatusBadge status={allocation.status} /> },

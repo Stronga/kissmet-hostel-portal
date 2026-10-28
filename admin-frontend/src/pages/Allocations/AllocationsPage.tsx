@@ -1,6 +1,6 @@
 import { Plus, Search } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { createAllocation, getAllocation, getBooking, listAllocations, listAvailability, listRoomBeds, transferAllocation, updateAllocationStatus } from "../../api/allocations";
+import { createAllocation, getAllocation, getBooking, listAllocations, listAgreementAvailability, listAvailability, listRoomBeds, transferAllocation, updateAllocationStatus } from "../../api/allocations";
 import { listAcademicSessions } from "../../api/applications";
 import { listBookings, listRoomRates, listRooms } from "../../api/bookings";
 import { getResident, listInstitutions } from "../../api/residents";
@@ -88,7 +88,7 @@ export function AllocationsPage() {
 
   useEffect(() => { void load(0, ""); }, []);
 
-  const visibleAllocations = useMemo(() => allocations.filter((allocation) => (statusFilter === "all" || allocation.status === statusFilter) && (sessionFilter === "all" || allocation.academic_session_id === Number(sessionFilter))), [allocations, sessionFilter, statusFilter]);
+  const visibleAllocations = useMemo(() => allocations.filter((allocation) => (statusFilter === "all" || allocation.status === statusFilter) && (sessionFilter === "all" || (sessionFilter === "none" ? allocation.academic_session_id == null : allocation.academic_session_id === Number(sessionFilter)))), [allocations, sessionFilter, statusFilter]);
   const totals = useMemo(() => ({
     active: allocations.filter((allocation) => allocation.status === "active").length,
     availableBeds: rooms.reduce((sum, room) => sum + (bedsByRoom.get(room.id)?.filter((bed) => bed.status === "available" && !allocations.some((allocation) => allocation.bed_id === bed.id && allocation.status === "active")).length ?? 0), 0),
@@ -114,18 +114,27 @@ export function AllocationsPage() {
     }
   }
 
-  async function loadAvailabilityFor(booking: Booking | null) {
+  async function loadAvailabilityFor(booking: Booking | null, startsOn?: string, endsOn?: string) {
     setAvailability([]);
     if (!booking) return;
-    if (booking.academic_session_id == null) {
-      setMutationError("Bed allocation still requires an academic session. Calendar Year / Short-Term agreements cannot be allocated until a later stage.");
-      return;
-    }
     setLoadingAvailability(true);
     setMutationError(null);
     try {
-      setAvailability(await listAvailability(booking.academic_session_id, booking.resident_id));
+      const start = startsOn || (booking.starts_on ? String(booking.starts_on).slice(0, 10) : new Date().toISOString().slice(0, 10));
+      const end = endsOn === undefined
+        ? (booking.ends_on ? String(booking.ends_on).slice(0, 10) : undefined)
+        : (endsOn || undefined);
+      setAvailability(await listAgreementAvailability(booking.id, start, end));
     } catch (err) {
+      // Legacy Path A fallback when agreement availability cannot run.
+      if (booking.academic_session_id != null) {
+        try {
+          setAvailability(await listAvailability(booking.academic_session_id, booking.resident_id));
+          return;
+        } catch {
+          /* fall through */
+        }
+      }
       setMutationError(err instanceof Error ? err.message : "Unable to load availability.");
     } finally {
       setLoadingAvailability(false);
@@ -161,7 +170,7 @@ export function AllocationsPage() {
         <form onSubmit={(event) => void submitSearch(event)} className="flex flex-col gap-3 xl:flex-row xl:items-end">
           <div className="flex-1"><label htmlFor="allocation-search" className="block text-sm font-medium">Search allocations</label><div className="mt-1 flex rounded-md border border-border bg-white"><Search className="ml-3 mt-2.5 h-4 w-4 text-text-secondary" /><input id="allocation-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Backend search supports allocation status" className="min-w-0 flex-1 rounded-md px-3 py-2 text-sm outline-none" /></div></div>
           <label className="text-sm font-medium">Status<select aria-label="Allocation status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="mt-1 rounded-md border border-border bg-white px-3 py-2">{statuses.map((status) => <option key={status} value={status}>{status === "all" ? "All statuses" : formatStatus(status)}</option>)}</select></label>
-          <label className="text-sm font-medium">Academic session<select aria-label="Allocation session filter" value={sessionFilter} onChange={(event) => setSessionFilter(event.target.value)} className="mt-1 rounded-md border border-border bg-white px-3 py-2"><option value="all">All sessions</option>{sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}</select></label>
+          <label className="text-sm font-medium">Academic session<select aria-label="Allocation session filter" value={sessionFilter} onChange={(event) => setSessionFilter(event.target.value)} className="mt-1 rounded-md border border-border bg-white px-3 py-2"><option value="all">All sessions</option><option value="none">No session (CY/ST)</option>{sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}</select></label>
           <button type="submit" className="rounded-md border border-border bg-muted px-4 py-2 text-sm font-semibold">Search</button>
         </form>
         <p className="mt-2 text-xs text-text-secondary">Server search covers allocation status. Resident, booking, room, and session filters are based on loaded page lookups.</p>
@@ -174,7 +183,7 @@ export function AllocationsPage() {
         {mutationError ? <p role="alert" className="mb-3 text-sm font-medium text-danger">{mutationError}</p> : null}
         <div className="flex justify-end gap-2"><button type="button" disabled={saving} onClick={() => setDecisionStatus(null)} className="rounded-md border border-border px-3 py-2 text-sm font-semibold disabled:opacity-50">Cancel</button><button type="button" disabled={saving || !selected || !decisionStatus} onClick={() => selected && decisionStatus ? void mutate(() => updateAllocationStatus(selected.id, decisionStatus), (allocation) => { setSelected(allocation); setDecisionStatus(null); }) : undefined} className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Confirm</button></div>
       </ConfirmDialog>
-      <CreateAllocationDialog open={createOpen} bookings={bookings} allocations={allocations} residentsById={residentsById} sessions={sessions} rooms={rooms} rates={rates} availability={availability} loadingAvailability={loadingAvailability} error={mutationError} saving={saving} onBookingChange={(booking) => void loadAvailabilityFor(booking)} onClose={() => { if (!saving) { setCreateOpen(false); setMutationError(null); setAvailability([]); } }} onCreate={(input) => void mutate(() => createAllocation(input), (allocation) => { setCreateOpen(false); setAvailability([]); void openDetail(allocation); })} />
+      <CreateAllocationDialog open={createOpen} bookings={bookings} allocations={allocations} residentsById={residentsById} sessions={sessions} rooms={rooms} rates={rates} availability={availability} loadingAvailability={loadingAvailability} error={mutationError} saving={saving} onBookingChange={(booking) => void loadAvailabilityFor(booking)} onDatesChange={(booking, startsOn, endsOn) => void loadAvailabilityFor(booking, startsOn, endsOn)} onClose={() => { if (!saving) { setCreateOpen(false); setMutationError(null); setAvailability([]); } }} onCreate={(input) => void mutate(() => createAllocation(input), (allocation) => { setCreateOpen(false); setAvailability([]); void openDetail(allocation); })} />
       <TransferAllocationDialog open={transferOpen} allocation={selected} booking={selectedBooking} rooms={rooms} bedsByRoom={bedsByRoom} sessions={sessions} availability={availability} loadingAvailability={loadingAvailability} error={mutationError} saving={saving} onClose={() => { if (!saving) { setTransferOpen(false); setMutationError(null); setAvailability([]); } }} onTransfer={(input) => selected ? void mutate(() => transferAllocation(selected.id, input), (allocation) => { setTransferOpen(false); setAvailability([]); void openDetail(allocation); }) : undefined} />
     </div>
   );

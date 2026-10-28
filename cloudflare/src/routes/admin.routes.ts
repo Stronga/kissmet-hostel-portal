@@ -498,9 +498,23 @@ routes.get("/bookings/:id/payment-summary", requirePermission("booking:read"), a
 
 routes.get("/availability", requirePermission("allocation:read"), async (c) => {
   const url = new URL(c.req.url);
-  const sessionId = Number(url.searchParams.get("academicSessionId"));
+  const bookingId = url.searchParams.get("bookingId") ? Number(url.searchParams.get("bookingId")) : null;
+  const startsOn = url.searchParams.get("startsOn");
+  const endsOnParam = url.searchParams.get("endsOn");
+  const sessionId = url.searchParams.get("academicSessionId") ? Number(url.searchParams.get("academicSessionId")) : null;
   const residentId = url.searchParams.get("residentId") ? Number(url.searchParams.get("residentId")) : null;
-  try { return c.json(ok(await service(c).availability(sessionId, residentId))); }
+  try {
+    if (bookingId) {
+      if (!startsOn) throw new Error("startsOn is required for agreement availability");
+      return c.json(ok(await service(c).availabilityForAgreement(
+        bookingId,
+        startsOn,
+        endsOnParam === null || endsOnParam === "" ? null : endsOnParam,
+      )));
+    }
+    if (!sessionId) throw new Error("academicSessionId or bookingId is required");
+    return c.json(ok(await service(c).availability(sessionId, residentId)));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 
@@ -509,11 +523,12 @@ routes.post("/allocations", requirePermission("allocation:write"), async (c) => 
     const input = await body(c);
     return c.json(ok(await service(c).createAllocation(c.get("authUser"), {
       bookingId: intField(input, "bookingId")!,
-      residentId: intField(input, "residentId")!,
-      academicSessionId: intField(input, "academicSessionId")!,
       bedId: intField(input, "bedId")!,
       startsOn: stringField(input, "startsOn", true, 32)!,
-      notes: stringField(input, "notes", false, 2000)
+      endsOn: stringField(input, "endsOn", false, 32),
+      notes: stringField(input, "notes", false, 2000),
+      residentId: intField(input, "residentId", false),
+      academicSessionId: intField(input, "academicSessionId", false),
     })), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
@@ -524,6 +539,7 @@ routes.post("/allocations/:id/transfer", requirePermission("allocation:write"), 
     return c.json(ok(await service(c).transferAllocation(c.get("authUser"), Number(c.req.param("id")), {
       destinationBedId: intField(input, "destinationBedId")!,
       startsOn: stringField(input, "startsOn", true, 32)!,
+      endsOn: stringField(input, "endsOn", false, 32),
       notes: stringField(input, "notes", false, 2000)
     })), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }

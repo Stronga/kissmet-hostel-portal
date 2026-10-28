@@ -225,7 +225,7 @@ export interface Allocation {
   id: number;
   booking_id: number;
   resident_id: number;
-  academic_session_id: number;
+  academic_session_id: number | null;
   bed_id: number;
   status: string;
   starts_on?: string | null;

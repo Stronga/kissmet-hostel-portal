@@ -116,7 +116,7 @@ export class InternetAccessService {
        FROM allocations a
        JOIN beds b ON b.id = a.bed_id
        JOIN rooms room ON room.id = b.room_id
-       JOIN academic_sessions s ON s.id = a.academic_session_id
+       LEFT JOIN academic_sessions s ON s.id = a.academic_session_id
        JOIN bookings bk ON bk.id = a.booking_id
        WHERE a.resident_id = ? AND a.status = 'active'
        ORDER BY a.id DESC

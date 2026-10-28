@@ -156,6 +156,9 @@ export interface ResidentReceipt {
 export interface ResidentAllocation {
   id: number;
   status: string;
+  lease_kind?: LeaseKind | string | null;
+  agreement_starts_on?: string | null;
+  agreement_ends_on?: string | null;
   starts_on?: string | null;
   ends_on?: string | null;
   assigned_at?: string | null;
