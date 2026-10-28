@@ -1,0 +1,207 @@
+/* Kissmet Group — under-construction / coming-soon
+   Palette from brand emblem: black, white, gold, red, green */
+
+:root {
+  --bg: #0a0a0a;
+  --bg-elevated: #121212;
+  --fg: #f5f2eb;
+  --fg-muted: #b8b0a2;
+  --gold: #d4a017;
+  --gold-soft: #c9952a;
+  --red: #c62828;
+  --green: #1b5e20;
+  --green-soft: #2e7d32;
+  --line: rgba(212, 160, 23, 0.28);
+  --shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --radius: 18px;
+  --max: 42rem;
+  --font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  color: var(--fg);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(212, 160, 23, 0.12), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(27, 94, 32, 0.14), transparent 50%),
+    radial-gradient(ellipse 50% 35% at 0% 90%, rgba(198, 40, 40, 0.08), transparent 45%),
+    var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -3rem;
+  z-index: 10;
+  padding: 0.5rem 0.85rem;
+  background: var(--gold);
+  color: #111;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 6px;
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
+
+.page {
+  width: min(100% - 2.5rem, 56rem);
+  margin: 0 auto;
+  padding: 2.75rem 0 2.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  min-height: 100vh;
+}
+
+.brand {
+  display: flex;
+  justify-content: center;
+}
+
+.logo-plate {
+  padding: 0.35rem;
+  border-radius: 999px;
+  background: linear-gradient(145deg, rgba(212, 160, 23, 0.55), rgba(27, 94, 32, 0.35) 55%, rgba(198, 40, 40, 0.35));
+  box-shadow: var(--shadow);
+}
+
+.logo {
+  display: block;
+  width: min(15.5rem, 62vw);
+  height: auto;
+  border-radius: 999px;
+  background: #000;
+}
+
+.content {
+  width: min(100%, var(--max));
+  text-align: center;
+}
+
+.eyebrow {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+h1 {
+  margin: 0 0 1rem;
+  font-size: clamp(1.75rem, 4.5vw, 2.55rem);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.18;
+  color: #fffaf0;
+}
+
+.lede {
+  margin: 0 auto 0.85rem;
+  max-width: 34rem;
+  color: var(--fg-muted);
+  font-size: clamp(1.02rem, 2.2vw, 1.125rem);
+}
+
+.support {
+  margin: 0 auto 2rem;
+  max-width: 32rem;
+  color: #9a9286;
+  font-size: 0.98rem;
+}
+
+.hero {
+  margin: 0;
+  padding: 0.65rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 4px);
+  box-shadow: var(--shadow);
+}
+
+.hero-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  background: #f7f7f7;
+}
+
+.hero figcaption {
+  margin: 0.7rem 0 0.15rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8a8278;
+}
+
+.footer {
+  margin-top: auto;
+  width: min(100%, var(--max));
+  text-align: center;
+  padding-top: 0.5rem;
+}
+
+.accent-bar {
+  width: 4.5rem;
+  height: 3px;
+  margin: 0 auto 1.1rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--red), var(--gold), var(--green-soft));
+}
+
+.footer p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #7a7368;
+}
+
+@media (min-width: 720px) {
+  .page {
+    padding-top: 3.5rem;
+    gap: 2.35rem;
+  }
+
+  .logo {
+    width: 17rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .lede,
+  .support,
+  .footer p,
+  .hero figcaption {
+    color: #ddd6c8;
+  }
+
+  .hero {
+    border-color: var(--gold);
+  }
+}

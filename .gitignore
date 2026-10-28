@@ -67,3 +67,7 @@ mikrotik-connector/.env
 mikrotik-connector/.env.*
 !mikrotik-connector/.env.example
 mikrotik-connector/.portal-api.pass
+
+# Kissmet apex marketing site (www) — allow README; keep full-res originals local-only
+!www/README.md
+www/assets/originals/
