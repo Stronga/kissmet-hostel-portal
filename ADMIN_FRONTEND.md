@@ -103,6 +103,7 @@ Implemented routes:
 - `/staff`
 - `/audit-logs`
 - `/settings`
+- `/setup`
 
 Prepared placeholder routes:
 
@@ -1127,6 +1128,30 @@ Known backend/API limitations:
 - The Settings page does not apply branding values to the live shell yet; it stores durable values for future portal/runtime use.
 - No logo upload, theme designer, email template builder, provider-key editor, or maintenance dependency was added.
 - Settings has no delete/reset endpoint.
+
+
+## Setup
+
+Administration → Setup manages foundational configuration used across the Admin Portal.
+
+Tabs:
+
+- Institutions
+- Academic Sessions
+- Lease Periods
+- Rate Cards
+
+Distinctions:
+
+- **Academic Session** — school's academic organization window
+- **Lease Period** — Kissmet accommodation contract period (Academic Calendar, Calendar Year, or Short-Term)
+- **Rate Card** — default/list accommodation price for a lease period + occupancy (1 / 2 / 4 persons)
+
+Money entry uses human currency amounts converted to integer minor units via `parseMoneyToMinorUnits`. Display uses `formatCurrencyMinor` (for example `GHS 9,000.00`).
+
+Navigation to Setup is limited to Super Admin and Manager (matching Stage 2K). Backend RBAC remains authoritative for reads/writes. Lease Period and Rate Card management is local until separately authorized for deployment; it is not production-live by default.
+
+API client helpers live in `src/api/setup.ts`.
 
 ## Design System
 

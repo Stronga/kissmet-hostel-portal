@@ -551,6 +551,45 @@ export interface Institution {
   status: string;
 }
 
+export type LeaseKind = "academic_calendar" | "calendar_year" | "short_term";
+export type LeasePeriodStatus = "draft" | "active" | "closed" | "archived";
+export type RateCardStatus = "draft" | "active" | "inactive" | "archived";
+export type RateCardOccupancyCapacity = 1 | 2 | 4;
+
+/** Kissmet accommodation contract period (distinct from Academic Session). */
+export interface LeasePeriod {
+  id: number;
+  kind: LeaseKind;
+  code: string;
+  name: string;
+  starts_on: string;
+  ends_on: string;
+  status: LeasePeriodStatus | string;
+  academic_session_id: number | null;
+  notes: string | null;
+  created_at?: string;
+  updated_at?: string;
+  archived_at?: string | null;
+}
+
+/** Default/list accommodation price for a lease period + occupancy band. */
+export interface RateCard {
+  id: number;
+  lease_period_id: number;
+  occupancy_capacity: RateCardOccupancyCapacity | number;
+  rate_code: string;
+  amount_minor: number;
+  currency: string;
+  package_months: number | null;
+  status: RateCardStatus | string;
+  effective_from: string | null;
+  effective_to: string | null;
+  notes: string | null;
+  created_at?: string;
+  updated_at?: string;
+  archived_at?: string | null;
+}
+
 export interface Resident {
   id: number;
   user_id: number;
