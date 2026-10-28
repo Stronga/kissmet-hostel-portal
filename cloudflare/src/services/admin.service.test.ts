@@ -125,9 +125,20 @@ class FakeRepo {
     }
     if (sql.startsWith("INSERT INTO residents")) {
       if (this.rows.residents.some((r) => r.resident_code === binds[2])) throw new Error("UNIQUE constraint failed: residents.resident_code");
-      if (this.rows.residents.some((r) => r.institution_id === binds[1] && r.student_id === binds[3])) throw new Error("UNIQUE constraint failed");
+      if (binds[3] != null && this.rows.residents.some((r) => r.institution_id === binds[1] && r.student_id === binds[3])) throw new Error("UNIQUE constraint failed");
       const id = this.rows.residents.length + 2;
-      this.rows.residents.push({ id, user_id: binds[0], institution_id: binds[1], resident_code: binds[2], student_id: binds[3] });
+      this.rows.residents.push({
+        id,
+        user_id: binds[0],
+        institution_id: binds[1],
+        resident_code: binds[2],
+        student_id: binds[3],
+        first_name: binds[4],
+        last_name: binds[5],
+        gender: binds[6],
+        status: binds[7],
+        resident_kind: binds[8] ?? "student"
+      });
       return { meta: { last_row_id: id } };
     }
     if (sql.startsWith("INSERT INTO staff")) {

@@ -9,8 +9,8 @@ const manager = { id: 1, userType: "staff", displayName: "Manager", email: "m@te
 const accounts = { ...manager, role: "accounts" };
 const institution = { id: 1, code: "ug", name: "University of Ghana", status: "active" };
 const session = { id: 1, code: "2026", name: "2026/2027", status: "active" };
-const resident = { id: 7, user_id: 20, institution_id: 1, resident_code: "KSM-RES-0007", student_id: "UG-100", first_name: "Ama", last_name: "Mensah", gender: "female", status: "applicant" };
-const submittedApplication = { id: 11, resident_id: 7, academic_session_id: 1, application_number: "KSM-APP-0011", status: "submitted", submitted_at: "2026-08-20T10:00:00.000Z", created_at: "2026-08-19T09:15:00.000Z", updated_at: "2026-08-20T10:00:00.000Z", decision_notes: null };
+const resident = { id: 7, user_id: 20, institution_id: 1, resident_code: "KSM-RES-0007", student_id: "UG-100", first_name: "Ama", last_name: "Mensah", gender: "female", status: "applicant" , resident_kind: "student" };
+const submittedApplication = { id: 11, resident_id: 7, academic_session_id: 1, lease_period_id: null, lease_kind: "academic_calendar", application_number: "KSM-APP-0011", status: "submitted", submitted_at: "2026-08-20T10:00:00.000Z", created_at: "2026-08-19T09:15:00.000Z", updated_at: "2026-08-20T10:00:00.000Z", decision_notes: null };
 const reviewApplication = { ...submittedApplication, id: 12, application_number: "KSM-APP-0012", status: "under_review" };
 const approvedApplication = { ...submittedApplication, id: 13, application_number: "KSM-APP-0013", status: "approved" };
 const documentRow = { id: 30, resident_id: 7, document_type: "student_card", status: "uploaded", original_filename: "student-card.pdf", content_type: "application/pdf", size_bytes: 1200 };
@@ -65,6 +65,8 @@ describe("ApplicationsPage", () => {
     renderWithFetch();
     expect(await screen.findByRole("heading", { name: "Applications" })).toBeInTheDocument();
     expect(await screen.findByText("KSM-APP-0011")).toBeInTheDocument();
+    expect(screen.getByText("Academic Calendar")).toBeInTheDocument();
+    expect(screen.getByText("Student")).toBeInTheDocument();
     expect(screen.getByText("Ama Mensah")).toBeInTheDocument();
     expect(screen.getByText("UG-100")).toBeInTheDocument();
     expect(screen.getByText("University of Ghana")).toBeInTheDocument();

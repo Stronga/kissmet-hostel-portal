@@ -17,6 +17,7 @@ class WorkflowRepo {
     receipts: [],
     documents: [],
     payment_confirmation_settings: [{ id: 1, requirement_type: "full", fixed_amount_minor: null, percentage_basis_points: null, status: "active" }],
+    academic_sessions: [{ id: 1, code: "2026", status: "active" }],
     residents: [{ id: 1, gender: "female" }, { id: 2, gender: "male" }],
     rooms: [{ id: 1, status: "available", gender_policy: "female", capacity: 2 }, { id: 2, status: "available", gender_policy: "male", capacity: 1 }, { id: 3, status: "available", gender_policy: "female", capacity: 1 }],
     beds: [{ id: 1, room_id: 1, status: "available", label: "A" }, { id: 2, room_id: 1, status: "available", label: "B" }, { id: 3, room_id: 2, status: "maintenance", label: "A" }, { id: 4, room_id: 3, status: "available", label: "A" }],
@@ -69,9 +70,18 @@ class WorkflowRepo {
   async allocateResidentCode() { return "KSM-RES-0001"; }
   async run(sql: string, ...binds: unknown[]) {
     if (sql.startsWith("INSERT INTO applications")) {
-      if (this.rows.applications.some((a) => a.resident_id === binds[0] && a.academic_session_id === binds[1] && ["draft", "submitted", "under_review", "approved"].includes(String(a.status)))) throw new Error("UNIQUE constraint failed");
+      const academicSessionId = binds[1] ?? null;
+      const leasePeriodId = binds[2] ?? null;
+      const leaseKind = binds[3] ?? null;
+      const applicationNumber = binds[4];
+      const notes = binds[5] ?? null;
+      if (leasePeriodId != null) {
+        if (this.rows.applications.some((a) => a.resident_id === binds[0] && a.lease_period_id === leasePeriodId && ["draft", "submitted", "under_review", "approved"].includes(String(a.status)))) throw new Error("UNIQUE constraint failed");
+      } else if (this.rows.applications.some((a) => a.resident_id === binds[0] && a.academic_session_id === academicSessionId && a.lease_period_id == null && ["draft", "submitted", "under_review", "approved"].includes(String(a.status)))) {
+        throw new Error("UNIQUE constraint failed");
+      }
       const id = this.rows.applications.length + 1;
-      this.rows.applications.push({ id, resident_id: binds[0], academic_session_id: binds[1], application_number: binds[2], status: "draft", decision_notes: binds[3] });
+      this.rows.applications.push({ id, resident_id: binds[0], academic_session_id: academicSessionId, lease_period_id: leasePeriodId, lease_kind: leaseKind, application_number: applicationNumber, status: "draft", decision_notes: notes });
       return { meta: { last_row_id: id, changes: 1 } };
     }
     if (sql.startsWith("UPDATE applications")) {
@@ -175,7 +185,7 @@ describe("phase 5 workflows", () => {
   it("prevents duplicate active applications for the same resident and session", async () => {
     const { svc } = service();
     await svc.createApplication(manager, { residentId: 1, academicSessionId: 1 });
-    await expect(svc.createApplication(manager, { residentId: 1, academicSessionId: 1 })).rejects.toThrow("UNIQUE");
+    await expect(svc.createApplication(manager, { residentId: 1, academicSessionId: 1 })).rejects.toThrow(/UNIQUE|already exists/);
   });
 
   it("generates Kissmet application numbers internally", async () => {

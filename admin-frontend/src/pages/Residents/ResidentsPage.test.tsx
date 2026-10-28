@@ -7,7 +7,7 @@ import { ResidentsPage } from "./ResidentsPage";
 
 const manager = { id: 1, userType: "staff", displayName: "Manager", email: "m@test", role: "manager", staffId: 1, residentId: null, sessionId: 1 };
 const accounts = { ...manager, role: "accounts" };
-const resident = { id: 7, user_id: 20, institution_id: 1, resident_code: "KSM-RES-0007", student_id: "UG-100", first_name: "Ama", last_name: "Mensah", gender: "female", status: "applicant" };
+const resident = { id: 7, user_id: 20, institution_id: 1, resident_code: "KSM-RES-0007", student_id: "UG-100", first_name: "Ama", last_name: "Mensah", gender: "female", status: "applicant", resident_kind: "student" };
 const institution = { id: 1, code: "ug", name: "University of Ghana", status: "active" };
 
 function ok(data: unknown) {
@@ -90,4 +90,34 @@ describe("ResidentsPage", () => {
     render(<MemoryRouter><AuthProvider><ResidentsPage /></AuthProvider></MemoryRouter>);
     expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load residents.");
   });
+
+  it("shows Resident Type and requires student fields only for Student", async () => {
+    renderWithAuth();
+    expect(await screen.findByText("Student")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: /add resident/i }));
+    expect(screen.getByLabelText("Resident Type")).toBeInTheDocument();
+    expect(screen.getByLabelText("Student ID")).toBeInTheDocument();
+    expect(screen.getByLabelText("Institution")).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Resident Type"), "non_student");
+    expect(screen.queryByLabelText("Student ID")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Institution")).not.toBeInTheDocument();
+  });
+
+  it("creates a non-student without institution or student ID", async () => {
+    renderWithAuth();
+    await userEvent.click(await screen.findByRole("button", { name: /add resident/i }));
+    await userEvent.selectOptions(screen.getByLabelText("Resident Type"), "non_student");
+    await userEvent.type(screen.getByLabelText("First name"), "Abena");
+    await userEvent.type(screen.getByLabelText("Last name"), "Owusu");
+    await userEvent.click(screen.getByRole("button", { name: "Create Resident" }));
+    await waitFor(() => {
+      const postCall = vi.mocked(globalThis.fetch).mock.calls.find(([url, init]) => String(url).endsWith("/admin/residents") && init?.method === "POST");
+      expect(postCall).toBeTruthy();
+      const body = JSON.parse(String(postCall?.[1]?.body));
+      expect(body.residentKind).toBe("non_student");
+      expect(body.institutionId).toBeNull();
+      expect(body.studentId).toBeNull();
+    });
+  });
+
 });

@@ -165,3 +165,10 @@ npm.cmd test
 4 test files passed
 55 tests passed
 ```
+
+
+## Stage 2L-F notes
+- `resident_kind` distinguishes Student vs Non-Student.
+- Student self-registration/login OTP path unchanged.
+- Non-student self-registration is disabled in the Resident Portal until the auth migration stage; Admin createResident supports non_student locally.
+- Application UI supports Academic Calendar / Calendar Year / Short-Term lease periods.

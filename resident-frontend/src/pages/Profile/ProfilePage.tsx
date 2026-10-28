@@ -131,13 +131,27 @@ export function ProfilePage() {
           </Card>
 
           <Card>
-            <h2 className="text-lg font-bold text-text-primary">Institution</h2>
+            <h2 className="text-lg font-bold text-text-primary">Resident type</h2>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Detail label="Institution" value={profile.institution_name} />
-              <Detail label="Institution code" value={profile.institution_code} />
-              <Detail label="Student ID" value={profile.student_id} />
+              <Detail label="Type" value={(profile.resident_kind ?? "student") === "non_student" ? "Non-Student" : "Student"} />
             </div>
           </Card>
+
+          {(profile.resident_kind ?? "student") === "non_student" ? (
+            <Card>
+              <h2 className="text-lg font-bold text-text-primary">Institution</h2>
+              <p className="mt-3 text-sm text-text-secondary">Institution and Student ID are not required for non-student residents.</p>
+            </Card>
+          ) : (
+            <Card>
+              <h2 className="text-lg font-bold text-text-primary">Institution</h2>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <Detail label="Institution" value={profile.institution_name} />
+                <Detail label="Institution code" value={profile.institution_code} />
+                <Detail label="Student ID" value={profile.student_id} />
+              </div>
+            </Card>
+          )}
 
           <Card>
             <h2 className="text-lg font-bold text-text-primary">Contact</h2>

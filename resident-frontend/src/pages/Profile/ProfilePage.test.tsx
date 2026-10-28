@@ -10,6 +10,7 @@ const profile = {
   middle_name: "Efua",
   last_name: "Resident",
   status: "applicant",
+  resident_kind: "student",
   phone_verified_at: "2026-08-28T03:37:35.599Z",
   phone: "+233555111222",
   email: "ama@example.com",
@@ -113,4 +114,16 @@ describe("resident profile", () => {
 
     expect(await screen.findByText("First name and last name are required.")).toBeInTheDocument();
   });
+
+  it("hides student institution requirements for non-student profiles", async () => {
+    mockFetch((url) => {
+      if (url.endsWith("/auth/me")) return json({ user: residentUser });
+      if (url.endsWith("/resident/me")) return json({ ok: true, data: { ...profile, resident_kind: "non_student", institution_code: null, institution_name: null, student_id: null } });
+      return json({ ok: true, data: [] });
+    });
+    render(renderResidentApp(["/profile"]));
+    expect(await screen.findByText("Non-Student")).toBeInTheDocument();
+    expect(screen.getByText(/Institution and Student ID are not required/i)).toBeInTheDocument();
+  });
+
 });

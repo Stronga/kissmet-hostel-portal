@@ -17,6 +17,7 @@ import {
   type RateCardOccupancyCapacity,
   type RateCardStatus,
 } from "../types/lease-model";
+import { assertResidentKindFields, isResidentKind } from "../types/resident-kind";
 
 type ApplicationStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "cancelled" | "archived";
 type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "archived";
@@ -707,6 +708,16 @@ export class AdminService {
       const application = await this.repo.first<Record<string, unknown>>("SELECT * FROM applications WHERE id = ?", data.applicationId);
       if (!application) throw new Error("Application not found");
       if (application.status !== "approved") throw new Error("Only approved applications may be booked");
+      // Stage 2L-F boundary: bookings.academic_session_id remains NOT NULL.
+      // CY/ST applications without a session cannot yet become bookings here.
+      if (application.academic_session_id == null) {
+        throw new Error(
+          "Booking from Calendar Year / Short-Term applications requires a later stage that allows bookings without academic_session_id; use Academic Calendar applications for legacy/rate-card booking until then"
+        );
+      }
+      if (application.lease_period_id != null && Number(application.lease_period_id) !== data.leasePeriodId) {
+        throw new Error("Booking lease period must match the approved application lease period");
+      }
 
       const period = await this.get("lease_periods", data.leasePeriodId) as Record<string, unknown> | null;
       if (!period) throw new Error("Lease period not found");
@@ -936,13 +947,41 @@ export class AdminService {
   }
 
 
-  async createResident(actor: AuthUser, data: { email?: string | null; phone?: string | null; displayName: string; institutionId: number; studentId: string; firstName: string; lastName: string; gender?: string | null; status?: string }) {
+  async createResident(actor: AuthUser, data: {
+    email?: string | null;
+    phone?: string | null;
+    displayName: string;
+    residentKind?: string | null;
+    institutionId?: number | null;
+    studentId?: string | null;
+    firstName: string;
+    lastName: string;
+    gender?: string | null;
+    status?: string;
+  }) {
+    const kindRaw = data.residentKind ?? "student";
+    if (!isResidentKind(kindRaw)) throw new Error("Invalid resident kind");
+    const institutionId = data.institutionId ?? null;
+    const studentId = data.studentId?.trim() ? data.studentId.trim() : null;
+    assertResidentKindFields(kindRaw, institutionId, studentId);
+
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const residentCode = await this.repo.allocateResidentCode();
       const user = await this.repo.run("INSERT INTO users (email, phone, display_name, user_type, status) VALUES (?, ?, ?, 'resident', 'active')", data.email ?? null, data.phone ?? null, data.displayName);
       try {
-        const res = await this.repo.run("INSERT INTO residents (user_id, institution_id, resident_code, student_id, first_name, last_name, gender, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", user.meta.last_row_id, data.institutionId, residentCode, data.studentId, data.firstName, data.lastName, data.gender ?? null, data.status ?? "applicant");
-        await this.repo.audit(actor.id, actor.staffId, "admin.resident.create", "resident", res.meta.last_row_id, { residentCode });
+        const res = await this.repo.run(
+          "INSERT INTO residents (user_id, institution_id, resident_code, student_id, first_name, last_name, gender, status, resident_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          user.meta.last_row_id,
+          institutionId,
+          residentCode,
+          studentId,
+          data.firstName,
+          data.lastName,
+          data.gender ?? null,
+          data.status ?? "applicant",
+          kindRaw
+        );
+        await this.repo.audit(actor.id, actor.staffId, "admin.resident.create", "resident", res.meta.last_row_id, { residentCode, residentKind: kindRaw });
         return this.get("residents", Number(res.meta.last_row_id));
       } catch (error) {
         if (String((error as Error).message).includes("resident_code") && attempt < 2) continue;
@@ -953,21 +992,74 @@ export class AdminService {
     throw new Error("Unable to create resident with unique resident code");
   }
 
-  async createApplication(actor: AuthUser, data: { residentId: number; academicSessionId: number; notes?: string | null }) {
+  async createApplication(actor: AuthUser, data: {
+    residentId: number;
+    academicSessionId?: number | null;
+    leasePeriodId?: number | null;
+    notes?: string | null;
+  }) {
+    const resident = await this.get("residents", data.residentId) as Record<string, unknown> | null;
+    if (!resident) throw new Error("Resident not found");
+
+    let academicSessionId: number | null = data.academicSessionId ?? null;
+    let leasePeriodId: number | null = data.leasePeriodId ?? null;
+    let leaseKind: string | null = null;
+
+    if (leasePeriodId != null) {
+      const period = await this.get("lease_periods", leasePeriodId) as Record<string, unknown> | null;
+      if (!period) throw new Error("Lease period not found");
+      if (String(period.status) !== "active") throw new Error("Lease period is not active");
+      if (!isLeaseKind(period.kind)) throw new Error("Invalid lease kind on lease period");
+      leaseKind = String(period.kind);
+      if (leaseKind === "academic_calendar") {
+        const periodSession = period.academic_session_id == null ? null : Number(period.academic_session_id);
+        if (academicSessionId == null) academicSessionId = periodSession;
+        else if (periodSession != null && academicSessionId !== periodSession) {
+          throw new Error("Academic session does not match the selected lease period");
+        }
+      } else if (academicSessionId != null) {
+        throw new Error("Calendar Year and Short-Term applications must not include an academic session");
+      }
+    } else if (academicSessionId != null) {
+      const session = await this.get("academic_sessions", academicSessionId) as Record<string, unknown> | null;
+      if (!session) throw new Error("Academic session not found");
+      leaseKind = "academic_calendar";
+    } else {
+      throw new Error("Application requires a lease period or academic session");
+    }
+
+    if (academicSessionId == null && leasePeriodId == null) {
+      throw new Error("Application requires a lease period or academic session");
+    }
+
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const applicationNumber = await this.repo.allocateApplicationNumber();
       try {
         const res = await this.repo.run(
-          "INSERT INTO applications (resident_id, academic_session_id, application_number, status, decision_notes) VALUES (?, ?, ?, 'draft', ?)",
+          `INSERT INTO applications (
+             resident_id, academic_session_id, lease_period_id, lease_kind,
+             application_number, status, decision_notes
+           ) VALUES (?, ?, ?, ?, ?, 'draft', ?)`,
           data.residentId,
-          data.academicSessionId,
+          academicSessionId,
+          leasePeriodId,
+          leaseKind,
           applicationNumber,
           data.notes ?? null
         );
-        await this.repo.audit(actor.id, actor.staffId, "admin.application.create", "application", res.meta.last_row_id, { applicationNumber });
+        await this.repo.audit(actor.id, actor.staffId, "admin.application.create", "application", res.meta.last_row_id, {
+          applicationNumber,
+          leaseKind,
+          leasePeriodId,
+          academicSessionId
+        });
         return this.get("applications", Number(res.meta.last_row_id));
       } catch (error) {
-        if (String((error as Error).message).includes("application_number") && attempt < 2) continue;
+        const message = String((error as Error).message);
+        if (message.includes("application_number") && attempt < 2) continue;
+        if (message.includes("UNIQUE") || message.includes("one_active")) {
+          throw new Error("Active application already exists for this accommodation period");
+        }
         throw error;
       }
     }
@@ -1010,6 +1102,9 @@ export class AdminService {
       const application = await this.repo.first<Record<string, unknown>>("SELECT * FROM applications WHERE id = ?", data.applicationId);
       if (!application) throw new Error("Application not found");
       if (application.status !== "approved") throw new Error("Only approved applications may be booked");
+      if (application.academic_session_id == null) {
+        throw new Error("Legacy booking path requires an academic session; Calendar Year / Short-Term applications must use the rate-card booking path after session-optional bookings are enabled");
+      }
       const duplicate = await this.repo.first("SELECT id FROM bookings WHERE resident_id = ? AND academic_session_id = ? AND status IN ('pending', 'confirmed')", application.resident_id, application.academic_session_id);
       if (duplicate) throw new Error("Duplicate active booking");
       const rate = await this.repo.first<{ id: number; amount_minor: number; currency: string }>("SELECT id, amount_minor, currency FROM room_rates WHERE room_id = ? AND academic_session_id = ? AND status = 'active' LIMIT 1", data.roomId, application.academic_session_id);

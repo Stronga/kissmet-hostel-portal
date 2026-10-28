@@ -58,13 +58,16 @@ export function ApplicationDetail({
       ]} />
       <DetailSection title="Applicant" rows={[
         ["Name", residentName(resident)],
-        ["Student ID", resident?.student_id],
+        ["Resident type", resident?.resident_kind === "non_student" ? "Non-Student" : "Student"],
+        ["Student ID", resident?.resident_kind === "non_student" ? "Not required" : resident?.student_id],
         ["Resident code", resident?.resident_code],
         ["Applicant status", resident?.status ? formatStatus(resident.status) : undefined]
       ]} />
       <DetailSection title="Review" rows={[
-        ["Academic session", session?.name ?? `Session #${application.academic_session_id}`],
-        ["Institution", institution?.name],
+        ["Lease type", application.lease_kind === "calendar_year" ? "Calendar Year" : application.lease_kind === "short_term" ? "Short-Term" : "Academic Calendar"],
+        ["Lease period ID", application.lease_period_id ?? "Not linked"],
+        ["Academic session", application.academic_session_id == null ? "Not applicable" : (session?.name ?? `Session #${application.academic_session_id}`)],
+        ["Institution", resident?.resident_kind === "non_student" ? "Not required" : institution?.name],
         ["Reviewed by staff ID", application.reviewed_by_staff_id],
         ["Reviewed at", application.reviewed_at ? formatDateTime(application.reviewed_at) : "Not reviewed"],
         ["Decision notes", application.decision_notes]

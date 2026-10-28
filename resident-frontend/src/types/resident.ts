@@ -9,6 +9,8 @@ export type MaintenancePriority = "low" | "normal" | "high" | "urgent";
 export type AnnouncementSeverity = "info" | "warning" | "critical" | "high_alert" | string;
 export type PortalMessageStatus = "unread" | "read";
 
+export type ResidentKind = "student" | "non_student";
+
 export interface ResidentProfile {
   id: number;
   resident_code: string;
@@ -16,6 +18,7 @@ export interface ResidentProfile {
   middle_name?: string | null;
   last_name: string;
   status: ResidentStatus;
+  resident_kind?: ResidentKind | string | null;
   phone_verified_at?: string | null;
   phone?: string | null;
   email?: string | null;
@@ -35,10 +38,26 @@ export interface ResidentDocument {
   rejection_reason?: string | null;
 }
 
+export type LeaseKind = "academic_calendar" | "calendar_year" | "short_term";
+
+export interface ResidentLeasePeriod {
+  id: number;
+  kind: LeaseKind | string;
+  code: string;
+  name: string;
+  starts_on?: string | null;
+  ends_on?: string | null;
+  status: string;
+  academic_session_id?: number | null;
+  notes?: string | null;
+}
+
 export interface ResidentApplication {
   id: number;
   application_number: string;
-  academic_session_id: number;
+  academic_session_id: number | null;
+  lease_period_id?: number | null;
+  lease_kind?: LeaseKind | string | null;
   status: ApplicationStatus;
   created_at?: string | null;
   submitted_at?: string | null;

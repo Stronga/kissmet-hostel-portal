@@ -40,10 +40,24 @@ function mockApplication(state: MockState = {}) {
     }
     if (url.endsWith("/resident/me/documents")) return json({ ok: true, data: state.documents ?? uploadedDocs });
     if (url.endsWith("/resident/me/academic-session")) return json({ ok: true, data: state.activeSession === undefined ? session : state.activeSession });
+    if (url.endsWith("/resident/me/lease-periods")) return json({ ok: true, data: [
+      { id: 12, kind: "academic_calendar", code: "AC-2026", name: "Academic 2026", status: "active", academic_session_id: 1 },
+      { id: 2, kind: "calendar_year", code: "CY-2026", name: "Calendar 2026", status: "active", academic_session_id: null },
+      { id: 3, kind: "short_term", code: "ST-2026-Q1", name: "Short Term Q1", status: "active", academic_session_id: null }
+    ] });
     if (url.endsWith("/resident/me/applications") && method === "GET") return json({ ok: true, data: applications });
     if (url.endsWith("/resident/me/applications") && method === "POST") {
       if (state.failCreate) return json({ error: "UNIQUE constraint failed" }, 409);
-      applications = [{ id: 10, application_number: "KSM-APP-0010", academic_session_id: 1, status: "draft", created_at: "2026-08-28T03:37:35.599Z" }];
+      const body = (parsed ?? {}) as Record<string, unknown>;
+      applications = [{
+        id: 10,
+        application_number: "KSM-APP-0010",
+        academic_session_id: body.leasePeriodId === 2 || body.leasePeriodId === 3 ? null : 1,
+        lease_period_id: body.leasePeriodId ?? null,
+        lease_kind: body.leasePeriodId === 2 ? "calendar_year" : body.leasePeriodId === 3 ? "short_term" : "academic_calendar",
+        status: "draft",
+        created_at: "2026-08-28T03:37:35.599Z"
+      }];
       return json({ ok: true, data: applications[0] }, 201);
     }
     if (url.endsWith("/submit") && method === "POST") {
@@ -217,12 +231,30 @@ describe("resident application workflow", () => {
     expect(within(timeline).queryByText("Submitted")).not.toBeInTheDocument();
   });
 
-  it("does not allow starting an application when no active session exists", async () => {
+  it("does not invent an academic session for Calendar Year / Short-Term when none is active", async () => {
     seedResidentToken();
     mockApplication({ applications: [], activeSession: null });
     render(renderResidentApp(["/application"]));
-
-    expect(await screen.findByText("No active session")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start application" })).toBeDisabled();
+    expect(await screen.findByLabelText("Accommodation Type")).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Accommodation Type"), "calendar_year");
+    expect(screen.getByText(/do not require an academic session/i)).toBeInTheDocument();
+    expect(screen.queryByText("No active session")).not.toBeInTheDocument();
   });
+
+  it("supports Calendar Year and Short-Term accommodation selectors without inventing academic sessions", async () => {
+    seedResidentToken();
+    const requests = mockApplication({ applications: [] });
+    render(renderResidentApp(["/application"]));
+    expect(await screen.findByLabelText("Accommodation Type")).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Accommodation Type"), "calendar_year");
+    expect(screen.getByText(/do not require an academic session/i)).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Lease period"), "2");
+    await userEvent.click(screen.getByRole("button", { name: "Start application" }));
+    await waitFor(() => {
+      const create = requests.find((request) => request.url.endsWith("/resident/me/applications") && request.method === "POST");
+      expect(create?.body).toEqual({ leasePeriodId: 2 });
+    });
+    expect((await screen.findAllByText("Calendar Year")).length).toBeGreaterThan(0);
+  });
+
 });

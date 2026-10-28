@@ -9,6 +9,7 @@ function json(body: unknown, status = 200) {
 
 interface MockState {
   documents?: unknown[];
+  profile?: Record<string, unknown>;
   failList?: boolean;
   failUpload?: boolean;
 }
@@ -20,6 +21,7 @@ function mockDocuments(state: MockState = {}) {
     const method = init?.method ?? "GET";
     requests.push({ url, method, body: init?.body });
     if (url.endsWith("/auth/me")) return json({ user: residentUser });
+    if (url.endsWith("/resident/me") && method === "GET") return json({ ok: true, data: state.profile ?? { id: 1, resident_code: "KSM-RES-0001", first_name: "Ama", last_name: "A", status: "applicant", resident_kind: "student", phone_verified_at: "now", institution_code: "ug", student_id: "S1" } });
     if (url.endsWith("/resident/me/documents") && method === "GET") {
       if (state.failList) return json({ error: "Documents unavailable" }, 500);
       return json({ ok: true, data: state.documents ?? [] });
@@ -174,4 +176,17 @@ describe("resident documents", () => {
 
     expect(await screen.findByText("Upload failed")).toBeInTheDocument();
   });
+
+  it("requires Ghana Card only for non-student residents", async () => {
+    seedResidentToken();
+    mockDocuments({
+      profile: { id: 2, resident_code: "KSM-RES-0002", first_name: "Kojo", last_name: "K", status: "applicant", resident_kind: "non_student", phone_verified_at: "now" },
+      documents: []
+    });
+    render(renderResidentApp(["/documents"]));
+    expect(await screen.findByText(/0 of 1 uploaded/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Ghana Card" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Student Card" })).not.toBeInTheDocument();
+  });
+
 });

@@ -23,15 +23,21 @@ function latestBooking(bookings: ResidentBooking[]) {
   return [...bookings].sort((a, b) => b.id - a.id)[0] ?? null;
 }
 
+function isStudentProfile(data: DashboardData) {
+  return (data.profile.resident_kind ?? "student") !== "non_student";
+}
+
 function hasRequiredIdentityDocuments(data: DashboardData) {
   const docs = latestIdentityDocuments(data.documents);
-  return isDocumentUploaded(docs.student_card) && isDocumentUploaded(docs.ghana_card);
+  const ghana = isDocumentUploaded(docs.ghana_card);
+  if (!isStudentProfile(data)) return ghana;
+  return isDocumentUploaded(docs.student_card) && ghana;
 }
 
 function missingDocumentLabels(data: DashboardData) {
   const docs = latestIdentityDocuments(data.documents);
   return [
-    !isDocumentUploaded(docs.student_card) ? "Student Card" : null,
+    isStudentProfile(data) && !isDocumentUploaded(docs.student_card) ? "Student Card" : null,
     !isDocumentUploaded(docs.ghana_card) ? "Ghana Card" : null
   ].filter(Boolean) as string[];
 }

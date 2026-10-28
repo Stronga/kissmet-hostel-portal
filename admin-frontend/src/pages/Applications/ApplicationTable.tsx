@@ -8,13 +8,26 @@ function residentName(resident?: Resident) {
   return [resident.first_name, resident.middle_name, resident.last_name].filter(Boolean).join(" ") || `Resident #${resident.id}`;
 }
 
-function sessionName(sessions: AcademicSession[], id: number) {
+function sessionName(sessions: AcademicSession[], id: number | null | undefined) {
+  if (id == null) return "—";
   return sessions.find((session) => session.id === id)?.name ?? `Session #${id}`;
 }
 
 function institutionName(institutions: Institution[], id?: number | null) {
   if (!id) return "Not set";
   return institutions.find((institution) => institution.id === id)?.name ?? `Institution #${id}`;
+}
+
+function leaseTypeLabel(kind?: string | null) {
+  if (kind === "calendar_year") return "Calendar Year";
+  if (kind === "short_term") return "Short-Term";
+  if (kind === "academic_calendar") return "Academic Calendar";
+  return "Academic Calendar";
+}
+
+function residentTypeLabel(resident?: Resident) {
+  if (!resident) return "—";
+  return resident.resident_kind === "non_student" ? "Non-Student" : "Student";
 }
 
 export function ApplicationTable({
@@ -37,8 +50,16 @@ export function ApplicationTable({
       columns={[
         { key: "number", header: "Application Number", render: (application) => application.application_number },
         { key: "resident", header: "Resident", render: (application) => residentName(residentsById.get(application.resident_id)) },
-        { key: "student", header: "Student ID", render: (application) => residentsById.get(application.resident_id)?.student_id ?? "Not set" },
-        { key: "institution", header: "Institution", render: (application) => institutionName(institutions, residentsById.get(application.resident_id)?.institution_id) },
+        { key: "type", header: "Resident Type", render: (application) => residentTypeLabel(residentsById.get(application.resident_id)) },
+        { key: "student", header: "Student ID", render: (application) => {
+          const resident = residentsById.get(application.resident_id);
+          return resident?.resident_kind === "non_student" ? "—" : (resident?.student_id ?? "Not set");
+        } },
+        { key: "institution", header: "Institution", render: (application) => {
+          const resident = residentsById.get(application.resident_id);
+          return resident?.resident_kind === "non_student" ? "Non-Student" : institutionName(institutions, resident?.institution_id);
+        } },
+        { key: "lease", header: "Lease Type", render: (application) => leaseTypeLabel(application.lease_kind) },
         { key: "session", header: "Academic Session", render: (application) => sessionName(sessions, application.academic_session_id) },
         { key: "status", header: "Status", render: (application) => <StatusBadge status={application.status} /> },
         { key: "submitted", header: "Submitted", render: (application) => application.submitted_at ? formatDateTime(application.submitted_at) : "Not submitted" },

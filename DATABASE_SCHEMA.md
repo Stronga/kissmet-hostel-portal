@@ -561,7 +561,7 @@ Backend/API activation of the Stage 2L-B schema foundation. **Local only** at th
 
 - `bookings.total_amount_minor` — authoritative **agreed accommodation** price (historical).
 - `bookings.maintenance_fee_minor` — separate non-refundable management fee snapshot; **not** folded into `total_amount_minor`.
-- Payment arrangement columns may be stored on the booking; `payment_confirmation_settings` remains the confirmation enforcement system until Stage 2L-F.
+- Payment arrangement columns may be stored on the booking; `payment_confirmation_settings` remains the confirmation enforcement system until a later payment-policy stage (not 2L-F resident-types).
 
 ### Agreement override lock (Stage 2L-C)
 
@@ -581,3 +581,35 @@ Backend/API activation of the Stage 2L-B schema foundation. **Local only** at th
 
 Audit actions: `admin.lease_period.create|update|status_change`, `admin.rate_card.create|update|status_change`, `admin.booking.terms_override`.
 
+
+
+## Stage 2L-F — Resident kinds & flexible applications
+
+Forward migration: `0016_resident_kind_and_application_flexibility.sql` (0001–0015 immutable).
+
+### residents.resident_kind
+- Values: `student` | `non_student` (NOT NULL, default `student`)
+- Existing institution/student half-pair CHECK preserved
+- Service rules: students require institution_id + student_id; non_students require both null
+- `resident_code` remains the universal internal identifier (unchanged)
+
+### applications commercial intent
+- `academic_session_id` is now **nullable**
+- Added `lease_period_id` (FK lease_periods) and `lease_kind` (`academic_calendar` | `calendar_year` | `short_term`)
+- CHECK: at least one of academic_session_id / lease_period_id present
+- CHECK: calendar_year / short_term cannot carry academic_session_id
+
+### Active-application uniqueness
+- Legacy: one active app per `(resident_id, academic_session_id)` when `lease_period_id IS NULL`
+- Flexible: one active app per `(resident_id, lease_period_id)` when lease period is set
+- Active statuses: draft, submitted, under_review, approved
+- Historical rows preserved; rejected/cancelled/archived do not block a new period application
+
+### Document submit rules
+- Student: Ghana Card + Student Card (+ institution/student ID)
+- Non-student: Ghana Card only (Student Card type remains supported, not required)
+
+### Auth / booking boundaries
+- Resident OTP login remains institutionCode + studentId (unchanged in 2L-F)
+- Non-student self-registration/login deferred; Admin can provision non_students
+- Legacy `createBooking` and rate-card booking still require `bookings.academic_session_id` NOT NULL; CY/ST booking-from-application without session is deferred

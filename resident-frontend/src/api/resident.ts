@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-import type { AcademicSession, MaintenanceCategory, MaintenancePriority, ResidentAllocation, ResidentAnnouncement, ResidentApplication, ResidentBooking, ResidentDocument, ResidentMaintenanceRequest, ResidentMessage, ResidentPayment, ResidentPaymentSummary, ResidentProfile, ResidentReceipt } from "../types/resident";
+import type { AcademicSession, MaintenanceCategory, MaintenancePriority, ResidentAllocation, ResidentAnnouncement, ResidentApplication, ResidentBooking, ResidentDocument, ResidentLeasePeriod, ResidentMaintenanceRequest, ResidentMessage, ResidentPayment, ResidentPaymentSummary, ResidentProfile, ResidentReceipt } from "../types/resident";
 
 export function fetchResidentProfile() {
   return apiRequest<{ ok: true; data: ResidentProfile }>("/resident/me");
@@ -31,10 +31,15 @@ export function fetchActiveAcademicSession() {
   return apiRequest<{ ok: true; data: AcademicSession | null }>("/resident/me/academic-session");
 }
 
-export function createResidentApplication(academicSessionId: number) {
+export function fetchActiveLeasePeriods() {
+  return apiRequest<{ ok: true; data: ResidentLeasePeriod[] }>("/resident/me/lease-periods");
+}
+
+export function createResidentApplication(input: number | { academicSessionId?: number | null; leasePeriodId?: number | null }) {
+  const body = typeof input === "number" ? { academicSessionId: input } : input;
   return apiRequest<{ ok: true; data: ResidentApplication }>("/resident/me/applications", {
     method: "POST",
-    body: JSON.stringify({ academicSessionId })
+    body: JSON.stringify(body)
   });
 }
 

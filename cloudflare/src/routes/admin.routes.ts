@@ -341,8 +341,9 @@ routes.post("/residents", requirePermission("resident:write"), async (c) => {
       email: stringField(input, "email", false),
       phone: stringField(input, "phone", false),
       displayName: stringField(input, "displayName")!,
-      institutionId: intField(input, "institutionId")!,
-      studentId: stringField(input, "studentId")!,
+      residentKind: stringField(input, "residentKind", false) ?? "student",
+      institutionId: intField(input, "institutionId", false),
+      studentId: stringField(input, "studentId", false),
       firstName: stringField(input, "firstName")!,
       lastName: stringField(input, "lastName")!,
       gender: stringField(input, "gender", false),
@@ -396,7 +397,8 @@ routes.post("/applications", requirePermission("application:write"), async (c) =
     const input = await body(c);
     return c.json(ok(await service(c).createApplication(c.get("authUser"), {
       residentId: intField(input, "residentId")!,
-      academicSessionId: intField(input, "academicSessionId")!,
+      academicSessionId: intField(input, "academicSessionId", false),
+      leasePeriodId: intField(input, "leasePeriodId", false),
       notes: stringField(input, "notes", false, 2000)
     })), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }

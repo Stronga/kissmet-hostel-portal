@@ -90,7 +90,9 @@ export interface AcademicSession {
 export interface Application {
   id: number;
   resident_id: number;
-  academic_session_id: number;
+  academic_session_id: number | null;
+  lease_period_id?: number | null;
+  lease_kind?: "academic_calendar" | "calendar_year" | "short_term" | string | null;
   application_number: string;
   status: ApplicationStatus;
   submitted_at?: string | null;
@@ -590,12 +592,15 @@ export interface RateCard {
   archived_at?: string | null;
 }
 
+export type ResidentKind = "student" | "non_student";
+
 export interface Resident {
   id: number;
   user_id: number;
   institution_id: number | null;
   resident_code: string;
   student_id: string | null;
+  resident_kind?: ResidentKind | string | null;
   first_name: string;
   middle_name?: string | null;
   last_name: string;
@@ -616,8 +621,9 @@ export interface CreateResidentInput {
   email?: string | null;
   phone?: string | null;
   displayName: string;
-  institutionId: number;
-  studentId: string;
+  residentKind: ResidentKind;
+  institutionId?: number | null;
+  studentId?: string | null;
   firstName: string;
   lastName: string;
   gender?: string | null;

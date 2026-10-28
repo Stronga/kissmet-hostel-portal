@@ -32,6 +32,7 @@ export const residentProfile = {
   middle_name: null,
   last_name: "Resident",
   status: "applicant",
+  resident_kind: "student",
   phone_verified_at: "2026-08-28T03:37:35.599Z",
   phone: "+233555111222",
   email: "ama@example.com",
@@ -42,6 +43,7 @@ export const residentProfile = {
 
 export function residentEndpointResponse(url: string) {
   if (url.endsWith("/resident/me/documents")) return Response.json({ ok: true, data: [] });
+  if (url.endsWith("/resident/me/lease-periods")) return Response.json({ ok: true, data: [] });
   if (url.endsWith("/resident/me/applications")) return Response.json({ ok: true, data: [] });
   if (url.endsWith("/resident/me/bookings")) return Response.json({ ok: true, data: [] });
   if (url.endsWith("/resident/me/payments/summary")) return Response.json({ ok: true, data: null });

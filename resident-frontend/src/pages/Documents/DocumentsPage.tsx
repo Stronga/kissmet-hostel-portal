@@ -6,9 +6,9 @@ import { InfoHelp } from "../../components/common/InfoHelp";
 import { LoadingState } from "../../components/common/LoadingState";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { PageHeader } from "../../components/layout/PageHeader";
-import { fetchResidentDocuments, uploadResidentIdentityDocument } from "../../api/resident";
+import { fetchResidentDocuments, fetchResidentProfile, uploadResidentIdentityDocument } from "../../api/resident";
 import { usePageTitle } from "../../hooks/usePageTitle";
-import type { ResidentDocument } from "../../types/resident";
+import type { ResidentDocument, ResidentProfile } from "../../types/resident";
 import { documentActionLabel, documentStatusLabel, documentTypeLabel, formatFileSize, identityDocumentTypes, isDocumentUploaded, latestIdentityDocuments, validateIdentityDocumentFile, type IdentityDocumentType } from "../../utils/documents";
 import { formatDateTime } from "../../utils/format";
 
@@ -28,8 +28,14 @@ function whyRequired(type: IdentityDocumentType) {
   return "A Ghana Card is required for application readiness and identity verification.";
 }
 
-function RequirementSummary({ documents }: { documents: Record<IdentityDocumentType, ResidentDocument | null> }) {
-  const uploadedCount = identityDocumentTypes.filter((type) => isDocumentUploaded(documents[type])).length;
+function requiredIdentityTypes(profile: ResidentProfile | null): IdentityDocumentType[] {
+  if ((profile?.resident_kind ?? "student") === "non_student") return ["ghana_card"];
+  return [...identityDocumentTypes];
+}
+
+function RequirementSummary({ documents, requiredTypes }: { documents: Record<IdentityDocumentType, ResidentDocument | null>; requiredTypes: IdentityDocumentType[] }) {
+  const uploadedCount = requiredTypes.filter((type) => isDocumentUploaded(documents[type])).length;
+  const total = requiredTypes.length;
   return (
     <Card className="mb-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -37,12 +43,14 @@ function RequirementSummary({ documents }: { documents: Record<IdentityDocumentT
           <p className="inline-flex items-center gap-1 text-sm font-semibold text-text-secondary">
             Required documents
             <InfoHelp label="About required documents">
-              Upload completeness and staff verification are tracked separately. Both Student Card and Ghana Card are required before application submission.
+              {total === 1
+                ? "Ghana Card is required for non-student application submission. Student Card is not required."
+                : "Upload completeness and staff verification are tracked separately. Both Student Card and Ghana Card are required before application submission."}
             </InfoHelp>
           </p>
-          <h2 className="mt-1 text-xl font-bold text-text-primary">{uploadedCount} of 2 uploaded</h2>
+          <h2 className="mt-1 text-xl font-bold text-text-primary">{uploadedCount} of {total} uploaded</h2>
         </div>
-        <StatusBadge status={uploadedCount === 2 ? "uploaded" : "pending"} />
+        <StatusBadge status={uploadedCount === total ? "uploaded" : "pending"} />
       </div>
     </Card>
   );
@@ -118,6 +126,7 @@ function DocumentCard({ type, document, state, onUpload }: { type: IdentityDocum
 
 export function DocumentsPage() {
   const [documents, setDocuments] = useState<ResidentDocument[]>([]);
+  const [profile, setProfile] = useState<ResidentProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadState, setUploadState] = useState<UploadState>(() => initialUploadState());
@@ -128,8 +137,9 @@ export function DocumentsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetchResidentDocuments();
-      setDocuments(response.data);
+      const [docsResponse, profileResponse] = await Promise.all([fetchResidentDocuments(), fetchResidentProfile()]);
+      setDocuments(docsResponse.data);
+      setProfile(profileResponse.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load documents.");
     } finally {
@@ -140,6 +150,7 @@ export function DocumentsPage() {
   useEffect(() => { void load(); }, []);
 
   const identityDocuments = useMemo(() => latestIdentityDocuments(documents), [documents]);
+  const requiredTypes = useMemo(() => requiredIdentityTypes(profile), [profile]);
 
   async function handleUpload(type: IdentityDocumentType, file: File | null) {
     const validationError = validateIdentityDocumentFile(file);
@@ -170,9 +181,9 @@ export function DocumentsPage() {
   return (
     <>
       <PageHeader title="Documents" description="Upload required identity documents for your application." />
-      <RequirementSummary documents={identityDocuments} />
+      <RequirementSummary documents={identityDocuments} requiredTypes={requiredTypes} />
       <div className="grid gap-5 lg:grid-cols-2">
-        {identityDocumentTypes.map((type) => (
+        {requiredTypes.map((type) => (
           <DocumentCard key={type} type={type} document={identityDocuments[type]} state={uploadState[type]} onUpload={(docType, file) => void handleUpload(docType, file)} />
         ))}
       </div>

@@ -29,9 +29,14 @@ export function applicationStatusDescription(application?: ResidentApplication |
   return "Your application status is available.";
 }
 
+export function isStudentResident(profile: ResidentProfile) {
+  return (profile.resident_kind ?? "student") !== "non_student";
+}
+
 export function buildReadiness(profile: ResidentProfile, documents: ResidentDocument[]): ReadinessItem[] {
   const docs = latestIdentityDocuments(documents);
-  return [
+  const student = isStudentResident(profile);
+  const items: ReadinessItem[] = [
     {
       key: "phone",
       label: "Phone verified",
@@ -41,22 +46,29 @@ export function buildReadiness(profile: ResidentProfile, documents: ResidentDocu
     {
       key: "profile",
       label: "Profile complete",
-      ready: Boolean(profile.first_name && profile.last_name && profile.institution_code && profile.student_id),
-      detail: profile.first_name && profile.last_name && profile.institution_code && profile.student_id ? "Name, institution, and student ID are present." : "Name, institution, and student ID are required."
-    },
-    {
+      ready: student
+        ? Boolean(profile.first_name && profile.last_name && profile.institution_code && profile.student_id)
+        : Boolean(profile.first_name && profile.last_name),
+      detail: student
+        ? (profile.first_name && profile.last_name && profile.institution_code && profile.student_id ? "Name, institution, and student ID are present." : "Name, institution, and student ID are required.")
+        : (profile.first_name && profile.last_name ? "Name is present." : "Name is required.")
+    }
+  ];
+  if (student) {
+    items.push({
       key: "student_card",
       label: "Student Card uploaded",
       ready: isDocumentUploaded(docs.student_card),
       detail: isDocumentUploaded(docs.student_card) ? "Student Card has been uploaded." : "Upload your Student Card."
-    },
-    {
-      key: "ghana_card",
-      label: "Ghana Card uploaded",
-      ready: isDocumentUploaded(docs.ghana_card),
-      detail: isDocumentUploaded(docs.ghana_card) ? "Ghana Card has been uploaded." : "Upload your Ghana Card."
-    }
-  ];
+    });
+  }
+  items.push({
+    key: "ghana_card",
+    label: "Ghana Card uploaded",
+    ready: isDocumentUploaded(docs.ghana_card),
+    detail: isDocumentUploaded(docs.ghana_card) ? "Ghana Card has been uploaded." : "Upload your Ghana Card."
+  });
+  return items;
 }
 
 export function isReadyToSubmit(profile: ResidentProfile, documents: ResidentDocument[]) {

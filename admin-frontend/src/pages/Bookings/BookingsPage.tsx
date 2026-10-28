@@ -119,6 +119,10 @@ export function BookingsPage() {
   async function loadAvailabilityFor(application: Application | null) {
     setAvailability([]);
     if (!application) return;
+    if (application.academic_session_id == null) {
+      setCreateError("Legacy availability lookup requires an academic session. Calendar Year / Short-Term applications use the rate-card booking path.");
+      return;
+    }
     setLoadingAvailability(true);
     try {
       setAvailability(await listAvailability(application.academic_session_id, application.resident_id));

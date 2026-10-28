@@ -7,6 +7,7 @@ import type { SmsProvider } from "./sms.service";
 import { OTP_DELIVERY_FAILURE_MESSAGE } from "./sms.service";
 import { normalizeGhanaPhoneForSms } from "./phone";
 import { validateUploadFile } from "../http/uploads";
+import { assertIdentityDocsForSubmit, isResidentKind, type ResidentKind } from "../types/resident-kind";
 
 const OTP_MINUTES = 10;
 const SESSION_HOURS = 8;
@@ -35,6 +36,13 @@ export class ResidentService {
 
   activeAcademicSession() {
     return this.repo.first("SELECT id, code, name, starts_on, ends_on, status FROM academic_sessions WHERE status = 'active' ORDER BY id DESC LIMIT 1");
+  }
+
+  activeLeasePeriods() {
+    return this.repo.all(
+      `SELECT id, kind, code, name, starts_on, ends_on, status, academic_session_id, notes
+       FROM lease_periods WHERE status = 'active' ORDER BY starts_on DESC, id DESC`
+    );
   }
 
   async requestRegistrationOtp(data: { firstName: string; middleName?: string | null; lastName: string; phone: string; email?: string | null; institutionCode: string; studentId: string }) {
@@ -109,7 +117,7 @@ export class ResidentService {
     const user = await this.repo.run("INSERT INTO users (email, phone, display_name, user_type, status) VALUES (?, ?, ?, 'resident', 'active')", payload.email ?? null, payload.phone, displayName);
     const residentCode = await this.repo.allocateResidentCode();
     const resident = await this.repo.run(
-      "INSERT INTO residents (user_id, institution_id, resident_code, student_id, first_name, middle_name, last_name, status, phone_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'applicant', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+      "INSERT INTO residents (user_id, institution_id, resident_code, student_id, first_name, middle_name, last_name, status, phone_verified_at, resident_kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'applicant', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'student')",
       user.meta.last_row_id,
       payload.institutionId,
       residentCode,
@@ -130,7 +138,7 @@ export class ResidentService {
     if (!actor.residentId) throw new Error("Resident session required");
     return this.repo.first(`
       SELECT r.id, r.resident_code, r.first_name, r.middle_name, r.last_name, r.status, r.phone_verified_at,
-             u.phone, u.email, i.code AS institution_code, i.name AS institution_name, r.student_id
+             r.resident_kind, u.phone, u.email, i.code AS institution_code, i.name AS institution_name, r.student_id
       FROM residents r JOIN users u ON u.id = r.user_id LEFT JOIN institutions i ON i.id = r.institution_id
       WHERE r.id = ?
     `, actor.residentId);
@@ -167,30 +175,82 @@ export class ResidentService {
     return doc;
   }
 
-  async createApplication(actor: AuthUser, academicSessionId: number) {
+  async createApplication(actor: AuthUser, input: number | { academicSessionId?: number | null; leasePeriodId?: number | null }) {
     if (!actor.residentId) throw new Error("Resident session required");
-    const session = await this.repo.first("SELECT id FROM academic_sessions WHERE id = ? AND status = 'active'", academicSessionId);
-    if (!session) throw new Error("Active academic session not found");
-    const existing = await this.repo.first(
-      "SELECT id FROM applications WHERE resident_id = ? AND academic_session_id = ? AND status NOT IN ('cancelled', 'archived')",
-      actor.residentId,
-      academicSessionId
-    );
-    if (existing) throw new Error("Active application already exists for this session");
+    const data = typeof input === "number" ? { academicSessionId: input, leasePeriodId: null as number | null } : input;
+    let academicSessionId: number | null = data.academicSessionId ?? null;
+    let leasePeriodId: number | null = data.leasePeriodId ?? null;
+    let leaseKind: string | null = null;
+
+    if (leasePeriodId != null) {
+      const period = await this.repo.first<Record<string, unknown>>(
+        "SELECT id, kind, status, academic_session_id FROM lease_periods WHERE id = ?",
+        leasePeriodId
+      );
+      if (!period || String(period.status) !== "active") throw new Error("Active lease period not found");
+      leaseKind = String(period.kind);
+      if (leaseKind === "academic_calendar") {
+        const periodSession = period.academic_session_id == null ? null : Number(period.academic_session_id);
+        if (academicSessionId == null) academicSessionId = periodSession;
+        else if (periodSession != null && academicSessionId !== periodSession) {
+          throw new Error("Academic session does not match the selected lease period");
+        }
+        if (academicSessionId != null) {
+          const session = await this.repo.first("SELECT id FROM academic_sessions WHERE id = ? AND status = 'active'", academicSessionId);
+          if (!session) throw new Error("Active academic session not found");
+        }
+      } else if (academicSessionId != null) {
+        throw new Error("Calendar Year and Short-Term applications must not include an academic session");
+      }
+      const existingPeriod = await this.repo.first(
+        "SELECT id FROM applications WHERE resident_id = ? AND lease_period_id = ? AND status NOT IN ('cancelled', 'archived', 'rejected')",
+        actor.residentId,
+        leasePeriodId
+      );
+      if (existingPeriod) throw new Error("Active application already exists for this accommodation period");
+    } else if (academicSessionId != null) {
+      const session = await this.repo.first("SELECT id FROM academic_sessions WHERE id = ? AND status = 'active'", academicSessionId);
+      if (!session) throw new Error("Active academic session not found");
+      leaseKind = "academic_calendar";
+      const existing = await this.repo.first(
+        "SELECT id FROM applications WHERE resident_id = ? AND academic_session_id = ? AND lease_period_id IS NULL AND status NOT IN ('cancelled', 'archived', 'rejected')",
+        actor.residentId,
+        academicSessionId
+      );
+      if (existing) throw new Error("Active application already exists for this session");
+    } else {
+      throw new Error("Application requires a lease period or academic session");
+    }
+
     const number = await this.repo.allocateApplicationNumber();
-    const res = await this.repo.run("INSERT INTO applications (resident_id, academic_session_id, application_number, status) VALUES (?, ?, ?, 'draft')", actor.residentId, academicSessionId, number);
-    await this.repo.audit(actor.id, null, "resident.application.created", "application", res.meta.last_row_id);
-    return this.repo.get("applications", Number(res.meta.last_row_id));
+    try {
+      const res = await this.repo.run(
+        "INSERT INTO applications (resident_id, academic_session_id, lease_period_id, lease_kind, application_number, status) VALUES (?, ?, ?, ?, ?, 'draft')",
+        actor.residentId,
+        academicSessionId,
+        leasePeriodId,
+        leaseKind,
+        number
+      );
+      await this.repo.audit(actor.id, null, "resident.application.created", "application", res.meta.last_row_id, { leaseKind, leasePeriodId, academicSessionId });
+      return this.repo.get("applications", Number(res.meta.last_row_id));
+    } catch (error) {
+      const message = String((error as Error).message);
+      if (message.includes("UNIQUE") || message.includes("one_active")) {
+        throw new Error("Active application already exists for this accommodation period");
+      }
+      throw error;
+    }
   }
 
   applications(actor: AuthUser) {
     if (!actor.residentId) throw new Error("Resident session required");
-    return this.repo.all("SELECT id, application_number, academic_session_id, status, created_at, submitted_at, reviewed_at, decision_notes FROM applications WHERE resident_id = ? ORDER BY id DESC", actor.residentId);
+    return this.repo.all("SELECT id, application_number, academic_session_id, lease_period_id, lease_kind, status, created_at, submitted_at, reviewed_at, decision_notes FROM applications WHERE resident_id = ? ORDER BY id DESC", actor.residentId);
   }
 
   async ownApplication(actor: AuthUser, id: number) {
     if (!actor.residentId) throw new Error("Resident session required");
-    const app = await this.repo.first<Record<string, unknown>>("SELECT id, application_number, academic_session_id, status, created_at, submitted_at, reviewed_at, decision_notes FROM applications WHERE id = ? AND resident_id = ?", id, actor.residentId);
+    const app = await this.repo.first<Record<string, unknown>>("SELECT id, application_number, academic_session_id, lease_period_id, lease_kind, status, created_at, submitted_at, reviewed_at, decision_notes FROM applications WHERE id = ? AND resident_id = ?", id, actor.residentId);
     if (!app) throw new Error("Application not found");
     return app;
   }
@@ -207,8 +267,23 @@ export class ResidentService {
     const app = await this.ownApplication(actor, id);
     if (app.status !== "draft") throw new Error("Invalid workflow transition");
     const profile = await this.me(actor) as Record<string, unknown> | null;
-    const docs = await this.repo.first<{ count: number }>("SELECT COUNT(*) AS count FROM documents WHERE resident_id = ? AND document_type IN ('student_card', 'ghana_card') AND status IN ('uploaded', 'verified')", actor.residentId);
-    if (!profile?.phone_verified_at || !profile?.student_id || !profile?.first_name || !profile?.last_name || (docs?.count ?? 0) < 2) throw new Error("Incomplete application");
+    if (!profile?.phone_verified_at || !profile?.first_name || !profile?.last_name) throw new Error("Incomplete application");
+    const kindRaw = profile.resident_kind ?? "student";
+    if (!isResidentKind(kindRaw)) throw new Error("Incomplete application");
+    const kind = kindRaw as ResidentKind;
+    if (kind === "student" && (!profile.student_id || !profile.institution_code)) {
+      throw new Error("Incomplete application");
+    }
+    const docs = await this.repo.all(
+      "SELECT document_type, status FROM documents WHERE resident_id = ? AND document_type IN ('student_card', 'ghana_card') AND status IN ('uploaded', 'verified')",
+      actor.residentId
+    );
+    const docRows = (docs.results ?? docs) as Array<{ document_type: string; status: string }>;
+    try {
+      assertIdentityDocsForSubmit(kind, Array.isArray(docRows) ? docRows : []);
+    } catch {
+      throw new Error("Incomplete application");
+    }
     await this.repo.run("UPDATE applications SET status = 'submitted', submitted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", id);
     await this.repo.audit(actor.id, null, "resident.application.submitted", "application", id);
     return this.ownApplication(actor, id);

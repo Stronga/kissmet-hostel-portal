@@ -10,9 +10,9 @@ import { LoadingState } from "../../components/common/LoadingState";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { PageHeader } from "../../components/layout/PageHeader";
 import type { ResidentShellOutletContext } from "../../components/layout/ResidentShell";
-import { createResidentApplication, fetchActiveAcademicSession, fetchResidentApplications, fetchResidentDocuments, fetchResidentProfile, submitResidentApplication } from "../../api/resident";
+import { createResidentApplication, fetchActiveAcademicSession, fetchActiveLeasePeriods, fetchResidentApplications, fetchResidentDocuments, fetchResidentProfile, submitResidentApplication } from "../../api/resident";
 import { usePageTitle } from "../../hooks/usePageTitle";
-import type { AcademicSession, ResidentApplication, ResidentDocument, ResidentProfile } from "../../types/resident";
+import type { AcademicSession, LeaseKind, ResidentApplication, ResidentDocument, ResidentLeasePeriod, ResidentProfile } from "../../types/resident";
 import { applicationStatusDescription, applicationStatusLabel, buildReadiness, isReadyToSubmit, latestApplication } from "../../utils/application";
 import { formatDateTime } from "../../utils/format";
 
@@ -21,6 +21,14 @@ interface PageData {
   documents: ResidentDocument[];
   applications: ResidentApplication[];
   activeSession: AcademicSession | null;
+  leasePeriods: ResidentLeasePeriod[];
+}
+
+function leaseKindLabel(kind?: string | null) {
+  if (kind === "calendar_year") return "Calendar Year";
+  if (kind === "short_term") return "Short-Term";
+  if (kind === "academic_calendar") return "Academic Calendar";
+  return "Not set";
 }
 
 function statusHelp(application?: ResidentApplication | null) {
@@ -81,6 +89,8 @@ export function ApplicationPage() {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [accommodationType, setAccommodationType] = useState<LeaseKind>("academic_calendar");
+  const [selectedLeasePeriodId, setSelectedLeasePeriodId] = useState<number | "">("");
   const createInFlight = useRef(false);
   const submitInFlight = useRef(false);
   usePageTitle("Application");
@@ -90,17 +100,19 @@ export function ApplicationPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [profile, documents, applications, activeSession] = await Promise.all([
+      const [profile, documents, applications, activeSession, leasePeriods] = await Promise.all([
         fetchResidentProfile(),
         fetchResidentDocuments(),
         fetchResidentApplications(),
-        fetchActiveAcademicSession()
+        fetchActiveAcademicSession(),
+        fetchActiveLeasePeriods()
       ]);
       setData({
         profile: profile.data,
         documents: documents.data,
         applications: applications.data,
-        activeSession: activeSession.data
+        activeSession: activeSession.data,
+        leasePeriods: leasePeriods.data
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load application.");
@@ -121,16 +133,26 @@ export function ApplicationPage() {
   const readiness = useMemo(() => data ? buildReadiness(data.profile, data.documents) : [], [data]);
   const readyToSubmit = data ? isReadyToSubmit(data.profile, data.documents) : false;
   const canSubmit = currentApplication?.status === "draft" && readyToSubmit;
-  const canCreate = Boolean(data?.activeSession && !currentApplication);
+  const periodsForType = useMemo(
+    () => (data?.leasePeriods ?? []).filter((period) => period.kind === accommodationType),
+    [data?.leasePeriods, accommodationType]
+  );
+  const canCreate = Boolean(!currentApplication && (selectedLeasePeriodId || (accommodationType === "academic_calendar" && data?.activeSession)));
 
   async function createDraft() {
-    if (!data?.activeSession || createInFlight.current) return;
+    if (createInFlight.current) return;
     createInFlight.current = true;
     setIsCreating(true);
     setActionError(null);
     setActionSuccess(null);
     try {
-      await createResidentApplication(data.activeSession.id);
+      if (selectedLeasePeriodId) {
+        await createResidentApplication({ leasePeriodId: Number(selectedLeasePeriodId) });
+      } else if (accommodationType === "academic_calendar" && data?.activeSession) {
+        await createResidentApplication({ academicSessionId: data.activeSession.id });
+      } else {
+        throw new Error("Select an available lease period for this accommodation type.");
+      }
       setActionSuccess("Draft application created.");
       await load();
     } catch (err) {
@@ -175,7 +197,7 @@ export function ApplicationPage() {
     <>
       <PageHeader
         title="Application"
-        description="Request accommodation for the active academic session."
+        description="Request accommodation for Academic Calendar, Calendar Year, or Short-Term lease periods."
         trailing={<div className="xl:hidden"><StatusBadge status={data.profile.status} /></div>}
       />
       {actionError ? <div className="mb-5"><ErrorState title="Action failed" message={actionError} /></div> : null}
@@ -186,13 +208,19 @@ export function ApplicationPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <p className="inline-flex items-center gap-1 text-sm font-semibold text-text-secondary">
-                Current academic session
-                <InfoHelp label="About academic session">
-                  Applications can only be started for the current active academic session.
+                Accommodation type
+                <InfoHelp label="About accommodation types">
+                  Choose Academic Calendar, Calendar Year, or Short-Term. Calendar Year and Short-Term do not require an academic session.
                 </InfoHelp>
               </p>
-              <h2 className="mt-1 text-xl font-bold text-text-primary">{data.activeSession?.name ?? "No active session"}</h2>
-              <p className="mt-1 text-[13px] text-text-secondary">{data.activeSession ? data.activeSession.code : "Applications cannot be started until a session is active."}</p>
+              <h2 className="mt-1 text-xl font-bold text-text-primary">
+                {currentApplication ? leaseKindLabel(currentApplication.lease_kind) : "Start an application"}
+              </h2>
+              <p className="mt-1 text-[13px] text-text-secondary">
+                {currentApplication
+                  ? (currentApplication.academic_session_id == null ? "No academic session required for this application." : (data.activeSession?.name ?? `Session #${currentApplication.academic_session_id}`))
+                  : "Select an accommodation type and available lease period."}
+              </p>
             </div>
             {currentApplication ? (
               <span className="inline-flex items-center gap-1">
@@ -202,6 +230,48 @@ export function ApplicationPage() {
             ) : null}
           </div>
 
+          {!currentApplication ? (
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="block text-sm font-semibold text-text-primary">
+                Accommodation Type
+                <select
+                  className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm"
+                  value={accommodationType}
+                  onChange={(event) => {
+                    setAccommodationType(event.target.value as LeaseKind);
+                    setSelectedLeasePeriodId("");
+                  }}
+                >
+                  <option value="academic_calendar">Academic Calendar</option>
+                  <option value="calendar_year">Calendar Year</option>
+                  <option value="short_term">Short-Term</option>
+                </select>
+              </label>
+              <label className="block text-sm font-semibold text-text-primary">
+                Lease period
+                <select
+                  className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm"
+                  value={selectedLeasePeriodId}
+                  onChange={(event) => setSelectedLeasePeriodId(event.target.value ? Number(event.target.value) : "")}
+                >
+                  <option value="">Select lease period</option>
+                  {periodsForType.map((period) => (
+                    <option key={period.id} value={period.id}>{period.name} ({period.code})</option>
+                  ))}
+                </select>
+              </label>
+              {accommodationType === "academic_calendar" ? (
+                <p className="sm:col-span-2 text-[13px] text-text-secondary">
+                  Active academic session context: {data.activeSession?.name ?? "No active academic session (select a lease period linked to a session)."}.
+                </p>
+              ) : (
+                <p className="sm:col-span-2 text-[13px] text-text-secondary">
+                  Calendar Year and Short-Term applications do not require an academic session.
+                </p>
+              )}
+            </div>
+          ) : null}
+
           {currentApplication ? (
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <Detail label="Application number" value={currentApplication.application_number} />
@@ -209,11 +279,12 @@ export function ApplicationPage() {
               <Detail label="Created" value={formatDateTime(currentApplication.created_at)} />
               <Detail label="Submitted" value={formatDateTime(currentApplication.submitted_at)} />
               <Detail label="Reviewed" value={formatDateTime(currentApplication.reviewed_at)} />
-              <Detail label="Academic session" value={data.activeSession?.name ?? `Session #${currentApplication.academic_session_id}`} />
+              <Detail label="Lease type" value={leaseKindLabel(currentApplication.lease_kind)} />
+              <Detail label="Academic session" value={currentApplication.academic_session_id == null ? "Not applicable" : (data.activeSession?.name ?? `Session #${currentApplication.academic_session_id}`)} />
             </div>
           ) : (
             <div className="mt-5">
-              <EmptyState title="No application yet" message="Start a draft application for the current active academic session when you are ready." />
+              <EmptyState title="No application yet" message="Choose an accommodation type and lease period, then start a draft when you are ready." />
             </div>
           )}
 
@@ -250,7 +321,7 @@ export function ApplicationPage() {
           <h2 className="inline-flex items-center gap-1 text-lg font-bold text-text-primary">
             Readiness checklist
             <InfoHelp label="About readiness checklist">
-              Phone verification, profile details, Student Card, and Ghana Card must be complete before you can submit a draft application.
+              Phone verification, profile details, and required identity documents must be complete before you can submit. Student Card is required for students only; Ghana Card is always required.
             </InfoHelp>
           </h2>
           <ul className="mt-4 space-y-2.5" aria-label="Application readiness checklist">

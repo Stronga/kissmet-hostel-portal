@@ -29,7 +29,8 @@ class Repo {
     institutions: [{ id: 1, code: "ug", name: "University of Ghana", status: "active" }, { id: 2, code: "old", name: "Old", status: "inactive" }],
     academic_sessions: [{ id: 1, code: "2026", name: "2026 Academic Year", status: "active" }, { id: 2, code: "2025", name: "2025 Academic Year", status: "closed" }],
     users: [{ id: 1, phone: "233241111111", email: "ama@test", display_name: "Ama" }, { id: 2, phone: "233242222222", email: "kojo@test", display_name: "Kojo" }],
-    residents: [{ id: 1, user_id: 1, institution_id: 1, resident_code: "KSM-RES-0001", student_id: "S1", first_name: "Ama", middle_name: null, last_name: "A", status: "applicant", phone_verified_at: "now" }, { id: 2, user_id: 2, institution_id: 1, resident_code: "KSM-RES-0002", student_id: "S2", first_name: "Kojo", last_name: "K", status: "applicant", phone_verified_at: "now" }],
+    residents: [{ id: 1, user_id: 1, institution_id: 1, resident_code: "KSM-RES-0001", student_id: "S1", first_name: "Ama", middle_name: null, last_name: "A", status: "applicant", phone_verified_at: "now", resident_kind: "student" }, { id: 2, user_id: 2, institution_id: 1, resident_code: "KSM-RES-0002", student_id: "S2", first_name: "Kojo", last_name: "K", status: "applicant", phone_verified_at: "now", resident_kind: "student" }],
+    lease_periods: [{ id: 10, kind: "calendar_year", code: "CY-2026", name: "CY 2026", status: "active", academic_session_id: null, starts_on: "2026-01-01", ends_on: "2026-12-31" }, { id: 11, kind: "short_term", code: "ST-2026-Q1", name: "ST Q1", status: "active", academic_session_id: null, starts_on: "2026-01-01", ends_on: "2026-03-31" }, { id: 12, kind: "academic_calendar", code: "AC-2026", name: "AC 2026", status: "active", academic_session_id: 1, starts_on: "2026-09-01", ends_on: "2027-06-30" }],
     otp_codes: [],
     sessions: [],
     documents: [],
@@ -56,7 +57,14 @@ class Repo {
 
   async all<T>(sql: string, ...binds: unknown[]) {
     if (sql.includes("FROM institutions")) return { results: this.rows.institutions.filter((i) => i.status === "active").map(({ code, name }) => ({ code, name })) as T[] };
-    if (sql.includes("FROM documents")) return { results: this.rows.documents.filter((d) => d.resident_id === binds[0]) as T[] };
+    if (sql.includes("FROM lease_periods")) return { results: this.rows.lease_periods.filter((p) => p.status === "active") as T[] };
+    if (sql.includes("FROM documents")) {
+      const rows = this.rows.documents.filter((d) => d.resident_id === binds[0]);
+      if (sql.includes("document_type IN")) {
+        return { results: rows.filter((d) => ["student_card", "ghana_card"].includes(String(d.document_type)) && ["uploaded", "verified"].includes(String(d.status))).map((d) => ({ document_type: d.document_type, status: d.status })) as T[] };
+      }
+      return { results: rows as T[] };
+    }
     if (sql.includes("FROM applications")) return { results: this.rows.applications.filter((a) => a.resident_id === binds[0]) as T[] };
     if (sql.includes("FROM bookings")) return {
       results: this.rows.bookings.filter((b) => b.resident_id === binds[0]).map((b) => {
@@ -86,12 +94,16 @@ class Repo {
     if (sql.includes("FROM institutions")) return (this.rows.institutions.find((i) => String(i.code).toLowerCase() === String(binds[0]).toLowerCase() && i.status === "active") ?? null) as T;
     if (sql.includes("FROM academic_sessions WHERE status = 'active'")) return (this.rows.academic_sessions.find((s) => s.status === "active") ?? null) as T;
     if (sql.includes("FROM academic_sessions WHERE id")) return (this.rows.academic_sessions.find((s) => s.id === binds[0] && s.status === "active") ?? null) as T;
+    if (sql.includes("FROM lease_periods WHERE id")) return (this.rows.lease_periods.find((p) => p.id === binds[0]) ?? null) as T;
     if (sql.includes("FROM residents WHERE institution_id")) return (this.rows.residents.find((r) => r.institution_id === binds[0] && r.student_id === binds[1]) ?? null) as T;
     if (sql.includes("FROM otp_codes WHERE purpose")) return (this.rows.otp_codes.at(-1) ?? null) as T;
     if (sql.includes("FROM residents r JOIN users")) return this.profile(binds[0] as number) as T;
     if (sql.includes("COUNT(*) AS count FROM documents")) return { count: this.rows.documents.filter((d) => d.resident_id === binds[0] && ["student_card", "ghana_card"].includes(String(d.document_type))).length } as T;
+    if (sql.includes("FROM applications WHERE resident_id") && sql.includes("lease_period_id = ?") && sql.includes("NOT IN")) {
+      return (this.rows.applications.find((a) => a.resident_id === binds[0] && a.lease_period_id === binds[1] && !["cancelled", "archived", "rejected"].includes(String(a.status))) ?? null) as T;
+    }
     if (sql.includes("FROM applications WHERE resident_id") && sql.includes("academic_session_id") && sql.includes("NOT IN")) {
-      return (this.rows.applications.find((a) => a.resident_id === binds[0] && a.academic_session_id === binds[1] && !["cancelled", "archived"].includes(String(a.status))) ?? null) as T;
+      return (this.rows.applications.find((a) => a.resident_id === binds[0] && a.academic_session_id === binds[1] && (a.lease_period_id == null || sql.includes("lease_period_id IS NULL")) && !["cancelled", "archived", "rejected"].includes(String(a.status))) ?? null) as T;
     }
     if (sql.includes("FROM applications WHERE id")) return (this.rows.applications.find((a) => a.id === binds[0] && a.resident_id === binds[1]) ?? null) as T;
     if (sql.includes("FROM documents WHERE id")) {
@@ -177,7 +189,7 @@ class Repo {
     if (sql.startsWith("INSERT INTO residents")) {
       if (this.rows.residents.some((r) => r.institution_id === binds[1] && r.student_id === binds[3])) throw new Error("UNIQUE constraint failed");
       const id = this.rows.residents.length + 1;
-      this.rows.residents.push({ id, user_id: binds[0], institution_id: binds[1], resident_code: binds[2], student_id: binds[3], first_name: binds[4], middle_name: binds[5], last_name: binds[6], status: "applicant", phone_verified_at: "now" });
+      this.rows.residents.push({ id, user_id: binds[0], institution_id: binds[1], resident_code: binds[2], student_id: binds[3], first_name: binds[4], middle_name: binds[5], last_name: binds[6], status: "applicant", phone_verified_at: "now", resident_kind: sql.includes("resident_kind") ? "student" : "student" });
       return { meta: { last_row_id: id, changes: 1 } };
     }
     if (sql.startsWith("INSERT INTO sessions")) this.rows.sessions.push({ id: 1, user_id: binds[0], token_hash: binds[1] });
@@ -196,9 +208,17 @@ class Repo {
       return { meta: { last_row_id: id, changes: 1 } };
     }
     if (sql.startsWith("INSERT INTO applications")) {
-      if (this.rows.applications.some((a) => a.resident_id === binds[0] && a.academic_session_id === binds[1] && ["draft", "submitted", "under_review", "approved"].includes(String(a.status)))) throw new Error("UNIQUE constraint failed");
+      const leasePeriodId = binds[2] ?? null;
+      const academicSessionId = binds[1] ?? null;
+      const leaseKind = binds[3] ?? null;
+      const applicationNumber = binds[4];
+      if (leasePeriodId != null) {
+        if (this.rows.applications.some((a) => a.resident_id === binds[0] && a.lease_period_id === leasePeriodId && ["draft", "submitted", "under_review", "approved"].includes(String(a.status)))) throw new Error("UNIQUE constraint failed");
+      } else if (this.rows.applications.some((a) => a.resident_id === binds[0] && a.academic_session_id === academicSessionId && a.lease_period_id == null && ["draft", "submitted", "under_review", "approved"].includes(String(a.status)))) {
+        throw new Error("UNIQUE constraint failed");
+      }
       const id = this.rows.applications.length + 1;
-      this.rows.applications.push({ id, resident_id: binds[0], academic_session_id: binds[1], application_number: binds[2], status: "draft" });
+      this.rows.applications.push({ id, resident_id: binds[0], academic_session_id: academicSessionId, lease_period_id: leasePeriodId, lease_kind: leaseKind, application_number: applicationNumber, status: "draft" });
       return { meta: { last_row_id: id, changes: 1 } };
     }
     if (sql.startsWith("INSERT INTO maintenance_requests")) {

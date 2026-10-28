@@ -102,10 +102,16 @@ residentRoutes.get("/me/documents/:id", async (c) => {
 });
 
 residentRoutes.get("/me/academic-session", async (c) => c.json(ok(await service(c).activeAcademicSession())));
+residentRoutes.get("/me/lease-periods", async (c) => c.json(ok((await service(c).activeLeasePeriods()).results ?? [])));
 residentRoutes.get("/me/applications", async (c) => c.json(ok((await service(c).applications(c.get("authUser"))).results ?? [])));
 residentRoutes.post("/me/applications", async (c) => {
-  try { const input = await body(c); return c.json(ok(await service(c).createApplication(c.get("authUser"), intField(input, "academicSessionId")!)), 201); }
-  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).createApplication(c.get("authUser"), {
+      academicSessionId: intField(input, "academicSessionId", false),
+      leasePeriodId: intField(input, "leasePeriodId", false)
+    })), 201);
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 residentRoutes.get("/me/applications/:id", async (c) => {
   try { return c.json(ok(await service(c).ownApplication(c.get("authUser"), Number(c.req.param("id"))))); }
