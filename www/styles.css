@@ -1,20 +1,13 @@
 /* Kissmet Group — under-construction / coming-soon
-   Palette from brand emblem: black, white, gold, red, green */
+   Light page; brand palette accents from the emblem */
 
 :root {
-  --bg: #0a0a0a;
-  --bg-elevated: #121212;
-  --fg: #f5f2eb;
-  --fg-muted: #b8b0a2;
-  --gold: #d4a017;
-  --gold-soft: #c9952a;
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --fg-muted: #5c5c5c;
+  --gold: #b8860b;
   --red: #c62828;
-  --green: #1b5e20;
   --green-soft: #2e7d32;
-  --line: rgba(212, 160, 23, 0.28);
-  --shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
-  --radius: 18px;
-  --max: 42rem;
   --font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
 }
 
@@ -25,7 +18,7 @@
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
   scroll-behavior: smooth;
 }
 
@@ -36,11 +29,7 @@ body {
   font-size: 1.0625rem;
   line-height: 1.65;
   color: var(--fg);
-  background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(212, 160, 23, 0.12), transparent 55%),
-    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(27, 94, 32, 0.14), transparent 50%),
-    radial-gradient(ellipse 50% 35% at 0% 90%, rgba(198, 40, 40, 0.08), transparent 45%),
-    var(--bg);
+  background: var(--bg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -63,13 +52,14 @@ body {
 }
 
 .page {
+  position: relative;
   width: min(100% - 2.5rem, 56rem);
   margin: 0 auto;
-  padding: 2.75rem 0 2.5rem;
+  padding: 2.75rem 0 11rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2rem;
+  gap: 1.75rem;
   min-height: 100vh;
 }
 
@@ -78,23 +68,18 @@ body {
   justify-content: center;
 }
 
-.logo-plate {
-  padding: 0.35rem;
-  border-radius: 999px;
-  background: linear-gradient(145deg, rgba(212, 160, 23, 0.55), rgba(27, 94, 32, 0.35) 55%, rgba(198, 40, 40, 0.35));
-  box-shadow: var(--shadow);
-}
-
 .logo {
   display: block;
   width: min(15.5rem, 62vw);
   height: auto;
-  border-radius: 999px;
-  background: #000;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .content {
-  width: min(100%, var(--max));
+  width: min(100%, 42rem);
   text-align: center;
 }
 
@@ -113,7 +98,7 @@ h1 {
   font-weight: 650;
   letter-spacing: -0.02em;
   line-height: 1.18;
-  color: #fffaf0;
+  color: var(--fg);
 }
 
 .lede {
@@ -124,42 +109,46 @@ h1 {
 }
 
 .support {
-  margin: 0 auto 2rem;
+  margin: 0 auto;
   max-width: 32rem;
-  color: #9a9286;
+  color: #6e6e6e;
   font-size: 0.98rem;
 }
 
-.hero {
+.building {
+  position: fixed;
+  left: max(1rem, env(safe-area-inset-left));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  z-index: 1;
   margin: 0;
-  padding: 0.65rem;
-  background: var(--bg-elevated);
-  border: 1px solid var(--line);
-  border-radius: calc(var(--radius) + 4px);
-  box-shadow: var(--shadow);
+  width: min(42vw, 22rem);
+  max-width: calc(100vw - 2rem);
 }
 
-.hero-image {
+.building-image {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: var(--radius);
-  background: #f7f7f7;
+  border: none;
+  background: transparent;
 }
 
-.hero figcaption {
-  margin: 0.7rem 0 0.15rem;
-  font-size: 0.8rem;
+.building figcaption {
+  margin: 0.4rem 0 0;
+  font-size: 0.7rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #8a8278;
+  color: #8a8a8a;
+  text-align: left;
 }
 
 .footer {
   margin-top: auto;
-  width: min(100%, var(--max));
+  width: min(100%, 42rem);
   text-align: center;
   padding-top: 0.5rem;
+  position: relative;
+  z-index: 2;
 }
 
 .accent-bar {
@@ -173,17 +162,34 @@ h1 {
 .footer p {
   margin: 0;
   font-size: 0.85rem;
-  color: #7a7368;
+  color: #7a7a7a;
 }
 
 @media (min-width: 720px) {
   .page {
     padding-top: 3.5rem;
-    gap: 2.35rem;
+    padding-bottom: 13rem;
+    gap: 2rem;
   }
 
   .logo {
     width: 17rem;
+  }
+
+  .building {
+    width: min(36vw, 26rem);
+    left: 1.5rem;
+    bottom: 1.5rem;
+  }
+}
+
+@media (max-width: 520px) {
+  .page {
+    padding-bottom: 9.5rem;
+  }
+
+  .building {
+    width: min(58vw, 14rem);
   }
 }
 
@@ -197,11 +203,7 @@ h1 {
   .lede,
   .support,
   .footer p,
-  .hero figcaption {
-    color: #ddd6c8;
-  }
-
-  .hero {
-    border-color: var(--gold);
+  .building figcaption {
+    color: #222;
   }
 }
