@@ -66,7 +66,6 @@ describe("ApplicationsPage", () => {
     expect(await screen.findByRole("heading", { name: "Applications" })).toBeInTheDocument();
     expect(await screen.findByText("KSM-APP-0011")).toBeInTheDocument();
     expect(screen.getByText("Academic Calendar")).toBeInTheDocument();
-    expect(screen.getByText("Student")).toBeInTheDocument();
     expect(screen.getByText("Ama Mensah")).toBeInTheDocument();
     expect(screen.getByText("UG-100")).toBeInTheDocument();
     expect(screen.getByText("University of Ghana")).toBeInTheDocument();

@@ -126,6 +126,7 @@ class FakeRepo {
     if (sql.startsWith("INSERT INTO residents")) {
       if (this.rows.residents.some((r) => r.resident_code === binds[2])) throw new Error("UNIQUE constraint failed: residents.resident_code");
       if (binds[3] != null && this.rows.residents.some((r) => r.institution_id === binds[1] && r.student_id === binds[3])) throw new Error("UNIQUE constraint failed");
+      if (binds[9] != null && this.rows.residents.some((r) => r.ghana_card_number === binds[9])) throw new Error("UNIQUE constraint failed: idx_residents_ghana_card_number_unique");
       const id = this.rows.residents.length + 2;
       this.rows.residents.push({
         id,
@@ -137,7 +138,8 @@ class FakeRepo {
         last_name: binds[5],
         gender: binds[6],
         status: binds[7],
-        resident_kind: binds[8] ?? "student"
+        resident_kind: binds[8] ?? "student",
+        ghana_card_number: binds[9] ?? null
       });
       return { meta: { last_row_id: id } };
     }

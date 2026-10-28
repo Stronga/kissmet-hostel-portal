@@ -4,8 +4,12 @@ import { ResidentService } from "./resident.service";
 import type { AuthUser } from "../auth/context";
 import {
   assertIdentityDocsForSubmit,
+  assertResidentIdentityFields,
   assertResidentKindFields,
+  deriveResidentKind,
   isResidentKind,
+  maskGhanaCardNumber,
+  presentResidentRow,
 } from "../types/resident-kind";
 
 const manager: AuthUser = {
@@ -72,6 +76,9 @@ class AdminRepo {
       if (binds[3] != null && this.rows.residents.some((r) => r.institution_id === binds[1] && r.student_id === binds[3])) {
         throw new Error("UNIQUE constraint failed");
       }
+      if (binds[9] != null && this.rows.residents.some((r) => r.ghana_card_number === binds[9])) {
+        throw new Error("UNIQUE constraint failed: idx_residents_ghana_card_number_unique");
+      }
       const id = this.rows.residents.length + 1;
       this.rows.residents.push({
         id,
@@ -84,6 +91,7 @@ class AdminRepo {
         gender: binds[6],
         status: binds[7],
         resident_kind: binds[8],
+        ghana_card_number: binds[9] ?? null,
       });
       return { meta: { last_row_id: id } };
     }
@@ -259,20 +267,31 @@ class ResidentRepo {
   }
 }
 
-describe("Stage 2L-F resident kind domain helpers", () => {
-  it("validates kind and institution/student pairs", () => {
+describe("Stage 2L-F-R resident identity domain helpers", () => {
+  it("derives kind from institution and validates listed vs Other identity", () => {
     expect(isResidentKind("student")).toBe(true);
     expect(isResidentKind("non_student")).toBe(true);
     expect(isResidentKind("visitor")).toBe(false);
+    expect(deriveResidentKind(1)).toBe("student");
+    expect(deriveResidentKind(null)).toBe("non_student");
     expect(() => assertResidentKindFields("student", 1, "S1")).not.toThrow();
     expect(() => assertResidentKindFields("student", null, null)).toThrow(/require institution/);
     expect(() => assertResidentKindFields("student", 1, null)).toThrow(/both/);
     expect(() => assertResidentKindFields("non_student", null, null)).not.toThrow();
     expect(() => assertResidentKindFields("non_student", null, "S1")).toThrow(/both|must not/);
     expect(() => assertResidentKindFields("non_student", 1, "S1")).toThrow(/must not/);
+
+    expect(assertResidentIdentityFields({ institutionId: 1, studentId: "S1" })).toBe("student");
+    expect(assertResidentIdentityFields({ institutionId: null, ghanaCardNumber: "GHA-1" })).toBe("non_student");
+    expect(() => assertResidentIdentityFields({ institutionId: null })).toThrow(/Ghana Card Number/);
+    expect(() => assertResidentIdentityFields({ institutionId: 1, studentId: "S1", ghanaCardNumber: "GHA-1" })).toThrow(/must not be stored/);
+    expect(() => assertResidentIdentityFields({ institutionId: 1, studentId: null })).toThrow(/both/);
+    expect(maskGhanaCardNumber("GHA-123456789-0")).toMatch(/\*+/);
+    expect(presentResidentRow({ id: 1, institution_id: null, resident_kind: "non_student", ghana_card_number: "GHA-123456789-0" }).ghana_card_number).toBeUndefined();
+    expect(presentResidentRow({ id: 1, institution_id: null, resident_kind: "non_student", ghana_card_number: "GHA-123456789-0" }).has_ghana_card_number).toBe(true);
   });
 
-  it("requires Ghana Card for all and Student Card only for students", () => {
+  it("requires Ghana Card for all and Student Card only for listed-institution residents", () => {
     expect(() => assertIdentityDocsForSubmit("student", [{ document_type: "ghana_card", status: "uploaded" }])).toThrow(/Student Card/);
     expect(() =>
       assertIdentityDocsForSubmit("student", [
@@ -285,44 +304,61 @@ describe("Stage 2L-F resident kind domain helpers", () => {
   });
 });
 
-describe("Stage 2L-F Admin createResident kind rules", () => {
-  it("creates student and non_student with resident_code and rejects invalid shapes", async () => {
+describe("Stage 2L-F-R Admin createResident Institution/Other identity", () => {
+  it("creates listed and Other residents; never stores Ghana Card number in student_id", async () => {
     const repo = new AdminRepo();
     const svc = new AdminService(repo as never);
     const student = (await svc.createResident(manager, {
       displayName: "Student",
-      residentKind: "student",
       institutionId: 1,
       studentId: "S1",
       firstName: "A",
       lastName: "B",
     })) as Record<string, unknown>;
     expect(student.resident_kind).toBe("student");
+    expect(student.student_id).toBe("S1");
+    expect(student.has_ghana_card_number).toBe(false);
+    expect(student.ghana_card_number).toBeUndefined();
     expect(String(student.resident_code)).toMatch(/^KSM-RES-\d{4}$/);
 
-    const nonStudent = (await svc.createResident(manager, {
+    const other = (await svc.createResident(manager, {
       displayName: "Guest",
-      residentKind: "non_student",
       institutionId: null,
       studentId: null,
+      ghanaCardNumber: "GHA-123456789-0",
       firstName: "C",
       lastName: "D",
     })) as Record<string, unknown>;
-    expect(nonStudent.resident_kind).toBe("non_student");
-    expect(nonStudent.institution_id).toBeNull();
-    expect(nonStudent.student_id).toBeNull();
-    expect(String(nonStudent.resident_code)).toMatch(/^KSM-RES-\d{4}$/);
+    expect(other.resident_kind).toBe("non_student");
+    expect(other.institution_id).toBeNull();
+    expect(other.student_id).toBeNull();
+    expect(other.has_ghana_card_number).toBe(true);
+    expect(other.ghana_card_number_masked).toMatch(/\*+89-0$/);
+    expect(other.ghana_card_number).toBeUndefined();
+    expect(String(other.resident_code)).toMatch(/^KSM-RES-\d{4}$/);
+    // Raw value stored in DB row but not returned by API presenter.
+    expect(repo.rows.residents.find((r) => r.id === other.id)?.ghana_card_number).toBe("GHA-123456789-0");
+    expect(repo.rows.residents.find((r) => r.id === other.id)?.student_id).toBeNull();
 
     await expect(
       svc.createResident(manager, {
         displayName: "Bad",
-        residentKind: "student",
         institutionId: null,
         studentId: null,
         firstName: "X",
         lastName: "Y",
       }),
-    ).rejects.toThrow(/institution/);
+    ).rejects.toThrow(/Ghana Card Number/);
+    await expect(
+      svc.createResident(manager, {
+        displayName: "BadListed",
+        institutionId: 1,
+        studentId: "S9",
+        ghanaCardNumber: "GHA-999",
+        firstName: "X",
+        lastName: "Y",
+      }),
+    ).rejects.toThrow(/must not be stored/);
     await expect(
       svc.createResident(manager, {
         displayName: "Bad2",
@@ -332,16 +368,25 @@ describe("Stage 2L-F Admin createResident kind rules", () => {
         firstName: "X",
         lastName: "Y",
       }),
-    ).rejects.toThrow(/Non-student/);
+    ).rejects.toThrow(/does not match|must not/);
     await expect(
       svc.createResident(manager, {
         displayName: "Bad3",
         residentKind: "alien",
+        institutionId: 1,
+        studentId: "S8",
         firstName: "X",
         lastName: "Y",
       }),
     ).rejects.toThrow(/Invalid resident kind/);
-    expect(repo.audits.some((a) => a.action === "admin.resident.create")).toBe(true);
+
+    const createAudits = repo.audits.filter((a) => a.action === "admin.resident.create");
+    expect(createAudits.length).toBeGreaterThan(0);
+    for (const audit of createAudits) {
+      const meta = JSON.stringify(audit.meta ?? {});
+      expect(meta).not.toMatch(/GHA-123456789-0/);
+      expect(meta).not.toMatch(/ghanaCardNumber":"/);
+    }
   });
 
   it("creates Academic Calendar, Calendar Year, and Short-Term applications", async () => {

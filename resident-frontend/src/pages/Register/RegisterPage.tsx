@@ -13,19 +13,21 @@ import { safeAuthError } from "../../utils/errors";
 import hostelIllustration from "../../assets/hostel-illustration.png";
 import kissmetLogo from "../../assets/kissmet-logo.png";
 
+const OTHER_INSTITUTION = "__other__";
+
 export function RegisterPage() {
   const { isAuthenticated } = useAuth();
   const { institutions, isLoading, error: institutionError } = useInstitutions();
   const navigate = useNavigate();
-  const [residentKind, setResidentKind] = useState<"student" | "non_student">("student");
-  const [form, setForm] = useState<RegistrationOtpInput>({
+  const [form, setForm] = useState<RegistrationOtpInput & { ghanaCardNumber?: string }>({
     firstName: "",
     middleName: "",
     lastName: "",
     phone: "",
     email: "",
     institutionCode: "",
-    studentId: ""
+    studentId: "",
+    ghanaCardNumber: ""
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -33,11 +35,18 @@ export function RegisterPage() {
   const submitLock = useRef(false);
   usePageTitle("Register");
 
-  const options = useMemo(() => institutions.map((item) => ({ value: item.code, label: item.name })), [institutions]);
+  const isOther = form.institutionCode === OTHER_INSTITUTION;
+  const options = useMemo(
+    () => [
+      ...institutions.map((item) => ({ value: item.code, label: item.name })),
+      { value: OTHER_INSTITUTION, label: "Other" }
+    ],
+    [institutions]
+  );
 
   if (isAuthenticated) return <Navigate to="/home" replace />;
 
-  function updateField(name: keyof RegistrationOtpInput, value: string) {
+  function updateField(name: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [name]: value }));
   }
 
@@ -48,13 +57,14 @@ export function RegisterPage() {
     if (!form.phone.trim()) nextErrors.phone = "Phone number is required.";
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) nextErrors.email = "Enter a valid email address.";
     if (!form.institutionCode) nextErrors.institutionCode = "Institution is required.";
-    if (!form.studentId.trim()) nextErrors.studentId = "Student ID is required.";
+    if (!isOther && !form.studentId.trim()) nextErrors.studentId = "Student ID / School Number is required.";
+    if (isOther && !form.ghanaCardNumber?.trim()) nextErrors.ghanaCardNumber = "Ghana Card Number is required.";
     return nextErrors;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitLock.current) return;
+    if (submitLock.current || isOther) return;
     const nextErrors = validate();
     setErrors(nextErrors);
     setSubmitError(null);
@@ -100,48 +110,70 @@ export function RegisterPage() {
         />
         <Card className="w-full">
         <h1 className="text-2xl font-semibold text-text-primary">Resident Registration</h1>
-        <p className="mt-2 text-sm text-text-secondary">Student self-registration verifies the phone number attached to your institution and student ID. Non-student self-registration is not available yet.</p>
-        <div className="mt-4">
-          <SelectField
-            label="Resident Type"
-            name="residentKind"
-            value={residentKind}
-            onChange={(event) => setResidentKind(event.currentTarget.value as "student" | "non_student")}
-            options={[{ value: "student", label: "Student" }, { value: "non_student", label: "Non-Student" }]}
-            disabled={isSubmitting}
-          />
-        </div>
-        {residentKind === "non_student" ? (
-          <div className="mt-4 rounded-2xl border border-border bg-muted p-4 text-sm text-text-secondary" role="status">
-            Non-student self-registration and login are deferred until the phone / resident-code OTP auth migration. Ask Kissmet admin staff to provision a Non-Student resident locally. Do not use a temporary insecure login workaround.
-          </div>
-        ) : null}
+        <p className="mt-2 text-sm text-text-secondary">
+          Choose your institution. Listed institutions verify phone with Student ID / School Number.
+          Other uses Ghana Card Number; self-service login for Other is not available yet.
+        </p>
         {institutionError ? <div className="mt-4"><ErrorState message={institutionError} /></div> : null}
         <form className="mt-6 grid gap-4 sm:grid-cols-2" onSubmit={handleSubmit}>
-          <fieldset disabled={residentKind === "non_student"} className="contents">
-          <FormField label="First name" name="firstName" value={form.firstName} onChange={(event) => updateField("firstName", event.currentTarget.value)} disabled={isSubmitting || residentKind === "non_student"} error={errors.firstName} autoComplete="given-name" />
-          <FormField label="Middle name" name="middleName" value={form.middleName ?? ""} onChange={(event) => updateField("middleName", event.currentTarget.value)} disabled={isSubmitting || residentKind === "non_student"} autoComplete="additional-name" />
-          <FormField label="Last name" name="lastName" value={form.lastName} onChange={(event) => updateField("lastName", event.currentTarget.value)} disabled={isSubmitting || residentKind === "non_student"} error={errors.lastName} autoComplete="family-name" />
-          <FormField label="Phone number" name="phone" value={form.phone} onChange={(event) => updateField("phone", event.currentTarget.value)} disabled={isSubmitting || residentKind === "non_student"} error={errors.phone} autoComplete="tel" inputMode="tel" />
-          <FormField label="Email" name="email" value={form.email ?? ""} onChange={(event) => updateField("email", event.currentTarget.value)} disabled={isSubmitting || residentKind === "non_student"} error={errors.email} autoComplete="email" inputMode="email" />
-          <FormField label="Student ID" name="studentId" value={form.studentId} onChange={(event) => updateField("studentId", event.currentTarget.value)} disabled={isSubmitting || residentKind === "non_student"} error={errors.studentId} autoComplete="username" />
+          <FormField label="First name" name="firstName" value={form.firstName} onChange={(event) => updateField("firstName", event.currentTarget.value)} disabled={isSubmitting} error={errors.firstName} autoComplete="given-name" />
+          <FormField label="Middle name" name="middleName" value={form.middleName ?? ""} onChange={(event) => updateField("middleName", event.currentTarget.value)} disabled={isSubmitting} autoComplete="additional-name" />
+          <FormField label="Last name" name="lastName" value={form.lastName} onChange={(event) => updateField("lastName", event.currentTarget.value)} disabled={isSubmitting} error={errors.lastName} autoComplete="family-name" />
+          <FormField label="Phone number" name="phone" value={form.phone} onChange={(event) => updateField("phone", event.currentTarget.value)} disabled={isSubmitting} error={errors.phone} autoComplete="tel" inputMode="tel" />
+          <FormField label="Email" name="email" value={form.email ?? ""} onChange={(event) => updateField("email", event.currentTarget.value)} disabled={isSubmitting} error={errors.email} autoComplete="email" inputMode="email" />
           <div className="sm:col-span-2">
             <SelectField
               label="Institution"
               name="institutionCode"
               value={form.institutionCode}
-              onChange={(event) => updateField("institutionCode", event.currentTarget.value)}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setForm((current) => ({
+                  ...current,
+                  institutionCode: value,
+                  studentId: value === OTHER_INSTITUTION ? "" : current.studentId,
+                  ghanaCardNumber: value === OTHER_INSTITUTION ? current.ghanaCardNumber : ""
+                }));
+              }}
               options={options}
-              disabled={isLoading || isSubmitting || residentKind === "non_student" || Boolean(institutionError) || institutions.length === 0}
+              disabled={isLoading || isSubmitting || Boolean(institutionError) || institutions.length === 0}
               hint={isLoading ? "Loading institutions" : institutions.length === 0 && !institutionError ? "No institutions are available." : undefined}
               error={errors.institutionCode}
             />
           </div>
-          </fieldset>
+          {isOther ? (
+            <div className="sm:col-span-2">
+              <FormField
+                label="Ghana Card Number"
+                name="ghanaCardNumber"
+                value={form.ghanaCardNumber ?? ""}
+                onChange={(event) => updateField("ghanaCardNumber", event.currentTarget.value)}
+                disabled={isSubmitting}
+                error={errors.ghanaCardNumber}
+                autoComplete="off"
+              />
+            </div>
+          ) : (
+            <FormField
+              label="Student ID / School Number"
+              name="studentId"
+              value={form.studentId}
+              onChange={(event) => updateField("studentId", event.currentTarget.value)}
+              disabled={isSubmitting || !form.institutionCode}
+              error={errors.studentId}
+              autoComplete="username"
+            />
+          )}
+          {isOther ? (
+            <div className="sm:col-span-2 rounded-2xl border border-border bg-muted p-4 text-sm text-text-secondary" role="status">
+              Other self-registration and login are deferred until the phone / resident-code OTP auth migration.
+              Ask Kissmet admin staff to provision your resident record. Ghana Card Number is not a password and cannot be used to log in yet.
+            </div>
+          ) : null}
           {submitError ? <div className="sm:col-span-2"><ErrorState message={submitError} /></div> : null}
           <div className="sm:col-span-2">
-            <Button className="w-full" type="submit" disabled={residentKind === "non_student" || isSubmitting || isLoading || institutions.length === 0}>
-              {residentKind === "non_student" ? "Non-student registration unavailable" : isSubmitting ? "Sending OTP" : "Start Registration"}
+            <Button className="w-full" type="submit" disabled={isOther || isSubmitting || isLoading || institutions.length === 0}>
+              {isOther ? "Other registration unavailable" : isSubmitting ? "Sending OTP" : "Start Registration"}
             </Button>
           </div>
         </form>

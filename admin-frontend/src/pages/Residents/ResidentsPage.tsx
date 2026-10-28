@@ -11,7 +11,7 @@ import { LoadingState } from "../../components/common/LoadingState";
 import { StatCard } from "../../components/common/StatCard";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { PageHeader } from "../../components/layout/PageHeader";
-import type { CreateResidentInput, Institution, Resident, ResidentKind } from "../../types/api";
+import type { CreateResidentInput, Institution, Resident } from "../../types/api";
 import { formatStatus } from "../../utils/format";
 
 const pageSize = 25;
@@ -27,12 +27,14 @@ function institutionName(institutions: Institution[], id: number | null) {
   return institution ? institution.name : `Institution #${id}`;
 }
 
+const OTHER_INSTITUTION = "__other__";
+
 function blankForm(): CreateResidentInput {
   return {
     displayName: "",
-    residentKind: "student",
     institutionId: 0,
     studentId: "",
+    ghanaCardNumber: "",
     firstName: "",
     lastName: "",
     email: "",
@@ -42,10 +44,22 @@ function blankForm(): CreateResidentInput {
   };
 }
 
-function residentKindLabel(kind?: string | null) {
-  if (kind === "non_student") return "Non-Student";
-  return "Student";
+function isOtherResident(resident: Pick<Resident, "institution_id" | "resident_kind">) {
+  return resident.institution_id == null || resident.resident_kind === "non_student";
 }
+
+function institutionLabel(institutions: Institution[], resident: Resident) {
+  if (isOtherResident(resident)) return "Other";
+  return institutionName(institutions, resident.institution_id);
+}
+
+function identifierLabel(resident: Resident) {
+  if (isOtherResident(resident)) {
+    return resident.ghana_card_number_masked ?? (resident.has_ghana_card_number ? "••••" : "Not set");
+  }
+  return resident.student_id ?? "Not set";
+}
+
 
 export function ResidentsPage() {
   const { user } = useAuth();
@@ -125,21 +139,29 @@ export function ResidentsPage() {
       setFormError("First name and last name are required.");
       return;
     }
-    if (form.residentKind === "student" && (!form.studentId?.trim() || !form.institutionId)) {
-      setFormError("Student residents require institution and student ID.");
+    const isOther = form.institutionId == null;
+    if (!isOther && (!form.studentId?.trim() || !form.institutionId)) {
+      setFormError("Listed institutions require Student ID / School Number.");
+      return;
+    }
+    if (isOther && !form.ghanaCardNumber?.trim()) {
+      setFormError("Other requires a Ghana Card Number.");
       return;
     }
     setSaving(true);
     try {
       const displayName = form.displayName.trim() || `${form.firstName.trim()} ${form.lastName.trim()}`;
       const payload: CreateResidentInput = {
-        ...form,
         displayName,
+        firstName: form.firstName,
+        lastName: form.lastName,
         email: form.email || null,
         phone: form.phone || null,
         gender: form.gender || null,
-        institutionId: form.residentKind === "student" ? form.institutionId : null,
-        studentId: form.residentKind === "student" ? form.studentId?.trim() || null : null
+        status: form.status,
+        institutionId: isOther ? null : form.institutionId,
+        studentId: isOther ? null : (form.studentId?.trim() || null),
+        ghanaCardNumber: isOther ? (form.ghanaCardNumber?.trim() || null) : null
       };
       await createResident(payload);
       setCreateOpen(false);
@@ -197,9 +219,8 @@ export function ResidentsPage() {
           columns={[
             { key: "code", header: "Resident Code", render: (resident) => resident.resident_code },
             { key: "name", header: "Name", render: (resident) => residentName(resident) },
-            { key: "kind", header: "Resident Type", render: (resident) => residentKindLabel(resident.resident_kind) },
-            { key: "student", header: "Student ID", render: (resident) => resident.resident_kind === "non_student" ? "—" : (resident.student_id ?? "Not set") },
-            { key: "institution", header: "Institution", render: (resident) => resident.resident_kind === "non_student" ? "Non-Student" : institutionName(institutions, resident.institution_id) },
+            { key: "institution", header: "Institution", render: (resident) => institutionLabel(institutions, resident) },
+            { key: "identifier", header: "Identifier", render: (resident) => identifierLabel(resident) },
             { key: "phone", header: "Phone", render: () => "Not exposed" },
             { key: "status", header: "Status", render: (resident) => <StatusBadge status={resident.status} /> },
             { key: "actions", header: "Actions", render: (resident) => <button type="button" onClick={() => void openDetail(resident.id)} className="text-sm font-semibold text-primary hover:underline">View</button> }
@@ -246,8 +267,8 @@ function ResidentDetail({ resident, institution }: { resident: Resident; institu
   return (
     <div className="space-y-3">
       <DetailSection title="Personal information" rows={[["Name", residentName(resident)], ["Gender", formatStatus(resident.gender)], ["Date of birth", resident.date_of_birth]]} />
-      <DetailSection title="Kissmet resident information" rows={[["Resident code", resident.resident_code], ["Resident type", residentKindLabel(resident.resident_kind)], ["Status", formatStatus(resident.status)], ["Created", resident.created_at]]} />
-      <DetailSection title="Institution/student information" rows={resident.resident_kind === "non_student" ? [["Resident type", "Non-Student"], ["Institution", "Not required"], ["Student ID", "Not required"]] : [["Institution", institution], ["Student ID", resident.student_id]]} />
+      <DetailSection title="Kissmet resident information" rows={[["Resident code", resident.resident_code], ["Status", formatStatus(resident.status)], ["Created", resident.created_at]]} />
+      <DetailSection title="Institution / identity" rows={isOtherResident(resident) ? [["Institution", "Other"], ["Identifier type", "Ghana Card Number"], ["Ghana Card Number", resident.ghana_card_number_masked ?? "••••"]] : [["Institution", institution], ["Identifier type", "Student ID / School Number"], ["Student ID / School Number", resident.student_id]]} />
       <DetailSection title="Contact information" rows={[["Phone", "Not exposed by current admin resident API"], ["Email", "Not exposed by current admin resident API"], ["Guardian", resident.guardian_name], ["Guardian phone", resident.guardian_phone], ["Emergency contact", resident.emergency_contact_name], ["Emergency phone", resident.emergency_contact_phone], ["Address", resident.address]]} />
       <DetailSection title="Application information" rows={[["Status", "Use Applications page in a later phase"]]} />
       <DetailSection title="Booking information" rows={[["Status", "Use Bookings page in a later phase"]]} />
@@ -274,45 +295,47 @@ function ResidentCreateForm({
   onSubmit: (event: FormEvent) => void;
   onCancel: () => void;
 }) {
-  const isStudent = form.residentKind === "student";
+  const isOther = form.institutionId == null;
+  const institutionSelectValue = isOther ? OTHER_INSTITUTION : String(form.institutionId || "");
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <label htmlFor="resident-type" className="block text-sm font-medium text-text-primary">Resident Type</label>
+          <label htmlFor="resident-institution" className="block text-sm font-medium text-text-primary">Institution</label>
           <select
-            id="resident-type"
-            value={form.residentKind}
+            id="resident-institution"
+            value={institutionSelectValue}
             onChange={(event) => {
-              const kind = event.target.value as ResidentKind;
-              onChange("residentKind", kind);
-              if (kind === "non_student") {
+              const value = event.target.value;
+              if (value === OTHER_INSTITUTION) {
                 onChange("institutionId", null);
                 onChange("studentId", "");
+              } else {
+                onChange("institutionId", Number(value));
+                onChange("ghanaCardNumber", "");
               }
             }}
+            required
             className="mt-1 w-full rounded-md border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
           >
-            <option value="student">Student</option>
-            <option value="non_student">Non-Student</option>
+            <option value="">Select institution</option>
+            {institutions.map((institution) => <option key={institution.id} value={institution.id}>{institution.name}</option>)}
+            <option value={OTHER_INSTITUTION}>Other</option>
           </select>
-          <p className="mt-1 text-xs text-text-secondary">Non-students do not require institution or student ID. Self-service portal login for non-students remains deferred.</p>
+          <p className="mt-1 text-xs text-text-secondary">
+            Listed institutions use Student ID / School Number. Other uses Ghana Card Number. Self-service portal login for Other remains deferred until the auth stage.
+          </p>
         </div>
         <Field label="First name" value={form.firstName} onChange={(value) => onChange("firstName", value)} required />
         <Field label="Last name" value={form.lastName} onChange={(value) => onChange("lastName", value)} required />
         <Field label="Display name" value={form.displayName} onChange={(value) => onChange("displayName", value)} />
-        {isStudent ? <Field label="Student ID" value={form.studentId ?? ""} onChange={(value) => onChange("studentId", value)} required /> : null}
+        {isOther ? (
+          <Field label="Ghana Card Number" value={form.ghanaCardNumber ?? ""} onChange={(value) => onChange("ghanaCardNumber", value)} required />
+        ) : (
+          <Field label="Student ID / School Number" value={form.studentId ?? ""} onChange={(value) => onChange("studentId", value)} required />
+        )}
         <Field label="Email" value={form.email ?? ""} onChange={(value) => onChange("email", value)} />
         <Field label="Phone" value={form.phone ?? ""} onChange={(value) => onChange("phone", value)} />
-        {isStudent ? (
-          <div>
-            <label htmlFor="resident-institution" className="block text-sm font-medium text-text-primary">Institution</label>
-            <select id="resident-institution" value={form.institutionId || ""} onChange={(event) => onChange("institutionId", Number(event.target.value))} required className="mt-1 w-full rounded-md border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
-              <option value="">Select institution</option>
-              {institutions.map((institution) => <option key={institution.id} value={institution.id}>{institution.name}</option>)}
-            </select>
-          </div>
-        ) : null}
         <div>
           <label htmlFor="resident-gender" className="block text-sm font-medium text-text-primary">Gender</label>
           <select id="resident-gender" value={form.gender ?? ""} onChange={(event) => onChange("gender", event.target.value)} className="mt-1 w-full rounded-md border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">

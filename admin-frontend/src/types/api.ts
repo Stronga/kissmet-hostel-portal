@@ -593,6 +593,7 @@ export interface RateCard {
 }
 
 export type ResidentKind = "student" | "non_student";
+export type ResidentIdentifierType = "student_id" | "ghana_card_number";
 
 export interface Resident {
   id: number;
@@ -600,7 +601,12 @@ export interface Resident {
   institution_id: number | null;
   resident_code: string;
   student_id: string | null;
+  /** Internal derived classification; UI uses Institution/Other, not Student/Non-Student. */
   resident_kind?: ResidentKind | string | null;
+  /** Never the raw number — API returns masked form only. */
+  ghana_card_number_masked?: string | null;
+  has_ghana_card_number?: boolean;
+  identifier_type?: ResidentIdentifierType | string | null;
   first_name: string;
   middle_name?: string | null;
   last_name: string;
@@ -621,9 +627,11 @@ export interface CreateResidentInput {
   email?: string | null;
   phone?: string | null;
   displayName: string;
-  residentKind: ResidentKind;
+  /** Derived by backend from institutionId; optional for callers. */
+  residentKind?: ResidentKind;
   institutionId?: number | null;
   studentId?: string | null;
+  ghanaCardNumber?: string | null;
   firstName: string;
   lastName: string;
   gender?: string | null;

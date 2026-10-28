@@ -46,7 +46,12 @@ listRoute("/rooms", "rooms");
 listRoute("/room-rates", "room_rates");
 listRoute("/lease-periods", "lease_periods");
 listRoute("/rate-cards", "rate_cards");
-listRoute("/residents", "residents", "resident:read");
+routes.get("/residents", requirePermission("resident:read"), async (c) => {
+  const p = pagination(new URL(c.req.url));
+  const search = new URL(c.req.url).searchParams.get("search") ?? undefined;
+  const result = await service(c).listResidents(p.limit, p.offset, search);
+  return c.json(listOk((result.results ?? []) as unknown[], p));
+});
 // Staff uses joined users/staff/roles responses below.
 listRoute("/roles", "roles");
 listRoute("/applications", "applications", "application:read");
@@ -341,9 +346,11 @@ routes.post("/residents", requirePermission("resident:write"), async (c) => {
       email: stringField(input, "email", false),
       phone: stringField(input, "phone", false),
       displayName: stringField(input, "displayName")!,
-      residentKind: stringField(input, "residentKind", false) ?? "student",
+      // Optional; derived from institutionId (listed vs Other) when omitted.
+      residentKind: stringField(input, "residentKind", false) ?? undefined,
       institutionId: intField(input, "institutionId", false),
       studentId: stringField(input, "studentId", false),
+      ghanaCardNumber: stringField(input, "ghanaCardNumber", false),
       firstName: stringField(input, "firstName")!,
       lastName: stringField(input, "lastName")!,
       gender: stringField(input, "gender", false),
@@ -351,7 +358,7 @@ routes.post("/residents", requirePermission("resident:write"), async (c) => {
     })), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
-routes.get("/residents/:id", requirePermission("resident:read"), async (c) => c.json(ok(await service(c).get("residents", Number(c.req.param("id"))))));
+routes.get("/residents/:id", requirePermission("resident:read"), async (c) => c.json(ok(await service(c).getResident(Number(c.req.param("id"))))));
 
 routes.get("/staff", requirePermission("staff:read"), async (c) => {
   const p = pagination(new URL(c.req.url));

@@ -130,17 +130,14 @@ export function ProfilePage() {
             </div>
           </Card>
 
-          <Card>
-            <h2 className="text-lg font-bold text-text-primary">Resident type</h2>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Detail label="Type" value={(profile.resident_kind ?? "student") === "non_student" ? "Non-Student" : "Student"} />
-            </div>
-          </Card>
-
           {(profile.resident_kind ?? "student") === "non_student" ? (
             <Card>
               <h2 className="text-lg font-bold text-text-primary">Institution</h2>
-              <p className="mt-3 text-sm text-text-secondary">Institution and Student ID are not required for non-student residents.</p>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <Detail label="Institution" value="Other" />
+                <Detail label="Identifier" value="Ghana Card Number" />
+              </div>
+              <p className="mt-3 text-sm text-text-secondary">Other residents use Ghana Card Number as their identifier. Student ID is not required. Ghana Card document upload remains required.</p>
             </Card>
           ) : (
             <Card>
@@ -148,7 +145,7 @@ export function ProfilePage() {
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <Detail label="Institution" value={profile.institution_name} />
                 <Detail label="Institution code" value={profile.institution_code} />
-                <Detail label="Student ID" value={profile.student_id} />
+                <Detail label="Student ID / School Number" value={profile.student_id} />
               </div>
             </Card>
           )}

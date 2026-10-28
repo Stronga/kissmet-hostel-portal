@@ -70,7 +70,7 @@ describe("ResidentsPage", () => {
     await userEvent.click(await screen.findByRole("button", { name: /add resident/i }));
     await userEvent.type(screen.getByLabelText("First name"), "Kojo");
     await userEvent.type(screen.getByLabelText("Last name"), "Boateng");
-    await userEvent.type(screen.getByLabelText("Student ID"), "UG-200");
+    await userEvent.type(screen.getByLabelText("Student ID / School Number"), "UG-200");
     await userEvent.selectOptions(screen.getByLabelText("Institution"), "1");
     await userEvent.click(screen.getByRole("button", { name: "Create Resident" }));
     await waitFor(() => {
@@ -91,33 +91,67 @@ describe("ResidentsPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load residents.");
   });
 
-  it("shows Resident Type and requires student fields only for Student", async () => {
+  it("uses Institution including Other and does not require a Resident Type choice", async () => {
     renderWithAuth();
-    expect(await screen.findByText("Student")).toBeInTheDocument();
+    expect(await screen.findByText("University of Ghana")).toBeInTheDocument();
+    expect(screen.queryByText("Resident Type")).not.toBeInTheDocument();
     await userEvent.click(await screen.findByRole("button", { name: /add resident/i }));
-    expect(screen.getByLabelText("Resident Type")).toBeInTheDocument();
-    expect(screen.getByLabelText("Student ID")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Resident Type")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Institution")).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByLabelText("Resident Type"), "non_student");
-    expect(screen.queryByLabelText("Student ID")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Institution")).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Institution"), "1");
+    expect(screen.getByLabelText("Student ID / School Number")).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Institution"), "__other__");
+    expect(screen.getByLabelText("Ghana Card Number")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Student ID / School Number")).not.toBeInTheDocument();
   });
 
-  it("creates a non-student without institution or student ID", async () => {
+  it("creates an Other resident with Ghana Card Number and without student ID", async () => {
     renderWithAuth();
     await userEvent.click(await screen.findByRole("button", { name: /add resident/i }));
-    await userEvent.selectOptions(screen.getByLabelText("Resident Type"), "non_student");
+    await userEvent.selectOptions(screen.getByLabelText("Institution"), "__other__");
     await userEvent.type(screen.getByLabelText("First name"), "Abena");
     await userEvent.type(screen.getByLabelText("Last name"), "Owusu");
+    await userEvent.type(screen.getByLabelText("Ghana Card Number"), "GHA-123456789-0");
     await userEvent.click(screen.getByRole("button", { name: "Create Resident" }));
     await waitFor(() => {
       const postCall = vi.mocked(globalThis.fetch).mock.calls.find(([url, init]) => String(url).endsWith("/admin/residents") && init?.method === "POST");
       expect(postCall).toBeTruthy();
       const body = JSON.parse(String(postCall?.[1]?.body));
-      expect(body.residentKind).toBe("non_student");
       expect(body.institutionId).toBeNull();
       expect(body.studentId).toBeNull();
+      expect(body.ghanaCardNumber).toBe("GHA-123456789-0");
+      expect(body.residentKind).toBeUndefined();
     });
+  });
+
+  it("masks Other Ghana Card identifiers in the list when provided by the API", async () => {
+    localStorage.setItem("kissmet_admin_token", "token");
+    const other = {
+      id: 9,
+      user_id: 21,
+      institution_id: null,
+      resident_code: "KSM-RES-0009",
+      student_id: null,
+      first_name: "Kojo",
+      last_name: "Other",
+      gender: "male",
+      status: "applicant",
+      resident_kind: "non_student",
+      ghana_card_number_masked: "************789-0",
+      has_ghana_card_number: true,
+      identifier_type: "ghana_card_number"
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/me")) return new Response(JSON.stringify({ user: manager }), { status: 200 });
+      if (url.includes("/admin/institutions")) return ok([institution]);
+      if (url.includes("/admin/residents?")) return ok([other]);
+      return new Response(null, { status: 404 });
+    });
+    render(<MemoryRouter><AuthProvider><ResidentsPage /></AuthProvider></MemoryRouter>);
+    expect(await screen.findByText("Other")).toBeInTheDocument();
+    expect(screen.getByText("************789-0")).toBeInTheDocument();
+    expect(screen.queryByText("GHA-123456789-0")).not.toBeInTheDocument();
   });
 
 });

@@ -9,6 +9,17 @@ function residentName(resident?: Resident) {
   return [resident.first_name, resident.middle_name, resident.last_name].filter(Boolean).join(" ") || `Resident #${resident.id}`;
 }
 
+function requestedTermLabel(kind?: string | null) {
+  if (kind === "calendar_year") return "Calendar Year";
+  if (kind === "short_term") return "Short-Term";
+  if (kind === "academic_calendar") return "Academic Calendar";
+  return "Academic Calendar";
+}
+
+function isOther(resident?: Resident) {
+  return !resident ? false : resident.institution_id == null || resident.resident_kind === "non_student";
+}
+
 function DetailSection({ title, rows, children }: { title: string; rows?: [string, string | number | null | undefined][]; children?: React.ReactNode }) {
   return (
     <section className="rounded border border-border p-3">
@@ -47,6 +58,7 @@ export function ApplicationDetail({
   pending: boolean;
   onAction: (status: ApplicationStatus) => void;
 }) {
+  const other = isOther(resident);
   return (
     <div className="space-y-3">
       <DetailSection title="Application" rows={[
@@ -58,16 +70,19 @@ export function ApplicationDetail({
       ]} />
       <DetailSection title="Applicant" rows={[
         ["Name", residentName(resident)],
-        ["Resident type", resident?.resident_kind === "non_student" ? "Non-Student" : "Student"],
-        ["Student ID", resident?.resident_kind === "non_student" ? "Not required" : resident?.student_id],
         ["Resident code", resident?.resident_code],
+        ["Institution", other ? "Other" : (institution?.name ?? "Not set")],
+        ["Identifier type", other ? "Ghana Card Number" : "Student ID / School Number"],
+        ["Identifier", other ? (resident?.ghana_card_number_masked ?? "••••") : (resident?.student_id ?? "Not set")],
         ["Applicant status", resident?.status ? formatStatus(resident.status) : undefined]
       ]} />
+      <DetailSection title="Requested term (not the final agreement)" rows={[
+        ["Requested Term", requestedTermLabel(application.lease_kind)],
+        ["Requested Lease Period ID", application.lease_period_id ?? "Not linked"],
+        ["Academic session", application.academic_session_id == null ? "Not applicable for this request" : (session?.name ?? `Session #${application.academic_session_id}`)],
+        ["Note", "Requested Term is what the applicant asked for. The approved commercial agreement is created separately by management."]
+      ]} />
       <DetailSection title="Review" rows={[
-        ["Lease type", application.lease_kind === "calendar_year" ? "Calendar Year" : application.lease_kind === "short_term" ? "Short-Term" : "Academic Calendar"],
-        ["Lease period ID", application.lease_period_id ?? "Not linked"],
-        ["Academic session", application.academic_session_id == null ? "Not applicable" : (session?.name ?? `Session #${application.academic_session_id}`)],
-        ["Institution", resident?.resident_kind === "non_student" ? "Not required" : institution?.name],
         ["Reviewed by staff ID", application.reviewed_by_staff_id],
         ["Reviewed at", application.reviewed_at ? formatDateTime(application.reviewed_at) : "Not reviewed"],
         ["Decision notes", application.decision_notes]
@@ -75,9 +90,10 @@ export function ApplicationDetail({
       <DetailSection title="Documents">
         <DocumentReviewSection documents={documents} />
       </DetailSection>
-      <DetailSection title="Booking" rows={[
+      <DetailSection title="Approved agreement / booking" rows={[
         ["Eligibility", application.status === "approved" ? "Eligible for booking workflow" : "Not eligible for booking workflow"],
-        ["Automation", "Approval does not create a booking, confirm a booking, allocate a bed, or change payments"]
+        ["Automation", "Approval does not create a booking, confirm a booking, allocate a bed, or change payments"],
+        ["Calendar Year / Short-Term booking", "Final booking still requires an academic session until a later commercial stage. Do not invent a fake session."]
       ]} />
       <DetailSection title="Actions">
         <ApplicationReviewActions application={application} canManage={canManage} pending={pending} onAction={onAction} />

@@ -229,8 +229,8 @@ describe("resident registration OTP authentication", () => {
     await userEvent.type(await screen.findByLabelText("First name"), "Ama");
     await userEvent.type(screen.getByLabelText("Last name"), "Resident");
     await userEvent.type(screen.getByLabelText("Phone number"), "+233555111222");
-    await userEvent.type(screen.getByLabelText("Student ID"), "ST-1");
     await userEvent.selectOptions(screen.getByLabelText("Institution"), "ug");
+    await userEvent.type(screen.getByLabelText("Student ID / School Number"), "ST-1");
     await userEvent.click(screen.getByRole("button", { name: "Start Registration" }));
 
     expect(await screen.findByRole("heading", { name: "Verify OTP" })).toBeInTheDocument();
@@ -248,8 +248,8 @@ describe("resident registration OTP authentication", () => {
     await userEvent.type(await screen.findByLabelText("First name"), "Ama");
     await userEvent.type(screen.getByLabelText("Last name"), "Resident");
     await userEvent.type(screen.getByLabelText("Phone number"), "+233555111222");
-    await userEvent.type(screen.getByLabelText("Student ID"), "ST-1");
     await userEvent.selectOptions(screen.getByLabelText("Institution"), "ug");
+    await userEvent.type(screen.getByLabelText("Student ID / School Number"), "ST-1");
     await userEvent.click(screen.getByRole("button", { name: "Start Registration" }));
 
     expect(await screen.findByText(/Too many attempts/i)).toBeInTheDocument();

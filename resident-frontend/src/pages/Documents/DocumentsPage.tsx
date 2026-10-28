@@ -44,7 +44,7 @@ function RequirementSummary({ documents, requiredTypes }: { documents: Record<Id
             Required documents
             <InfoHelp label="About required documents">
               {total === 1
-                ? "Ghana Card is required for non-student application submission. Student Card is not required."
+                ? "Ghana Card is required for Other residents. Student Card is not required for the Other path."
                 : "Upload completeness and staff verification are tracked separately. Both Student Card and Ghana Card are required before application submission."}
             </InfoHelp>
           </p>

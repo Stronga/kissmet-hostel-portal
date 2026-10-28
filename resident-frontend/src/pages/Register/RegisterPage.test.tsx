@@ -9,7 +9,7 @@ function json(body: unknown, status = 200) {
   return Response.json(body, { status });
 }
 
-describe("resident registration boundary", () => {
+describe("resident registration Institution/Other boundary", () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
@@ -26,7 +26,7 @@ describe("resident registration boundary", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps non-student self-registration disabled with a clear boundary message", async () => {
+  it("keeps Other self-registration disabled with a clear boundary message", async () => {
     render(
       <MemoryRouter initialEntries={["/register"]}>
         <AuthProvider>
@@ -35,8 +35,24 @@ describe("resident registration boundary", () => {
       </MemoryRouter>
     );
     expect(await screen.findByRole("heading", { name: "Resident Registration" })).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByLabelText("Resident Type"), "non_student");
-    expect(screen.getByText(/Non-student self-registration and login are deferred/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Non-student registration unavailable/i })).toBeDisabled();
+    expect(screen.queryByLabelText("Resident Type")).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Institution"), "__other__");
+    expect(screen.getByLabelText("Ghana Card Number")).toBeInTheDocument();
+    expect(screen.getByText(/Other self-registration and login are deferred/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Other registration unavailable/i })).toBeDisabled();
+  });
+
+  it("asks for Student ID when a listed institution is selected", async () => {
+    render(
+      <MemoryRouter initialEntries={["/register"]}>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </MemoryRouter>
+    );
+    await screen.findByRole("heading", { name: "Resident Registration" });
+    await userEvent.selectOptions(screen.getByLabelText("Institution"), "ug");
+    expect(screen.getByLabelText("Student ID / School Number")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Ghana Card Number")).not.toBeInTheDocument();
   });
 });

@@ -177,7 +177,7 @@ describe("resident documents", () => {
     expect(await screen.findByText("Upload failed")).toBeInTheDocument();
   });
 
-  it("requires Ghana Card only for non-student residents", async () => {
+  it("requires Ghana Card only for Other residents", async () => {
     seedResidentToken();
     mockDocuments({
       profile: { id: 2, resident_code: "KSM-RES-0002", first_name: "Kojo", last_name: "K", status: "applicant", resident_kind: "non_student", phone_verified_at: "now" },

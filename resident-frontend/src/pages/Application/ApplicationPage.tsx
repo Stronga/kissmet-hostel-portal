@@ -197,7 +197,7 @@ export function ApplicationPage() {
     <>
       <PageHeader
         title="Application"
-        description="Request accommodation for Academic Calendar, Calendar Year, or Short-Term lease periods."
+        description="Tell management which accommodation term you are requesting. Management approves the final agreement separately."
         trailing={<div className="xl:hidden"><StatusBadge status={data.profile.status} /></div>}
       />
       {actionError ? <div className="mb-5"><ErrorState title="Action failed" message={actionError} /></div> : null}
@@ -208,9 +208,9 @@ export function ApplicationPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <p className="inline-flex items-center gap-1 text-sm font-semibold text-text-secondary">
-                Accommodation type
+                Requested Term
                 <InfoHelp label="About accommodation types">
-                  Choose Academic Calendar, Calendar Year, or Short-Term. Calendar Year and Short-Term do not require an academic session.
+                  Requested Term is what you want. It is not the final commercial agreement. Calendar Year and Short-Term do not require an academic session.
                 </InfoHelp>
               </p>
               <h2 className="mt-1 text-xl font-bold text-text-primary">
@@ -219,7 +219,7 @@ export function ApplicationPage() {
               <p className="mt-1 text-[13px] text-text-secondary">
                 {currentApplication
                   ? (currentApplication.academic_session_id == null ? "No academic session required for this application." : (data.activeSession?.name ?? `Session #${currentApplication.academic_session_id}`))
-                  : "Select an accommodation type and available lease period."}
+                  : "Select a Requested Term and available lease period."}
               </p>
             </div>
             {currentApplication ? (
@@ -233,7 +233,7 @@ export function ApplicationPage() {
           {!currentApplication ? (
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="block text-sm font-semibold text-text-primary">
-                Accommodation Type
+                Requested Term
                 <select
                   className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm"
                   value={accommodationType}
@@ -248,13 +248,13 @@ export function ApplicationPage() {
                 </select>
               </label>
               <label className="block text-sm font-semibold text-text-primary">
-                Lease period
+                Requested Lease Period
                 <select
                   className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm"
                   value={selectedLeasePeriodId}
                   onChange={(event) => setSelectedLeasePeriodId(event.target.value ? Number(event.target.value) : "")}
                 >
-                  <option value="">Select lease period</option>
+                  <option value="">Select requested lease period</option>
                   {periodsForType.map((period) => (
                     <option key={period.id} value={period.id}>{period.name} ({period.code})</option>
                   ))}
@@ -266,7 +266,7 @@ export function ApplicationPage() {
                 </p>
               ) : (
                 <p className="sm:col-span-2 text-[13px] text-text-secondary">
-                  Calendar Year and Short-Term applications do not require an academic session.
+                  Calendar Year and Short-Term requests do not require an academic session. Final booking may still need a later commercial stage.
                 </p>
               )}
             </div>
@@ -279,12 +279,12 @@ export function ApplicationPage() {
               <Detail label="Created" value={formatDateTime(currentApplication.created_at)} />
               <Detail label="Submitted" value={formatDateTime(currentApplication.submitted_at)} />
               <Detail label="Reviewed" value={formatDateTime(currentApplication.reviewed_at)} />
-              <Detail label="Lease type" value={leaseKindLabel(currentApplication.lease_kind)} />
+              <Detail label="Requested Term" value={leaseKindLabel(currentApplication.lease_kind)} />
               <Detail label="Academic session" value={currentApplication.academic_session_id == null ? "Not applicable" : (data.activeSession?.name ?? `Session #${currentApplication.academic_session_id}`)} />
             </div>
           ) : (
             <div className="mt-5">
-              <EmptyState title="No application yet" message="Choose an accommodation type and lease period, then start a draft when you are ready." />
+              <EmptyState title="No application yet" message="Choose a Requested Term and lease period, then start a draft when you are ready." />
             </div>
           )}
 

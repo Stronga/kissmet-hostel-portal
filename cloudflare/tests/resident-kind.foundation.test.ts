@@ -71,6 +71,7 @@ describe("Stage 2L-F resident_kind and application flexibility schema", () => {
       "0015_booking_agreement_terms.sql",
     ]);
     expect(files).toContain("0016_resident_kind_and_application_flexibility.sql");
+    expect(files).toContain("0017_ghana_card_number_and_identity_realignment.sql");
     const cols = all<{ name: string }>(db, `PRAGMA table_info(residents)`).map((r) => r.name);
     expect(cols).toContain("resident_kind");
     const appCols = all<{ name: string }>(db, `PRAGMA table_info(applications)`).map((r) => r.name);
@@ -163,5 +164,43 @@ describe("Stage 2L-F resident_kind and application flexibility schema", () => {
       `SELECT academic_session_id, lease_period_id FROM applications WHERE application_number = 'KSM-APP-AC-1'`,
     );
     expect(row).toMatchObject({ academic_session_id: 1, lease_period_id: 1 });
+  });
+});
+
+
+describe("Stage 2L-F-R Ghana Card number identity schema", () => {
+  let db: Database;
+
+  beforeEach(async () => {
+    db = await openMigratedDatabase();
+    seedGraph(db);
+  });
+
+  it("adds ghana_card_number without editing 0016 and keeps student_id separate", () => {
+    const cols = all<{ name: string }>(db, `PRAGMA table_info(residents)`).map((r) => r.name);
+    expect(cols).toContain("ghana_card_number");
+    expect(cols).toContain("resident_kind");
+    expect(cols).toContain("student_id");
+
+    run(
+      db,
+      `INSERT INTO residents (user_id, institution_id, student_id, first_name, last_name, status, resident_kind, ghana_card_number)
+       VALUES (1, 1, 'STU-1', 'Student', 'One', 'applicant', 'student', NULL)`,
+    );
+    run(
+      db,
+      `INSERT INTO residents (user_id, institution_id, student_id, first_name, last_name, status, resident_kind, ghana_card_number)
+       VALUES (2, NULL, NULL, 'Other', 'Person', 'applicant', 'non_student', 'GHA-123456789-0')`,
+    );
+    expect(get<{ student_id: string | null }>(db, `SELECT student_id FROM residents WHERE ghana_card_number = 'GHA-123456789-0'`)?.student_id).toBeNull();
+    expect(get<{ ghana_card_number: string | null }>(db, `SELECT ghana_card_number FROM residents WHERE student_id = 'STU-1'`)?.ghana_card_number).toBeNull();
+
+    run(db, `INSERT INTO users (email, phone, display_name, user_type, status) VALUES ('dup@example.com', '+233000002099', 'Dup', 'resident', 'active')`);
+    const msg = expectReject(
+      db,
+      `INSERT INTO residents (user_id, institution_id, student_id, first_name, last_name, status, resident_kind, ghana_card_number)
+       VALUES (3, NULL, NULL, 'Dup', 'Person', 'applicant', 'non_student', 'GHA-123456789-0')`,
+    );
+    expect(msg.toLowerCase()).toMatch(/unique|constraint/);
   });
 });

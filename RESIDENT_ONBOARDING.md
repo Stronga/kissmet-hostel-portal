@@ -168,7 +168,14 @@ npm.cmd test
 
 
 ## Stage 2L-F notes
-- `resident_kind` distinguishes Student vs Non-Student.
+- `resident_kind` distinguishes Student vs Non-Student internally.
 - Student self-registration/login OTP path unchanged.
 - Non-student self-registration is disabled in the Resident Portal until the auth migration stage; Admin createResident supports non_student locally.
 - Application UI supports Academic Calendar / Calendar Year / Short-Term lease periods.
+
+## Stage 2L-F-R notes
+- UX primary choice is Institution including Other (not Resident Type Student/Non-Student).
+- Listed institution → Student ID / School Number; Other → Ghana Card Number (stored in `ghana_card_number`, never `student_id`).
+- Ghana Card document remains required for both paths; Student Card required only for listed institutions.
+- Application lease intent is Requested Term (not auto-approved agreement).
+- Other self-registration/login remains deferred; existing institutionCode + studentId OTP login unchanged.

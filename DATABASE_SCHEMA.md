@@ -613,3 +613,28 @@ Forward migration: `0016_resident_kind_and_application_flexibility.sql` (0001–
 - Resident OTP login remains institutionCode + studentId (unchanged in 2L-F)
 - Non-student self-registration/login deferred; Admin can provision non_students
 - Legacy `createBooking` and rate-card booking still require `bookings.academic_session_id` NOT NULL; CY/ST booking-from-application without session is deferred
+
+
+## Stage 2L-F-R — Institution/Other identity realignment
+
+Forward migration: `0017_ghana_card_number_and_identity_realignment.sql` (0001–0016 immutable; do not edit 0016).
+
+### Business model
+- Residents are not separate Student/Non-Student operational classes in UX.
+- Primary choice: Institution (listed) or Other.
+- Listed: Student ID / School Number required.
+- Other: Ghana Card Number required; Student ID not required.
+- `resident_kind` remains an **internal derived** field (listed → `student`, Other → `non_student`) and must not drive a separate resident-facing workflow.
+
+### Ghana Card NUMBER vs DOCUMENT
+- Before 0017 the system stored only the Ghana Card **document** (`documents.document_type = 'ghana_card'`), not the number.
+- `residents.ghana_card_number` stores the sensitive identifier for the Other path.
+- Never store Ghana Card numbers in `residents.student_id`.
+- API list/detail return `ghana_card_number_masked` / `has_ghana_card_number` only — never the raw number.
+- Audit metadata must not include the raw Ghana Card number.
+
+### Application Requested Term
+- Application `lease_kind` / `lease_period_id` remain REQUESTED term/period information from 2L-F.
+- Requested Term is not the approved commercial agreement; management approval creates the booking/agreement separately.
+- `bookings.academic_session_id` remains NOT NULL; CY/ST booking-from-application without session is deferred.
+

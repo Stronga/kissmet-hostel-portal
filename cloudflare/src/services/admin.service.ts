@@ -17,7 +17,13 @@ import {
   type RateCardOccupancyCapacity,
   type RateCardStatus,
 } from "../types/lease-model";
-import { assertResidentKindFields, isResidentKind } from "../types/resident-kind";
+import {
+  assertResidentIdentityFields,
+  deriveResidentKind,
+  isResidentKind,
+  normalizeGhanaCardNumber,
+  presentResidentRow,
+} from "../types/resident-kind";
 
 type ApplicationStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "cancelled" | "archived";
 type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "archived";
@@ -951,26 +957,36 @@ export class AdminService {
     email?: string | null;
     phone?: string | null;
     displayName: string;
+    /** Optional; derived from institution when omitted. Must not conflict with Institution/Other. */
     residentKind?: string | null;
     institutionId?: number | null;
     studentId?: string | null;
+    /** Required for Other (null institution). Never stored in student_id. */
+    ghanaCardNumber?: string | null;
     firstName: string;
     lastName: string;
     gender?: string | null;
     status?: string;
   }) {
-    const kindRaw = data.residentKind ?? "student";
-    if (!isResidentKind(kindRaw)) throw new Error("Invalid resident kind");
     const institutionId = data.institutionId ?? null;
     const studentId = data.studentId?.trim() ? data.studentId.trim() : null;
-    assertResidentKindFields(kindRaw, institutionId, studentId);
+    const ghanaCardNumber = normalizeGhanaCardNumber(data.ghanaCardNumber);
+    if (data.residentKind != null && data.residentKind !== "" && !isResidentKind(data.residentKind)) {
+      throw new Error("Invalid resident kind");
+    }
+    const kindRaw = assertResidentIdentityFields({
+      kind: data.residentKind && isResidentKind(data.residentKind) ? data.residentKind : deriveResidentKind(institutionId),
+      institutionId,
+      studentId,
+      ghanaCardNumber,
+    });
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const residentCode = await this.repo.allocateResidentCode();
       const user = await this.repo.run("INSERT INTO users (email, phone, display_name, user_type, status) VALUES (?, ?, ?, 'resident', 'active')", data.email ?? null, data.phone ?? null, data.displayName);
       try {
         const res = await this.repo.run(
-          "INSERT INTO residents (user_id, institution_id, resident_code, student_id, first_name, last_name, gender, status, resident_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO residents (user_id, institution_id, resident_code, student_id, first_name, last_name, gender, status, resident_kind, ghana_card_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           user.meta.last_row_id,
           institutionId,
           residentCode,
@@ -979,17 +995,42 @@ export class AdminService {
           data.lastName,
           data.gender ?? null,
           data.status ?? "applicant",
-          kindRaw
+          kindRaw,
+          ghanaCardNumber
         );
-        await this.repo.audit(actor.id, actor.staffId, "admin.resident.create", "resident", res.meta.last_row_id, { residentCode, residentKind: kindRaw });
-        return this.get("residents", Number(res.meta.last_row_id));
+        // Never put Ghana Card number in audit metadata.
+        await this.repo.audit(actor.id, actor.staffId, "admin.resident.create", "resident", res.meta.last_row_id, {
+          residentCode,
+          residentKind: kindRaw,
+          institutionPath: institutionId == null ? "other" : "listed",
+          hasGhanaCardNumber: Boolean(ghanaCardNumber),
+        });
+        return this.getResident(Number(res.meta.last_row_id));
       } catch (error) {
-        if (String((error as Error).message).includes("resident_code") && attempt < 2) continue;
+        const message = String((error as Error).message);
+        if (message.includes("resident_code") && attempt < 2) continue;
+        if (message.includes("ghana_card_number") || message.includes("idx_residents_ghana_card_number")) {
+          throw new Error("Ghana Card number already registered");
+        }
         throw error;
       }
     }
 
     throw new Error("Unable to create resident with unique resident code");
+  }
+
+  /** List residents with Ghana Card numbers masked (never raw). */
+  async listResidents(limit: number, offset: number, search?: string) {
+    const result = await this.repo.list("residents", limit, offset, search);
+    const rows = (result.results ?? []) as Record<string, unknown>[];
+    return { ...result, results: rows.map((row) => presentResidentRow(row)) };
+  }
+
+  /** Get one resident with Ghana Card number masked (never raw). */
+  async getResident(id: number) {
+    const row = await this.get("residents", id) as Record<string, unknown> | null;
+    if (!row) return null;
+    return presentResidentRow(row);
   }
 
   async createApplication(actor: AuthUser, data: {

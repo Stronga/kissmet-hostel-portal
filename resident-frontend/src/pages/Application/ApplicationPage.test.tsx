@@ -235,8 +235,8 @@ describe("resident application workflow", () => {
     seedResidentToken();
     mockApplication({ applications: [], activeSession: null });
     render(renderResidentApp(["/application"]));
-    expect(await screen.findByLabelText("Accommodation Type")).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByLabelText("Accommodation Type"), "calendar_year");
+    expect(await screen.findByLabelText("Requested Term")).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Requested Term"), "calendar_year");
     expect(screen.getByText(/do not require an academic session/i)).toBeInTheDocument();
     expect(screen.queryByText("No active session")).not.toBeInTheDocument();
   });
@@ -245,10 +245,10 @@ describe("resident application workflow", () => {
     seedResidentToken();
     const requests = mockApplication({ applications: [] });
     render(renderResidentApp(["/application"]));
-    expect(await screen.findByLabelText("Accommodation Type")).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByLabelText("Accommodation Type"), "calendar_year");
+    expect(await screen.findByLabelText("Requested Term")).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Requested Term"), "calendar_year");
     expect(screen.getByText(/do not require an academic session/i)).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByLabelText("Lease period"), "2");
+    await userEvent.selectOptions(screen.getByLabelText("Requested Lease Period"), "2");
     await userEvent.click(screen.getByRole("button", { name: "Start application" }));
     await waitFor(() => {
       const create = requests.find((request) => request.url.endsWith("/resident/me/applications") && request.method === "POST");
