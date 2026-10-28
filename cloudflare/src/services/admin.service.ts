@@ -55,7 +55,16 @@ const messageGroups = new Set(["current_residents", "applicants", "active_alloca
 const staffStatuses = new Set(["active", "inactive", "archived"]);
 const userStatuses = new Set(["active", "inactive", "suspended", "archived"]);
 const staffRoleCodes = new Set(["super_admin", "manager", "reception", "accounts", "maintenance"]);
-const sensitiveAuditKeys = new Set(["password", "password_hash", "temporary_password", "temporaryPassword", "initialPassword", "token", "session_token", "sessionToken", "session_token_hash", "authorization", "authorization_header", "otp", "otp_code", "code_hash", "otp_hash", "secret", "api_key", "apiKey", "cloudflare_token", "sms_secret", "r2_secret"]);
+const sensitiveAuditKeys = new Set([
+  "password", "password_hash", "temporary_password", "temporaryPassword", "initialPassword",
+  "token", "session_token", "sessionToken", "session_token_hash",
+  "authorization", "authorization_header",
+  "otp", "otp_code", "code_hash", "otp_hash",
+  "secret", "api_key", "apiKey", "cloudflare_token", "sms_secret", "r2_secret",
+  // Stage 2L-L: defense-in-depth PII redaction for audit metadata reads
+  "ghana_card_number", "ghanaCardNumber", "ghana_card", "ghanacard",
+  "phone", "phone_number", "phoneNumber", "mobile", "mobile_phone", "mobilePhone",
+]);
 
 const confirmationTypes = new Set(["full", "fixed", "percentage"]);
 
@@ -1991,6 +2000,13 @@ export class AdminService {
     return rows.results ?? [];
   }
 
+  /**
+   * Create an active bed allocation for a confirmed agreement.
+   * Stage 2L-L / 2L-H Option A (intentional): DB unique indexes allow only one
+   * simultaneously-active allocation per bed and per resident. Future non-overlapping
+   * "scheduled" active spells are not supported — end/transfer the current spell first.
+   * Date-overlap checks remain the authoritative physical freeness rule among candidates.
+   */
   async createAllocation(actor: AuthUser, data: {
     bookingId: number;
     bedId: number;
@@ -2645,17 +2661,22 @@ export class AdminService {
     return { ...summary, occupancy_percentage: usable ? Math.round((occupied * 10000) / usable) / 100 : 0, rooms: rooms.results ?? [] };
   }
 
+  /**
+   * Dashboard finance snapshot.
+   * Stage 2L-L: expected revenue / paid classification use agreement obligation
+   * (accommodation + maintenance), matching reportFinance / agreement-financial.
+   */
   financialReport() {
     return this.repo.first<Record<string, unknown>>(`
       SELECT
-        (SELECT COALESCE(SUM(total_amount_minor), 0) FROM bookings WHERE status IN ('pending', 'confirmed', 'completed')) AS expected_booking_revenue,
+        (SELECT COALESCE(SUM(total_amount_minor + COALESCE(maintenance_fee_minor, 0)), 0) FROM bookings WHERE status IN ('pending', 'confirmed', 'completed')) AS expected_booking_revenue,
         (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status = 'verified') AS verified_payments,
         ((SELECT COALESCE(SUM(total_amount_minor + COALESCE(maintenance_fee_minor, 0)), 0) FROM bookings WHERE status IN ('pending', 'confirmed', 'completed')) - (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status = 'verified')) AS outstanding_booking_balances,
         (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status IN ('pending', 'submitted')) AS pending_submitted_payment_totals,
         (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status = 'refunded') AS refunded_totals,
-        (SELECT COUNT(*) FROM bookings b WHERE b.total_amount_minor <= (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS fully_paid_bookings,
-        (SELECT COUNT(*) FROM bookings b WHERE (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified') > 0 AND b.total_amount_minor > (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS partially_paid_bookings,
-        (SELECT COUNT(*) FROM bookings b WHERE (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified') = 0) AS unpaid_bookings,
+        (SELECT COUNT(*) FROM bookings b WHERE b.status IN ('pending', 'confirmed', 'completed') AND (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) <= (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS fully_paid_bookings,
+        (SELECT COUNT(*) FROM bookings b WHERE b.status IN ('pending', 'confirmed', 'completed') AND (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified') > 0 AND (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) > (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS partially_paid_bookings,
+        (SELECT COUNT(*) FROM bookings b WHERE b.status IN ('pending', 'confirmed', 'completed') AND (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified') = 0) AS unpaid_bookings,
         (SELECT COUNT(*) FROM bookings WHERE payment_attention_required = 1) AS bookings_requiring_payment_attention
     `);
   }
@@ -2983,7 +3004,19 @@ export class AdminService {
 
   private isSensitiveAuditKey(key: string) {
     const normalized = key.replace(/[-\s]/g, "_");
-    return sensitiveAuditKeys.has(key) || sensitiveAuditKeys.has(normalized) || normalized.toLowerCase().includes("password") || normalized.toLowerCase().includes("token") || normalized.toLowerCase().includes("secret") || normalized.toLowerCase().includes("authorization") || normalized.toLowerCase().includes("otp");
+    const lower = normalized.toLowerCase();
+    return (
+      sensitiveAuditKeys.has(key) ||
+      sensitiveAuditKeys.has(normalized) ||
+      sensitiveAuditKeys.has(lower) ||
+      lower.includes("password") ||
+      lower.includes("token") ||
+      lower.includes("secret") ||
+      lower.includes("authorization") ||
+      lower.includes("otp") ||
+      lower.includes("ghana_card") ||
+      lower.includes("ghanacard")
+    );
   }
 
   private requiredConfirmationAmount(total: number, setting: { requirement_type: string; fixed_amount_minor: number | null; percentage_basis_points: number | null }) {
