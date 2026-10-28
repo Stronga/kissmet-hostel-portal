@@ -2,9 +2,12 @@ import { Search } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ApplicationDetail } from "./ApplicationDetail";
 import { ApplicationTable } from "./ApplicationTable";
+import { CreateAgreementDialog } from "./CreateAgreementDialog";
 import { DecisionDialog } from "./DecisionDialog";
 import { getApplication, getResident, listAcademicSessions, listApplications, listIdentityDocuments, updateApplicationStatus } from "../../api/applications";
+import { createBookingFromRateCard, listRooms, resolveActiveRateCard } from "../../api/bookings";
 import { listInstitutions } from "../../api/residents";
+import { listLeasePeriods } from "../../api/setup";
 import { useAuth } from "../../auth/AuthContext";
 import { hasPermission } from "../../auth/permissions";
 import { ConfirmDialog } from "../../components/common/ConfirmDialog";
@@ -13,7 +16,7 @@ import { ErrorState } from "../../components/common/ErrorState";
 import { LoadingState } from "../../components/common/LoadingState";
 import { StatCard } from "../../components/common/StatCard";
 import { PageHeader } from "../../components/layout/PageHeader";
-import type { AcademicSession, Application, ApplicationStatus, IdentityDocument, Institution, Resident } from "../../types/api";
+import type { AcademicSession, Application, ApplicationStatus, IdentityDocument, Institution, LeasePeriod, RateCard, Resident, Room } from "../../types/api";
 import { formatStatus } from "../../utils/format";
 
 const pageSize = 25;
@@ -22,6 +25,7 @@ const statuses: Array<ApplicationStatus | "all"> = ["all", "draft", "submitted",
 export function ApplicationsPage() {
   const { user } = useAuth();
   const canManage = hasPermission(user?.role, "application:write");
+  const canCreateAgreement = hasPermission(user?.role, "admin:write");
   const [applications, setApplications] = useState<Application[]>([]);
   const [residentsById, setResidentsById] = useState<Map<number, Resident>>(new Map());
   const [institutions, setInstitutions] = useState<Institution[]>([]);
@@ -39,16 +43,28 @@ export function ApplicationsPage() {
   const [pendingStatus, setPendingStatus] = useState(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
   const [decisionStatus, setDecisionStatus] = useState<ApplicationStatus | null>(null);
+  const [leasePeriods, setLeasePeriods] = useState<LeasePeriod[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [agreementOpen, setAgreementOpen] = useState(false);
+  const [agreementError, setAgreementError] = useState<string | null>(null);
+  const [agreementSaving, setAgreementSaving] = useState(false);
+  const [resolvedRate, setResolvedRate] = useState<RateCard | null>(null);
+  const [rateError, setRateError] = useState<string | null>(null);
+  const [resolvingRate, setResolvingRate] = useState(false);
+  const [, setSelectedLeasePeriodId] = useState<number | null>(null);
+  const [, setSelectedRoomId] = useState<number | null>(null);
 
   async function load(nextOffset = offset, nextSearch = submittedSearch) {
     setLoading(true);
     setError(null);
     try {
-      const [{ applications: rows }, institutionRows, sessionRows, documentRows] = await Promise.all([
+      const [{ applications: rows }, institutionRows, sessionRows, documentRows, leasePeriodRows, roomRows] = await Promise.all([
         listApplications({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined }),
         listInstitutions(),
         listAcademicSessions(),
-        listIdentityDocuments()
+        listIdentityDocuments(),
+        listLeasePeriods(),
+        listRooms()
       ]);
       const residentEntries = await Promise.all(
         Array.from(new Set(rows.map((application) => application.resident_id))).map(async (id) => [id, await getResident(id)] as const)
@@ -58,6 +74,8 @@ export function ApplicationsPage() {
       setInstitutions(institutionRows);
       setSessions(sessionRows);
       setDocuments(documentRows);
+      setLeasePeriods(leasePeriodRows);
+      setRooms(roomRows);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load applications.");
     } finally {
@@ -178,11 +196,79 @@ export function ApplicationsPage() {
         <button type="button" disabled={applications.length < pageSize || loading} onClick={() => { const next = offset + pageSize; setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Next</button>
       </div>
 
-      <ConfirmDialog open={Boolean(selected) || detailLoading} title="Application Details" onClose={() => { setSelected(null); setDecisionStatus(null); setTransitionError(null); }}>
+      <ConfirmDialog open={Boolean(selected) || detailLoading} title="Application Details" onClose={() => { setSelected(null); setDecisionStatus(null); setTransitionError(null); setAgreementOpen(false); }}>
         {detailLoading || !selected ? <LoadingState label="Loading application..." /> : (
-          <ApplicationDetail application={selected} resident={selectedResident} institution={selectedInstitution} session={selectedSession} documents={selectedDocuments} canManage={canManage} pending={pendingStatus} onAction={requestAction} />
+          <ApplicationDetail
+            application={selected}
+            resident={selectedResident}
+            institution={selectedInstitution}
+            session={selectedSession}
+            leasePeriods={leasePeriods}
+            documents={selectedDocuments}
+            canManage={canManage}
+            canCreateAgreement={canCreateAgreement}
+            pending={pendingStatus || agreementSaving}
+            onAction={requestAction}
+            onCreateAgreement={() => { setAgreementError(null); setAgreementOpen(true); }}
+          />
         )}
       </ConfirmDialog>
+
+      {selected ? (
+        <CreateAgreementDialog
+          open={agreementOpen}
+          application={selected}
+          leasePeriods={leasePeriods}
+          rooms={rooms}
+          resolvingRate={resolvingRate}
+          resolvedRate={resolvedRate}
+          rateError={rateError}
+          error={agreementError}
+          saving={agreementSaving}
+          onLeasePeriodChange={setSelectedLeasePeriodId}
+          onRoomChange={setSelectedRoomId}
+          onResolveRate={(leasePeriodId, occupancyCapacity) => {
+            void (async () => {
+              setResolvingRate(true);
+              setRateError(null);
+              setResolvedRate(null);
+              try {
+                const card = await resolveActiveRateCard(leasePeriodId, occupancyCapacity);
+                setResolvedRate(card);
+              } catch (err) {
+                setRateError(err instanceof Error ? err.message : "No active rate configured");
+              } finally {
+                setResolvingRate(false);
+              }
+            })();
+          }}
+          onCreate={(input) => {
+            void (async () => {
+              setAgreementSaving(true);
+              setAgreementError(null);
+              try {
+                await createBookingFromRateCard({
+                  applicationId: selected.id,
+                  roomId: input.roomId,
+                  leasePeriodId: input.leasePeriodId,
+                  occupancyCapacity: input.occupancyCapacity,
+                  maintenanceFeeMinor: input.maintenanceFeeMinor,
+                  agreedAmountMinor: input.agreedAmountMinor,
+                  overrideReason: input.overrideReason,
+                  startsOn: input.startsOn,
+                  endsOn: input.endsOn
+                });
+                setAgreementOpen(false);
+              } catch (err) {
+                setAgreementError(err instanceof Error ? err.message : "Unable to create agreement.");
+              } finally {
+                setAgreementSaving(false);
+              }
+            })();
+          }}
+          onClose={() => { if (!agreementSaving) setAgreementOpen(false); }}
+        />
+      ) : null}
 
       <DecisionDialog open={Boolean(decisionStatus)} status={decisionStatus} pending={pendingStatus} error={transitionError} onCancel={() => { if (!pendingStatus) { setDecisionStatus(null); setTransitionError(null); } }} onConfirm={(notes) => void confirmAction(notes)} />
     </div>

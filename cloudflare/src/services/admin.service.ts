@@ -682,19 +682,60 @@ export class AdminService {
     };
   }
 
+  /**
+   * Agreement financial display: accommodation + maintenance = obligation;
+   * verified payments only (status = verified). Does not change confirmation policy.
+   */
+  async bookingAgreementFinancialSummary(bookingId: number, booking?: Record<string, unknown> | null) {
+    const row = booking ?? (await this.get("bookings", bookingId) as Record<string, unknown> | null);
+    if (!row) throw new Error("Booking not found");
+    const paid = await this.repo.first<{ verified_paid_minor: number }>(
+      "SELECT COALESCE(SUM(amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
+      bookingId
+    );
+    const accommodation = Number(row.total_amount_minor);
+    const maintenance = row.maintenance_fee_minor == null ? 0 : Number(row.maintenance_fee_minor);
+    const verifiedPaid = Number(paid?.verified_paid_minor ?? 0);
+    const totalObligation = accommodation + maintenance;
+    return {
+      agreed_accommodation_amount_minor: accommodation,
+      maintenance_fee_minor: row.maintenance_fee_minor == null ? null : maintenance,
+      total_obligation_minor: totalObligation,
+      verified_paid_minor: verifiedPaid,
+      balance_minor: totalObligation - verifiedPaid,
+      currency: String(row.currency ?? "GHS")
+    };
+  }
+
   async getBookingAgreement(id: number) {
     const booking = await this.get("bookings", id) as Record<string, unknown> | null;
     if (!booking) throw new Error("Booking not found");
+    const application = booking.application_id == null
+      ? null
+      : await this.repo.first<Record<string, unknown>>("SELECT * FROM applications WHERE id = ?", Number(booking.application_id));
+    const financial = await this.bookingAgreementFinancialSummary(id, booking);
     return {
       booking,
-      agreement: this.bookingAgreementView(booking)
+      agreement: this.bookingAgreementView(booking),
+      financial,
+      request: application
+        ? {
+            application_id: Number(application.id),
+            application_number: application.application_number == null ? null : String(application.application_number),
+            requested_lease_kind: (application.lease_kind as LeaseKind | null) ?? null,
+            requested_lease_period_id: application.lease_period_id == null ? null : Number(application.lease_period_id),
+            requested_academic_session_id: application.academic_session_id == null ? null : Number(application.academic_session_id)
+          }
+        : null
     };
   }
 
   /**
-   * Explicit NEW flexible pricing path (Path B): lease period + room occupancy → active rate card.
-   * Snapshots amount into bookings.total_amount_minor. Later rate-card edits do not rewrite it.
-   * Legacy Path A (createBooking + room_rates) remains unchanged.
+   * Path B management-controlled agreement (Stage 2L-G):
+   * lease period + room occupancy → active rate card snapshot.
+   * Management chooses the approved lease period (may differ from requested term).
+   * CY/ST: academic_session_id is null. AC: session copied from lease period when linked.
+   * Application request history is preserved. No silent room_rates fallback.
    */
   async createBookingFromRateCard(actor: AuthUser, data: {
     applicationId: number;
@@ -702,6 +743,8 @@ export class AdminService {
     leasePeriodId: number;
     occupancyCapacity?: number;
     maintenanceFeeMinor?: number | null;
+    agreedAmountMinor?: number | null;
+    overrideReason?: string | null;
     startsOn?: string | null;
     endsOn?: string | null;
     expiresAt?: string | null;
@@ -714,20 +757,19 @@ export class AdminService {
       const application = await this.repo.first<Record<string, unknown>>("SELECT * FROM applications WHERE id = ?", data.applicationId);
       if (!application) throw new Error("Application not found");
       if (application.status !== "approved") throw new Error("Only approved applications may be booked");
-      // Stage 2L-F boundary: bookings.academic_session_id remains NOT NULL.
-      // CY/ST applications without a session cannot yet become bookings here.
-      if (application.academic_session_id == null) {
-        throw new Error(
-          "Booking from Calendar Year / Short-Term applications requires a later stage that allows bookings without academic_session_id; use Academic Calendar applications for legacy/rate-card booking until then"
-        );
-      }
-      if (application.lease_period_id != null && Number(application.lease_period_id) !== data.leasePeriodId) {
-        throw new Error("Booking lease period must match the approved application lease period");
-      }
 
       const period = await this.get("lease_periods", data.leasePeriodId) as Record<string, unknown> | null;
       if (!period) throw new Error("Lease period not found");
       if (!isLeaseKind(period.kind)) throw new Error("Invalid lease kind on lease period");
+      const approvedKind = period.kind as LeaseKind;
+
+      // Approved session comes from the chosen lease period — never invent a fake session.
+      let bookingSessionId: number | null = null;
+      if (approvedKind === "academic_calendar") {
+        bookingSessionId = period.academic_session_id == null ? null : Number(period.academic_session_id);
+      } else {
+        bookingSessionId = null;
+      }
 
       const room = await this.get("rooms", data.roomId) as Record<string, unknown> | null;
       if (!room) throw new Error("Room not found");
@@ -739,7 +781,17 @@ export class AdminService {
         throw new Error("Occupancy capacity must match the room's configured capacity");
       }
 
-      const rateCard = await this.resolveActiveRateCard(data.leasePeriodId, occupancy);
+      let rateCard: Record<string, unknown>;
+      try {
+        rateCard = await this.resolveActiveRateCard(data.leasePeriodId, occupancy);
+      } catch (error) {
+        const msg = String((error as Error).message);
+        if (msg.includes("Active rate card not found")) {
+          throw new Error("No active rate configured for the selected lease period and room occupancy");
+        }
+        throw error;
+      }
+      const defaultAmount = Number(rateCard.amount_minor);
       const startsOn = data.startsOn ?? String(period.starts_on);
       const endsOn = data.endsOn ?? String(period.ends_on);
       if (startsOn > endsOn) throw new Error("Invalid agreement dates: starts_on must be <= ends_on");
@@ -749,11 +801,27 @@ export class AdminService {
         throw new Error("Invalid maintenance fee: must be an integer >= 0");
       }
 
+      let agreedAmount = defaultAmount;
+      let overrideReason: string | null = null;
+      let creationOverride = false;
+      if (data.agreedAmountMinor != null && data.agreedAmountMinor !== defaultAmount) {
+        const reason = data.overrideReason?.trim() ?? "";
+        if (!reason) throw new Error("Override reason is required when agreed amount differs from the active rate card");
+        if (!Number.isInteger(data.agreedAmountMinor) || data.agreedAmountMinor <= 0) {
+          throw new Error("Invalid accommodation amount: must be a positive integer");
+        }
+        agreedAmount = data.agreedAmountMinor;
+        overrideReason = reason;
+        creationOverride = true;
+      } else if (data.overrideReason?.trim()) {
+        // Reason without amount change is ignored for creation (post-create override path handles that).
+        overrideReason = null;
+      }
+
       let paymentRequirementType: string | null = data.paymentRequirementType ?? null;
       if (paymentRequirementType != null && !isBookingPaymentRequirementType(paymentRequirementType)) {
         throw new Error("Invalid payment requirement type");
       }
-      // Stage 2L-C: store policy fields only; payment_confirmation_settings remains enforcement until 2L-F.
       if (paymentRequirementType == null) paymentRequirementType = "full";
 
       if (data.priorBookingId != null) {
@@ -761,12 +829,27 @@ export class AdminService {
         if (!prior) throw new Error("Prior booking not found");
       }
 
-      const duplicate = await this.repo.first(
-        "SELECT id FROM bookings WHERE resident_id = ? AND academic_session_id = ? AND status IN ('pending', 'confirmed')",
-        application.resident_id,
-        application.academic_session_id
+      const duplicateByApplication = await this.repo.first(
+        "SELECT id FROM bookings WHERE application_id = ? AND status IN ('pending', 'confirmed')",
+        data.applicationId
       );
-      if (duplicate) throw new Error("Duplicate active booking");
+      if (duplicateByApplication) throw new Error("Duplicate active booking for this application");
+
+      if (bookingSessionId != null) {
+        const duplicateBySession = await this.repo.first(
+          "SELECT id FROM bookings WHERE resident_id = ? AND academic_session_id = ? AND status IN ('pending', 'confirmed')",
+          application.resident_id,
+          bookingSessionId
+        );
+        if (duplicateBySession) throw new Error("Duplicate active booking");
+      }
+
+      const duplicateByLease = await this.repo.first(
+        "SELECT id FROM bookings WHERE resident_id = ? AND lease_period_id = ? AND status IN ('pending', 'confirmed')",
+        application.resident_id,
+        data.leasePeriodId
+      );
+      if (duplicateByLease) throw new Error("Duplicate active booking for this lease period");
 
       const bookingNumber = await this.repo.allocateBookingNumber();
       try {
@@ -776,41 +859,52 @@ export class AdminService {
              total_amount_minor, currency, expires_at, priced_room_id, priced_room_rate_id,
              lease_period_id, lease_kind, starts_on, ends_on, maintenance_fee_minor,
              payment_requirement_type, payment_fixed_amount_minor, payment_percentage_basis_points,
-             partial_payment_authorized, prior_booking_id
-           ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+             partial_payment_authorized, prior_booking_id, override_reason
+           ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
           application.resident_id,
-          application.academic_session_id,
+          bookingSessionId,
           data.applicationId,
           bookingNumber,
-          Number(rateCard.amount_minor),
+          agreedAmount,
           String(rateCard.currency ?? "GHS"),
           data.expiresAt ?? null,
           data.roomId,
           data.leasePeriodId,
-          period.kind,
+          approvedKind,
           startsOn,
           endsOn,
           maintenanceFeeMinor,
           paymentRequirementType,
           data.paymentFixedAmountMinor ?? null,
           data.paymentPercentageBasisPoints ?? null,
-          data.priorBookingId ?? null
+          data.priorBookingId ?? null,
+          overrideReason
         );
         const bookingId = Number(res.meta.last_row_id);
-        await this.repo.audit(actor.id, actor.staffId, "admin.booking.create", "booking", bookingId, {
+        await this.repo.audit(actor.id, actor.staffId, "admin.booking.agreement_create", "booking", bookingId, {
           bookingNumber,
           applicationId: data.applicationId,
+          residentId: Number(application.resident_id),
           roomId: data.roomId,
           pricingPath: "lease_rate_card",
+          requestedLeaseKind: application.lease_kind ?? null,
+          approvedLeaseKind: approvedKind,
           leasePeriodId: data.leasePeriodId,
+          academicSessionId: bookingSessionId,
           rateCardId: Number(rateCard.id),
           occupancyCapacity: occupancy,
-          agreedAccommodationAmountMinor: Number(rateCard.amount_minor),
-          maintenanceFeeMinor
+          defaultAmountMinor: defaultAmount,
+          agreedAccommodationAmountMinor: agreedAmount,
+          maintenanceFeeMinor,
+          creationOverride,
+          overrideReason
+          // never include Ghana Card number, documents, OTP, or tokens
         });
         return this.getBookingAgreement(bookingId);
       } catch (error) {
-        if (String((error as Error).message).includes("booking_number") && attempt < 2) continue;
+        const msg = String((error as Error).message);
+        if (msg.includes("booking_number") && attempt < 2) continue;
+        if (msg.includes("UNIQUE") || msg.includes("one_active")) throw new Error("Duplicate active booking");
         throw error;
       }
     }

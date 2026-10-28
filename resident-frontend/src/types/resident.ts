@@ -77,7 +77,7 @@ export interface AcademicSession {
 export interface ResidentBooking {
   id: number;
   booking_number: string;
-  academic_session_id: number;
+  academic_session_id: number | null;
   application_id?: number | null;
   status: BookingStatus;
   total_amount_minor: number;
@@ -89,6 +89,13 @@ export interface ResidentBooking {
   created_at?: string | null;
   payment_attention_required?: number | boolean | null;
   payment_attention_reason?: string | null;
+  lease_period_id?: number | null;
+  lease_kind?: LeaseKind | string | null;
+  starts_on?: string | null;
+  ends_on?: string | null;
+  maintenance_fee_minor?: number | null;
+  lease_period_code?: string | null;
+  lease_period_name?: string | null;
   academic_session_code?: string | null;
   academic_session_name?: string | null;
   application_number?: string | null;

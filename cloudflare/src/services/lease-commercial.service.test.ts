@@ -23,7 +23,7 @@ class LeaseCommercialRepo {
     lease_periods: [],
     rate_cards: [],
     rooms: [{ id: 1, room_code: "R1", capacity: 2, status: "available" }],
-    applications: [{ id: 1, resident_id: 1, academic_session_id: 1, status: "approved", application_number: "KSM-APP-0001" }],
+    applications: [{ id: 1, resident_id: 1, academic_session_id: 1, lease_period_id: null, lease_kind: "academic_calendar", status: "approved", application_number: "KSM-APP-0001" }],
     bookings: [],
     payments: [],
     audits: []
@@ -44,11 +44,25 @@ class LeaseCommercialRepo {
     if (sql.startsWith("SELECT * FROM applications")) {
       return this.get("applications", binds[0] as number) as T;
     }
+    if (sql.includes("FROM bookings WHERE application_id")) {
+      return (this.rows.bookings.find(
+        (b) => b.application_id === binds[0] && ["pending", "confirmed"].includes(String(b.status))
+      ) ?? null) as T;
+    }
+    if (sql.includes("FROM bookings WHERE resident_id") && sql.includes("lease_period_id")) {
+      return (this.rows.bookings.find(
+        (b) =>
+          b.resident_id === binds[0] &&
+          b.lease_period_id === binds[1] &&
+          ["pending", "confirmed"].includes(String(b.status))
+      ) ?? null) as T;
+    }
     if (sql.startsWith("SELECT id FROM bookings")) {
       return (this.rows.bookings.find(
         (b) =>
           b.resident_id === binds[0] &&
           b.academic_session_id === binds[1] &&
+          binds[1] != null &&
           ["pending", "confirmed"].includes(String(b.status))
       ) ?? null) as T;
     }
@@ -70,6 +84,12 @@ class LeaseCommercialRepo {
       return {
         verified_count: this.rows.payments.filter((p) => p.booking_id === binds[0] && p.status === "verified").length
       } as T;
+    }
+    if (sql.includes("SUM(amount_minor)") && sql.includes("verified")) {
+      const sum = this.rows.payments
+        .filter((p) => p.booking_id === binds[0] && p.status === "verified")
+        .reduce((acc, p) => acc + Number(p.amount_minor ?? 0), 0);
+      return { verified_paid_minor: sum } as T;
     }
     return null;
   }
@@ -202,6 +222,7 @@ class LeaseCommercialRepo {
         throw new Error("UNIQUE constraint failed: bookings.booking_number");
       }
       if (
+        binds[1] != null &&
         this.rows.bookings.some(
           (b) =>
             b.resident_id === binds[0] &&
@@ -210,6 +231,29 @@ class LeaseCommercialRepo {
         )
       ) {
         throw new Error("UNIQUE constraint failed");
+      }
+      if (
+        this.rows.bookings.some(
+          (b) =>
+            b.application_id === binds[2] &&
+            ["pending", "confirmed"].includes(String(b.status))
+        )
+      ) {
+        throw new Error("UNIQUE constraint failed: application");
+      }
+      if (
+        binds[8] != null &&
+        this.rows.bookings.some(
+          (b) =>
+            b.resident_id === binds[0] &&
+            b.lease_period_id === binds[8] &&
+            ["pending", "confirmed"].includes(String(b.status))
+        )
+      ) {
+        throw new Error("UNIQUE constraint failed: lease_period");
+      }
+      if ((binds[9] === "calendar_year" || binds[9] === "short_term") && binds[1] != null) {
+        throw new Error("CHECK constraint failed: academic_session_id");
       }
       const id = this.rows.bookings.length + 1;
       this.rows.bookings.push({
@@ -234,7 +278,7 @@ class LeaseCommercialRepo {
         payment_percentage_basis_points: binds[15],
         partial_payment_authorized: 0,
         prior_booking_id: binds[16],
-        override_reason: null
+        override_reason: binds[17] ?? null
       });
       return { meta: { last_row_id: id, changes: 1 } };
     }
@@ -545,7 +589,7 @@ describe("Stage 2L-C booking agreement snapshot + overrides", () => {
     expect(created.agreement.ends_on).toBe("2027-06-30");
     expect(created.booking.total_amount_minor).toBe(600000);
     expect(created.booking.priced_room_rate_id).toBeNull();
-    expect(repo.audits.some((a) => a.action === "admin.booking.create" && a.metadata?.pricingPath === "lease_rate_card")).toBe(true);
+    expect(repo.audits.some((a) => a.action === "admin.booking.agreement_create" && a.metadata?.pricingPath === "lease_rate_card")).toBe(true);
 
     // Later rate-card update must NOT alter booking amount
     await svc.updateRateCard(manager, 1, { amountMinor: 999999 });
@@ -622,5 +666,239 @@ describe("Stage 2L-C booking agreement snapshot + overrides", () => {
     });
     allowed.patch("/bookings/:id/agreement", requirePermission("admin:write"), (c) => c.json({ ok: true }));
     expect((await allowed.request("/bookings/1/agreement", { method: "PATCH" })).status).toBe(200);
+  });
+});
+
+
+describe("Stage 2L-G management-controlled agreements", () => {
+  async function seedPeriods(svc: AdminService, repo: LeaseCommercialRepo) {
+    await svc.createLeasePeriod(manager, {
+      kind: "academic_calendar",
+      code: "AC-G",
+      name: "AC G",
+      startsOn: "2026-09-01",
+      endsOn: "2027-06-30",
+      status: "active",
+      academicSessionId: 1
+    });
+    await svc.createLeasePeriod(manager, {
+      kind: "calendar_year",
+      code: "CY-G",
+      name: "CY G",
+      startsOn: "2027-01-01",
+      endsOn: "2027-12-31",
+      status: "active"
+    });
+    await svc.createLeasePeriod(manager, {
+      kind: "short_term",
+      code: "ST-G",
+      name: "ST G",
+      startsOn: "2027-01-01",
+      endsOn: "2027-03-31",
+      status: "active"
+    });
+    for (const [leasePeriodId, occupancy, code, amount] of [
+      [1, 2, "AC-G-2", 600000],
+      [2, 2, "CY-G-2", 900000],
+      [3, 2, "ST-G-2", 350000],
+      [3, 1, "ST-G-1", 450000],
+      [3, 4, "ST-G-4", 250000]
+    ] as const) {
+      await svc.createRateCard(manager, {
+        leasePeriodId,
+        occupancyCapacity: occupancy,
+        rateCode: code,
+        amountMinor: amount,
+        status: "active"
+      });
+    }
+    return { svc, repo };
+  }
+
+  it("creates Academic Calendar agreement with linked session", async () => {
+    const repo = new LeaseCommercialRepo();
+    const svc = new AdminService(repo as never);
+    await seedPeriods(svc, repo);
+    const created = await svc.createBookingFromRateCard(manager, {
+      applicationId: 1,
+      roomId: 1,
+      leasePeriodId: 1,
+      maintenanceFeeMinor: 12000
+    });
+    expect(created.agreement.lease_kind).toBe("academic_calendar");
+    expect(created.agreement.academic_session_id).toBe(1);
+    expect(created.agreement.pricing_path).toBe("lease_rate_card");
+    expect(created.booking.priced_room_rate_id).toBeNull();
+    expect(created.financial.total_obligation_minor).toBe(612000);
+  });
+
+  it("creates Calendar Year and Short-Term agreements without academic session", async () => {
+    const repo = new LeaseCommercialRepo();
+    const svc = new AdminService(repo as never);
+    await seedPeriods(svc, repo);
+    repo.rows.applications.push({
+      id: 2,
+      resident_id: 2,
+      academic_session_id: null,
+      lease_period_id: 3,
+      lease_kind: "short_term",
+      status: "approved",
+      application_number: "KSM-APP-0002"
+    });
+    repo.rows.applications.push({
+      id: 3,
+      resident_id: 3,
+      academic_session_id: null,
+      lease_period_id: 2,
+      lease_kind: "calendar_year",
+      status: "approved",
+      application_number: "KSM-APP-0003"
+    });
+    repo.rows.rooms.push({ id: 2, room_code: "R2", capacity: 2, status: "available" });
+
+    const st = await svc.createBookingFromRateCard(manager, {
+      applicationId: 2,
+      roomId: 1,
+      leasePeriodId: 3,
+      maintenanceFeeMinor: 5000
+    });
+    expect(st.agreement.lease_kind).toBe("short_term");
+    expect(st.agreement.academic_session_id).toBeNull();
+    expect(st.request?.requested_lease_kind).toBe("short_term");
+
+    const cy = await svc.createBookingFromRateCard(manager, {
+      applicationId: 3,
+      roomId: 2,
+      leasePeriodId: 2,
+      maintenanceFeeMinor: 8000
+    });
+    expect(cy.agreement.lease_kind).toBe("calendar_year");
+    expect(cy.agreement.academic_session_id).toBeNull();
+  });
+
+  it("preserves requested Short-Term when management approves Calendar Year", async () => {
+    const repo = new LeaseCommercialRepo();
+    const svc = new AdminService(repo as never);
+    await seedPeriods(svc, repo);
+    repo.rows.applications[0] = {
+      id: 1,
+      resident_id: 1,
+      academic_session_id: null,
+      lease_period_id: 3,
+      lease_kind: "short_term",
+      status: "approved",
+      application_number: "KSM-APP-0001"
+    };
+    const created = await svc.createBookingFromRateCard(manager, {
+      applicationId: 1,
+      roomId: 1,
+      leasePeriodId: 2,
+      maintenanceFeeMinor: 0
+    });
+    expect(created.request?.requested_lease_kind).toBe("short_term");
+    expect(created.request?.requested_lease_period_id).toBe(3);
+    expect(created.agreement.lease_kind).toBe("calendar_year");
+    expect(created.agreement.lease_period_id).toBe(2);
+    expect(repo.rows.applications[0].lease_kind).toBe("short_term");
+  });
+
+  it("resolves rate by room capacity 1/2/4 and errors when no active rate", async () => {
+    const repo = new LeaseCommercialRepo();
+    const svc = new AdminService(repo as never);
+    await seedPeriods(svc, repo);
+    repo.rows.rooms = [
+      { id: 1, room_code: "R1", capacity: 1, status: "available" },
+      { id: 2, room_code: "R2", capacity: 2, status: "available" },
+      { id: 4, room_code: "R4", capacity: 4, status: "available" }
+    ];
+    repo.rows.applications = [
+      { id: 1, resident_id: 1, academic_session_id: null, lease_kind: "short_term", status: "approved", application_number: "A1" },
+      { id: 2, resident_id: 2, academic_session_id: null, lease_kind: "short_term", status: "approved", application_number: "A2" },
+      { id: 3, resident_id: 3, academic_session_id: null, lease_kind: "short_term", status: "approved", application_number: "A3" },
+      { id: 4, resident_id: 4, academic_session_id: null, lease_kind: "short_term", status: "approved", application_number: "A4" }
+    ];
+
+    expect((await svc.createBookingFromRateCard(manager, { applicationId: 1, roomId: 1, leasePeriodId: 3 })).agreement.agreed_accommodation_amount_minor).toBe(450000);
+    expect((await svc.createBookingFromRateCard(manager, { applicationId: 2, roomId: 2, leasePeriodId: 3 })).agreement.agreed_accommodation_amount_minor).toBe(350000);
+    expect((await svc.createBookingFromRateCard(manager, { applicationId: 3, roomId: 4, leasePeriodId: 3 })).agreement.agreed_accommodation_amount_minor).toBe(250000);
+
+    // No rate for AC occupancy 1
+    repo.rows.rooms.push({ id: 5, room_code: "R5", capacity: 1, status: "available" });
+    await expect(
+      svc.createBookingFromRateCard(manager, { applicationId: 4, roomId: 5, leasePeriodId: 1 })
+    ).rejects.toThrow(/No active rate configured/);
+  });
+
+  it("supports creation-time amount override with reason and financial aggregation", async () => {
+    const repo = new LeaseCommercialRepo();
+    const svc = new AdminService(repo as never);
+    await seedPeriods(svc, repo);
+    await expect(
+      svc.createBookingFromRateCard(manager, {
+        applicationId: 1,
+        roomId: 1,
+        leasePeriodId: 1,
+        agreedAmountMinor: 500000,
+        maintenanceFeeMinor: 10000
+      })
+    ).rejects.toThrow(/Override reason is required/);
+
+    const created = await svc.createBookingFromRateCard(manager, {
+      applicationId: 1,
+      roomId: 1,
+      leasePeriodId: 1,
+      agreedAmountMinor: 500000,
+      overrideReason: "Manager discount at creation",
+      maintenanceFeeMinor: 10000
+    });
+    expect(created.agreement.agreed_accommodation_amount_minor).toBe(500000);
+    expect(created.agreement.override_reason).toBe("Manager discount at creation");
+    expect(created.financial.total_obligation_minor).toBe(510000);
+    expect(created.financial.verified_paid_minor).toBe(0);
+    expect(created.financial.balance_minor).toBe(510000);
+    expect(repo.audits.some((a) => a.action === "admin.booking.agreement_create" && a.metadata?.creationOverride === true)).toBe(true);
+
+    repo.rows.payments.push({ id: 1, booking_id: 1, status: "verified", amount_minor: 200000 });
+    repo.rows.payments.push({ id: 2, booking_id: 1, status: "pending", amount_minor: 50000 });
+    repo.rows.payments.push({ id: 3, booking_id: 1, status: "rejected", amount_minor: 10000 });
+    const again = await svc.getBookingAgreement(1);
+    expect(again.financial.verified_paid_minor).toBe(200000);
+    expect(again.financial.balance_minor).toBe(310000);
+  });
+
+  it("prevents duplicate active agreements from the same application", async () => {
+    const repo = new LeaseCommercialRepo();
+    const svc = new AdminService(repo as never);
+    await seedPeriods(svc, repo);
+    await svc.createBookingFromRateCard(manager, { applicationId: 1, roomId: 1, leasePeriodId: 1 });
+    await expect(
+      svc.createBookingFromRateCard(manager, { applicationId: 1, roomId: 1, leasePeriodId: 1 })
+    ).rejects.toThrow(/Duplicate active booking/);
+  });
+
+  it("gates Path B agreement create behind admin:write (reception denied)", async () => {
+    const gated = new Hono<{ Variables: { authUser: AuthUser } }>();
+    gated.use("*", async (c, next) => {
+      c.set("authUser", reception);
+      await next();
+    });
+    gated.post("/bookings/from-rate-card", requirePermission("admin:write"), (c) => c.json({ ok: true }));
+    expect((await gated.request("/bookings/from-rate-card", { method: "POST" })).status).toBe(403);
+
+    const allowed = new Hono<{ Variables: { authUser: AuthUser } }>();
+    allowed.use("*", async (c, next) => {
+      c.set("authUser", manager);
+      await next();
+    });
+    allowed.post("/bookings/from-rate-card", requirePermission("admin:write"), (c) => c.json({ ok: true }));
+    expect((await allowed.request("/bookings/from-rate-card", { method: "POST" })).status).toBe(200);
+
+    const sa = new Hono<{ Variables: { authUser: AuthUser } }>();
+    sa.use("*", async (c, next) => {
+      c.set("authUser", superAdmin);
+      await next();
+    });
+    sa.post("/bookings/from-rate-card", requirePermission("admin:write"), (c) => c.json({ ok: true }));
+    expect((await sa.request("/bookings/from-rate-card", { method: "POST" })).status).toBe(200);
   });
 });

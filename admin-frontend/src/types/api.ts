@@ -119,8 +119,8 @@ export type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | 
 export interface Booking {
   id: number;
   resident_id: number;
-  academic_session_id: number;
-  application_id: number;
+  academic_session_id: number | null;
+  application_id: number | null;
   booking_number: string;
   status: BookingStatus;
   total_amount_minor: number;
@@ -128,10 +128,58 @@ export interface Booking {
   expires_at?: string | null;
   priced_room_id?: number | null;
   priced_room_rate_id?: number | null;
+  lease_period_id?: number | null;
+  lease_kind?: "academic_calendar" | "calendar_year" | "short_term" | string | null;
+  starts_on?: string | null;
+  ends_on?: string | null;
+  maintenance_fee_minor?: number | null;
+  override_reason?: string | null;
   payment_attention_required?: number | boolean | null;
   payment_attention_reason?: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface BookingAgreementView {
+  booking_id: number;
+  booking_number: string | null;
+  status: string;
+  pricing_path: "legacy_room_rate" | "lease_rate_card" | "unknown" | string;
+  agreed_accommodation_amount_minor: number;
+  maintenance_fee_minor: number | null;
+  currency: string;
+  lease_period_id: number | null;
+  lease_kind: "academic_calendar" | "calendar_year" | "short_term" | string | null;
+  starts_on: string | null;
+  ends_on: string | null;
+  priced_room_id: number | null;
+  priced_room_rate_id: number | null;
+  academic_session_id: number | null;
+  override_reason?: string | null;
+}
+
+export interface BookingAgreementFinancial {
+  agreed_accommodation_amount_minor: number;
+  maintenance_fee_minor: number | null;
+  total_obligation_minor: number;
+  verified_paid_minor: number;
+  balance_minor: number;
+  currency: string;
+}
+
+export interface BookingAgreementRequestSnapshot {
+  application_id: number;
+  application_number: string | null;
+  requested_lease_kind: "academic_calendar" | "calendar_year" | "short_term" | string | null;
+  requested_lease_period_id: number | null;
+  requested_academic_session_id: number | null;
+}
+
+export interface BookingAgreementResponse {
+  booking: Booking;
+  agreement: BookingAgreementView;
+  financial: BookingAgreementFinancial;
+  request: BookingAgreementRequestSnapshot | null;
 }
 
 export interface Room {

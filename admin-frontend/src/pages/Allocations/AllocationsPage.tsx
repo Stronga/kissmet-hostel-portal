@@ -117,6 +117,10 @@ export function AllocationsPage() {
   async function loadAvailabilityFor(booking: Booking | null) {
     setAvailability([]);
     if (!booking) return;
+    if (booking.academic_session_id == null) {
+      setMutationError("Bed allocation still requires an academic session. Calendar Year / Short-Term agreements cannot be allocated until a later stage.");
+      return;
+    }
     setLoadingAvailability(true);
     setMutationError(null);
     try {

@@ -15,7 +15,9 @@ const approvedApp = { id: 11, resident_id: 7, academic_session_id: 1, applicatio
 const submittedApp = { ...approvedApp, id: 12, application_number: "KSM-APP-0012", status: "submitted" };
 const room = { id: 2, room_code: "A1", room_name: "Aster", capacity: 2, gender_policy: "female", status: "available" };
 const rate = { id: 5, room_id: 2, academic_session_id: 1, rate_code: "A1-2026", amount_minor: 250000, currency: "GHS", status: "active" };
+const leasePeriod = { id: 3, kind: "short_term", code: "ST", name: "Short-Term Jan–Mar 2027", starts_on: "2027-01-01", ends_on: "2027-03-31", status: "active", academic_session_id: null, notes: null };
 const booking = { id: 21, resident_id: 7, academic_session_id: 1, application_id: 11, booking_number: "KSM-BKG-0021", status: "pending", total_amount_minor: 250000, currency: "GHS", priced_room_id: 2, priced_room_rate_id: 5, created_at: "2026-08-28T03:37:35.599Z", payment_attention_required: 0 };
+const flexibleBooking = { id: 22, resident_id: 7, academic_session_id: null, application_id: 11, booking_number: "KSM-BKG-0022", status: "pending", total_amount_minor: 350000, currency: "GHS", priced_room_id: 2, priced_room_rate_id: null, lease_period_id: 3, lease_kind: "short_term", starts_on: "2027-01-01", ends_on: "2027-03-31", maintenance_fee_minor: 15000, created_at: "2026-08-28T03:37:35.599Z", payment_attention_required: 0 };
 const eligibleSummary = { bookingId: 21, bookingTotalMinor: 250000, verifiedPaidMinor: 250000, balanceMinor: 0, requiredConfirmationAmountMinor: 250000, remainingToConfirmationMinor: 0, confirmationRequirementMet: true, bookingStatus: "pending", paymentAttentionRequired: false };
 const insufficientSummary = { ...eligibleSummary, verifiedPaidMinor: 50000, balanceMinor: 200000, remainingToConfirmationMinor: 200000, confirmationRequirementMet: false };
 
@@ -46,6 +48,27 @@ function renderBookings(options: { role?: "manager" | "maintenance"; bookings?: 
     if (url.includes("/admin/academic-sessions")) return list([session]);
     if (url.includes("/admin/rooms")) return list([room]);
     if (url.includes("/admin/room-rates")) return list([rate]);
+    if (url.includes("/admin/lease-periods")) return list([leasePeriod]);
+    if (url.endsWith("/admin/bookings/21/agreement")) return json({
+      ok: true,
+      data: {
+        booking: rows[0] ?? booking,
+        agreement: { pricing_path: "legacy_room_rate", lease_kind: null, academic_session_id: 1, agreed_accommodation_amount_minor: 250000, maintenance_fee_minor: null },
+        financial: { agreed_accommodation_amount_minor: 250000, maintenance_fee_minor: null, total_obligation_minor: 250000, verified_paid_minor: 250000, balance_minor: 0, currency: "GHS" },
+        request: { application_id: 11, requested_lease_kind: "academic_calendar", requested_lease_period_id: null, requested_academic_session_id: 1, application_number: "KSM-APP-0011" }
+      }
+    });
+    if (url.endsWith("/admin/bookings/22")) return json({ ok: true, data: flexibleBooking });
+    if (url.endsWith("/admin/bookings/22/payment-summary")) return json({ ok: true, data: { ...eligibleSummary, bookingId: 22, bookingTotalMinor: 350000, verifiedPaidMinor: 0, balanceMinor: 350000, confirmationRequirementMet: false } });
+    if (url.endsWith("/admin/bookings/22/agreement")) return json({
+      ok: true,
+      data: {
+        booking: flexibleBooking,
+        agreement: { pricing_path: "lease_rate_card", lease_kind: "short_term", academic_session_id: null, agreed_accommodation_amount_minor: 350000, maintenance_fee_minor: 15000, lease_period_id: 3 },
+        financial: { agreed_accommodation_amount_minor: 350000, maintenance_fee_minor: 15000, total_obligation_minor: 365000, verified_paid_minor: 0, balance_minor: 365000, currency: "GHS" },
+        request: { application_id: 11, requested_lease_kind: "short_term", requested_lease_period_id: 3, requested_academic_session_id: null, application_number: "KSM-APP-0011" }
+      }
+    });
     if (url.includes("/admin/availability")) return json({ ok: true, data: [{ room_id: 2, room_code: "A1", room_name: "Aster", capacity: 2, gender_policy: "female", bed_id: 9, bed_code: "A1-A", label: "A", amount_minor: 250000, currency: "GHS" }] });
     return new Response(null, { status: 404 });
   });
@@ -75,8 +98,9 @@ describe("BookingsPage", () => {
   it("opens booking detail with payment summary and pricing basis", async () => {
     renderBookings();
     await openDetail();
-    expect(screen.getByText("A1 - Aster")).toBeInTheDocument();
+    expect(screen.getByText(/A1 - Aster/)).toBeInTheDocument();
     expect(screen.getByText("A1-2026")).toBeInTheDocument();
+    expect(screen.getByText("Agreement / financial basis")).toBeInTheDocument();
     expect(screen.getByText("Eligible to confirm")).toBeInTheDocument();
     expect(screen.getByText("Bookings never create allocations in this phase")).toBeInTheDocument();
   });
@@ -158,4 +182,20 @@ describe("BookingsPage", () => {
     expect(within(screen.getByLabelText("Approved application")).queryByText("KSM-APP-0011")).not.toBeInTheDocument();
     expect(screen.getByText("No approved applications are currently eligible for booking creation.")).toBeInTheDocument();
   });
+
+
+  it("shows short-term agreement badge, dates, maintenance, verified paid and balance", async () => {
+    renderBookings({ bookings: [flexibleBooking] });
+    expect(await screen.findByText("Short-Term")).toBeInTheDocument();
+    expect(screen.getByText("Not applicable")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "View" }));
+    expect((await screen.findAllByText("SHORT-TERM")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Short-Term Jan–Mar 2027")).toBeInTheDocument();
+    expect(screen.getByText("2027-01-01 → 2027-03-31")).toBeInTheDocument();
+    expect(screen.getByText("Lease rate card (snapshot)")).toBeInTheDocument();
+    expect(screen.getAllByText("GHS 3,500.00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("GHS 150.00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("GHS 3,650.00").length).toBeGreaterThan(0);
+  });
+
 });

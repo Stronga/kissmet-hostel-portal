@@ -1,6 +1,7 @@
 import { Plus, Search } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { bookingPaymentSummary, createBooking, getBooking, listAvailability, listBookings, listRoomRates, listRooms, updateBookingStatus } from "../../api/bookings";
+import { bookingPaymentSummary, createBooking, getBooking, getBookingAgreement, listAvailability, listBookings, listRoomRates, listRooms, updateBookingStatus } from "../../api/bookings";
+import { listLeasePeriods } from "../../api/setup";
 import { getApplication, getResident, listAcademicSessions, listApplications } from "../../api/applications";
 import { listInstitutions } from "../../api/residents";
 import { useAuth } from "../../auth/AuthContext";
@@ -11,7 +12,7 @@ import { ErrorState } from "../../components/common/ErrorState";
 import { LoadingState } from "../../components/common/LoadingState";
 import { StatCard } from "../../components/common/StatCard";
 import { PageHeader } from "../../components/layout/PageHeader";
-import type { AcademicSession, Application, AvailabilityBed, Booking, BookingPaymentSummary as Summary, BookingStatus, Institution, Resident, Room, RoomRate } from "../../types/api";
+import type { AcademicSession, Application, AvailabilityBed, Booking, BookingAgreementFinancial, BookingPaymentSummary as Summary, BookingStatus, Institution, LeasePeriod, Resident, Room, RoomRate } from "../../types/api";
 import { formatStatus } from "../../utils/format";
 import { BookingDetail } from "./BookingDetail";
 import { BookingTable } from "./BookingTable";
@@ -44,6 +45,8 @@ export function BookingsPage() {
   const [selected, setSelected] = useState<Booking | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [financial, setFinancial] = useState<BookingAgreementFinancial | null>(null);
+  const [leasePeriods, setLeasePeriods] = useState<LeasePeriod[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -54,15 +57,16 @@ export function BookingsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [{ bookings: rows }, institutionRows, sessionRows, roomRows, rateRows, appRows] = await Promise.all([
+      const [{ bookings: rows }, institutionRows, sessionRows, roomRows, rateRows, appRows, leasePeriodRows] = await Promise.all([
         listBookings({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined }),
         listInstitutions(),
         listAcademicSessions(),
         listRooms(),
         listRoomRates(),
-        listApplications({ limit: 100, offset: 0 })
+        listApplications({ limit: 100, offset: 0 }),
+        listLeasePeriods()
       ]);
-      const applicationIds = Array.from(new Set(rows.map((booking) => booking.application_id)));
+      const applicationIds = Array.from(new Set(rows.map((booking) => booking.application_id).filter((id): id is number => id != null)));
       const listedApps = new Map(appRows.applications.map((application) => [application.id, application]));
       const applicationEntries = await Promise.all(applicationIds.map(async (id) => [id, listedApps.get(id) ?? await getApplication(id)] as const));
       const allApps = [...appRows.applications, ...applicationEntries.map(([, app]) => app)];
@@ -76,6 +80,7 @@ export function BookingsPage() {
       setSessions(sessionRows);
       setRooms(roomRows);
       setRates(rateRows);
+      setLeasePeriods(leasePeriodRows);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load bookings.");
     } finally {
@@ -104,13 +109,33 @@ export function BookingsPage() {
     setSelected(booking);
     setSummary(null);
     setSummaryError(null);
+    setFinancial(null);
     try {
-      const [detail, payment] = await Promise.all([getBooking(booking.id), bookingPaymentSummary(booking.id).catch((err) => {
-        setSummaryError(err instanceof Error ? err.message : "Unable to load payment summary.");
-        return null;
-      })]);
-      setSelected(detail);
+      const [detail, payment, agreement] = await Promise.all([
+        getBooking(booking.id),
+        bookingPaymentSummary(booking.id).catch((err) => {
+          setSummaryError(err instanceof Error ? err.message : "Unable to load payment summary.");
+          return null;
+        }),
+        getBookingAgreement(booking.id).catch(() => null)
+      ]);
+      setSelected(agreement?.booking ?? detail);
       setSummary(payment);
+      setFinancial(agreement?.financial ?? null);
+      if (agreement?.booking?.application_id != null && agreement.request) {
+        setApplicationsById((current) => {
+          const next = new Map(current);
+          const existing = next.get(agreement.booking.application_id!);
+          if (existing) {
+            next.set(existing.id, {
+              ...existing,
+              lease_kind: agreement.request?.requested_lease_kind ?? existing.lease_kind,
+              lease_period_id: agreement.request?.requested_lease_period_id ?? existing.lease_period_id
+            });
+          }
+          return next;
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load booking.");
     }
@@ -166,7 +191,7 @@ export function BookingsPage() {
     }
   }
 
-  const selectedApplication = selected ? applicationsById.get(selected.application_id) : undefined;
+  const selectedApplication = selected?.application_id != null ? applicationsById.get(selected.application_id) : undefined;
   const selectedResident = selected ? residentsById.get(selected.resident_id) : undefined;
   const selectedInstitution = selectedResident?.institution_id ? institutions.find((item) => item.id === selectedResident.institution_id) : undefined;
   const selectedSession = selected ? sessions.find((item) => item.id === selected.academic_session_id) : undefined;
@@ -192,7 +217,7 @@ export function BookingsPage() {
       {error ? <ErrorState message={error} /> : null}
       {loading ? <LoadingState label="Loading bookings..." /> : visibleBookings.length ? <BookingTable bookings={visibleBookings} residentsById={residentsById} applicationsById={applicationsById} institutions={institutions} sessions={sessions} rooms={rooms} onView={(booking) => void openDetail(booking)} /> : <EmptyState title={submittedSearch || statusFilter !== "all" || sessionFilter !== "all" ? "No matching bookings" : "No bookings"} message="Bookings will appear after approved applications are converted into bookings." />}
       <div className="flex items-center justify-between"><button type="button" disabled={offset === 0 || loading} onClick={() => { const next = Math.max(0, offset - pageSize); setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Previous</button><p className="text-sm text-text-secondary">Showing {offset + 1}-{offset + bookings.length}</p><button type="button" disabled={bookings.length < pageSize || loading} onClick={() => { const next = offset + pageSize; setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Next</button></div>
-      <ConfirmDialog open={Boolean(selected)} title="Booking Details" onClose={() => { setSelected(null); setDecisionStatus(null); setTransitionError(null); }}>{selected ? <BookingDetail booking={selected} application={selectedApplication} resident={selectedResident} institution={selectedInstitution} session={selectedSession} room={selectedRoom} rate={selectedRate} summary={summary} summaryError={summaryError} canWrite={canWrite} canConfirm={canConfirm} pending={saving} onAction={setDecisionStatus} /> : null}</ConfirmDialog>
+      <ConfirmDialog open={Boolean(selected)} title="Booking Details" onClose={() => { setSelected(null); setDecisionStatus(null); setTransitionError(null); }}>{selected ? <BookingDetail booking={selected} application={selectedApplication} resident={selectedResident} institution={selectedInstitution} session={selectedSession} room={selectedRoom} rate={selectedRate} leasePeriods={leasePeriods} financial={financial} summary={summary} summaryError={summaryError} canWrite={canWrite} canConfirm={canConfirm} pending={saving} onAction={setDecisionStatus} /> : null}</ConfirmDialog>
       <ConfirmDialog open={Boolean(decisionStatus)} title={decisionStatus === "confirmed" ? "Confirm this booking?" : `${formatStatus(decisionStatus)} booking`} description={decisionStatus === "confirmed" ? "Payment requirements must be satisfied. Confirming the booking does not allocate a bed automatically." : undefined} onClose={() => { if (!saving) setDecisionStatus(null); }}>
         {transitionError ? <p role="alert" className="mb-3 text-sm font-medium text-danger">{transitionError}</p> : null}
         <div className="flex justify-end gap-2"><button type="button" disabled={saving} onClick={() => setDecisionStatus(null)} className="rounded-md border border-border px-3 py-2 text-sm font-semibold disabled:opacity-50">Cancel</button><button type="button" disabled={saving} onClick={() => void confirmTransition()} className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Confirm</button></div>

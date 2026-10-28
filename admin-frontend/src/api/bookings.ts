@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-import type { AvailabilityBed, Booking, BookingPaymentSummary, BookingStatus, DataEnvelope, ListEnvelope, Room, RoomRate } from "../types/api";
+import type { AvailabilityBed, Booking, BookingAgreementResponse, BookingPaymentSummary, BookingStatus, DataEnvelope, ListEnvelope, RateCard, Room, RoomRate } from "../types/api";
 
 export async function listBookings(params: { limit: number; offset: number; search?: string }) {
   const query = new URLSearchParams({ limit: String(params.limit), offset: String(params.offset) });
@@ -48,5 +48,38 @@ export async function listRooms() {
 
 export async function listRoomRates() {
   const response = await apiRequest<ListEnvelope<RoomRate>>("/admin/room-rates?limit=100&offset=0");
+  return response.data;
+}
+
+
+export async function createBookingFromRateCard(input: {
+  applicationId: number;
+  roomId: number;
+  leasePeriodId: number;
+  occupancyCapacity?: number;
+  maintenanceFeeMinor?: number;
+  agreedAmountMinor?: number;
+  overrideReason?: string | null;
+  startsOn?: string;
+  endsOn?: string;
+}) {
+  const response = await apiRequest<DataEnvelope<BookingAgreementResponse>>("/admin/bookings/from-rate-card", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+  return response.data;
+}
+
+export async function getBookingAgreement(id: number) {
+  const response = await apiRequest<DataEnvelope<BookingAgreementResponse>>(`/admin/bookings/${id}/agreement`);
+  return response.data;
+}
+
+export async function resolveActiveRateCard(leasePeriodId: number, occupancyCapacity: number) {
+  const query = new URLSearchParams({
+    leasePeriodId: String(leasePeriodId),
+    occupancyCapacity: String(occupancyCapacity)
+  });
+  const response = await apiRequest<DataEnvelope<RateCard>>(`/admin/rate-cards/resolve?${query.toString()}`);
   return response.data;
 }

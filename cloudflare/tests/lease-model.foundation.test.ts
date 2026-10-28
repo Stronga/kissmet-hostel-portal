@@ -384,3 +384,114 @@ describe("Stage 2L-B schema foundation", () => {
     });
   });
 });
+
+
+describe("Stage 2L-G session-optional booking agreements", () => {
+  let db: Database;
+
+  beforeEach(async () => {
+    db = await openMigratedDatabase();
+    seedMinimalBookingGraph(db);
+  });
+
+  it("includes migration 0018 and makes academic_session_id nullable", () => {
+    const files = listMigrationFiles();
+    expect(files).toContain("0018_session_optional_booking_agreements.sql");
+    const col = all<{ name: string; notnull: number }>(
+      db,
+      `PRAGMA table_info(bookings)`,
+    ).find((c) => c.name === "academic_session_id");
+    expect(col).toBeTruthy();
+    expect(Number(col?.notnull)).toBe(0);
+  });
+
+  it("preserves legacy booking with session and null lease fields after 0018", () => {
+    const residentId = Number(get<{ id: number }>(db, `SELECT id FROM residents`)!.id);
+    const sessionId = Number(get<{ id: number }>(db, `SELECT id FROM academic_sessions`)!.id);
+    run(
+      db,
+      `INSERT INTO bookings (resident_id, academic_session_id, booking_number, status, total_amount_minor, currency)
+       VALUES (?, ?, 'KSM-BKG-LEGACY-G', 'pending', 250000, 'GHS')`,
+      [residentId, sessionId],
+    );
+    const row = get<Record<string, unknown>>(
+      db,
+      `SELECT academic_session_id, lease_period_id, lease_kind, total_amount_minor FROM bookings WHERE booking_number = 'KSM-BKG-LEGACY-G'`,
+    );
+    expect(Number(row?.academic_session_id)).toBe(sessionId);
+    expect(row?.lease_period_id).toBeNull();
+    expect(row?.lease_kind).toBeNull();
+    expect(Number(row?.total_amount_minor)).toBe(250000);
+  });
+
+  it("allows Calendar Year / Short-Term bookings with null academic_session_id", () => {
+    const residentId = Number(get<{ id: number }>(db, `SELECT id FROM residents`)!.id);
+    run(
+      db,
+      `INSERT INTO lease_periods (kind, code, name, starts_on, ends_on, status)
+       VALUES ('calendar_year', 'CY-G', 'CY 2027', '2027-01-01', '2027-12-31', 'active')`,
+    );
+    run(
+      db,
+      `INSERT INTO lease_periods (kind, code, name, starts_on, ends_on, status)
+       VALUES ('short_term', 'ST-G', 'ST Q1', '2027-01-01', '2027-03-31', 'active')`,
+    );
+    const cyId = Number(get<{ id: number }>(db, `SELECT id FROM lease_periods WHERE code = 'CY-G'`)!.id);
+    const stId = Number(get<{ id: number }>(db, `SELECT id FROM lease_periods WHERE code = 'ST-G'`)!.id);
+
+    run(
+      db,
+      `INSERT INTO bookings (
+         resident_id, academic_session_id, booking_number, status, total_amount_minor, currency,
+         lease_period_id, lease_kind, starts_on, ends_on, maintenance_fee_minor
+       ) VALUES (?, NULL, 'KSM-BKG-CY-G', 'pending', 900000, 'GHS', ?, 'calendar_year', '2027-01-01', '2027-12-31', 10000)`,
+      [residentId, cyId],
+    );
+    run(
+      db,
+      `INSERT INTO bookings (
+         resident_id, academic_session_id, booking_number, status, total_amount_minor, currency,
+         lease_period_id, lease_kind, starts_on, ends_on, maintenance_fee_minor
+       ) VALUES (?, NULL, 'KSM-BKG-ST-G', 'pending', 350000, 'GHS', ?, 'short_term', '2027-01-01', '2027-03-31', 5000)`,
+      [residentId, stId],
+    );
+
+    const cy = get<Record<string, unknown>>(db, `SELECT * FROM bookings WHERE booking_number = 'KSM-BKG-CY-G'`);
+    const st = get<Record<string, unknown>>(db, `SELECT * FROM bookings WHERE booking_number = 'KSM-BKG-ST-G'`);
+    expect(cy?.academic_session_id).toBeNull();
+    expect(cy?.lease_kind).toBe("calendar_year");
+    expect(st?.academic_session_id).toBeNull();
+    expect(st?.lease_kind).toBe("short_term");
+  });
+
+  it("rejects CY/ST booking that attaches an academic session", () => {
+    const residentId = Number(get<{ id: number }>(db, `SELECT id FROM residents`)!.id);
+    const sessionId = Number(get<{ id: number }>(db, `SELECT id FROM academic_sessions`)!.id);
+    run(
+      db,
+      `INSERT INTO lease_periods (kind, code, name, starts_on, ends_on, status)
+       VALUES ('short_term', 'ST-BAD', 'ST Bad', '2027-01-01', '2027-03-31', 'active')`,
+    );
+    const stId = Number(get<{ id: number }>(db, `SELECT id FROM lease_periods WHERE code = 'ST-BAD'`)!.id);
+    const err = expectReject(
+      db,
+      `INSERT INTO bookings (
+         resident_id, academic_session_id, booking_number, status, total_amount_minor, currency,
+         lease_period_id, lease_kind, starts_on, ends_on
+       ) VALUES (?, ?, 'KSM-BKG-ST-BAD', 'pending', 350000, 'GHS', ?, 'short_term', '2027-01-01', '2027-03-31')`,
+      [residentId, sessionId, stId],
+    );
+    expect(err).toMatch(/CHECK|constraint/i);
+  });
+
+  it("rejects booking with neither session nor lease period", () => {
+    const residentId = Number(get<{ id: number }>(db, `SELECT id FROM residents`)!.id);
+    const err = expectReject(
+      db,
+      `INSERT INTO bookings (resident_id, academic_session_id, booking_number, status, total_amount_minor, currency)
+       VALUES (?, NULL, 'KSM-BKG-EMPTY', 'pending', 100000, 'GHS')`,
+      [residentId],
+    );
+    expect(err).toMatch(/CHECK|constraint/i);
+  });
+});

@@ -6,7 +6,7 @@ import { activeRateFor, bookingEligible, rateCompatible, residentName } from "./
 import { AllocationPlacementSummary } from "./AllocationPlacementSummary";
 
 export function CreateAllocationDialog({ open, bookings, allocations, residentsById, sessions, rooms, rates, availability, loadingAvailability, error, saving, onBookingChange, onCreate, onClose }: { open: boolean; bookings: Booking[]; allocations: Allocation[]; residentsById: Map<number, Resident>; sessions: AcademicSession[]; rooms: Room[]; rates: RoomRate[]; availability: AvailabilityBed[]; loadingAvailability: boolean; error: string | null; saving: boolean; onBookingChange: (booking: Booking | null) => void; onCreate: (input: { bookingId: number; residentId: number; academicSessionId: number; bedId: number; startsOn: string; notes?: string }) => void; onClose: () => void }) {
-  const eligibleBookings = useMemo(() => bookings.filter((booking) => bookingEligible(booking, allocations)), [allocations, bookings]);
+  const eligibleBookings = useMemo(() => bookings.filter((booking) => booking.academic_session_id != null && bookingEligible(booking, allocations)), [allocations, bookings]);
   const [bookingId, setBookingId] = useState("");
   const [bedId, setBedId] = useState("");
   const [startsOn, setStartsOn] = useState(new Date().toISOString().slice(0, 10));
@@ -17,7 +17,7 @@ export function CreateAllocationDialog({ open, bookings, allocations, residentsB
   const compatibleBeds = selectedBooking ? availability.filter((bed) => rateCompatible(selectedBooking, bed)) : [];
   const selectedBed = compatibleBeds.find((bed) => bed.bed_id === Number(bedId));
   const pricedRoom = selectedBooking ? rooms.find((room) => room.id === selectedBooking.priced_room_id) : undefined;
-  const pricedRate = selectedBooking?.priced_room_rate_id ? rates.find((rate) => rate.id === selectedBooking.priced_room_rate_id) : selectedBooking?.priced_room_id ? activeRateFor(selectedBooking.priced_room_id, selectedBooking.academic_session_id, rates) : undefined;
+  const pricedRate = selectedBooking?.priced_room_rate_id ? rates.find((rate) => rate.id === selectedBooking.priced_room_rate_id) : (selectedBooking?.priced_room_id != null && selectedBooking.academic_session_id != null) ? activeRateFor(selectedBooking.priced_room_id, selectedBooking.academic_session_id, rates) : undefined;
 
   function changeBooking(value: string) {
     setBookingId(value);
@@ -28,6 +28,7 @@ export function CreateAllocationDialog({ open, bookings, allocations, residentsB
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!selectedBooking || !selectedBed || !startsOn) return;
+    if (selectedBooking.academic_session_id == null) return;
     onCreate({ bookingId: selectedBooking.id, residentId: selectedBooking.resident_id, academicSessionId: selectedBooking.academic_session_id, bedId: selectedBed.bed_id, startsOn, notes: notes.trim() || undefined });
   }
 

@@ -1,7 +1,7 @@
 import { ApplicationReviewActions } from "./ApplicationReviewActions";
 import { DocumentReviewSection } from "./DocumentReviewSection";
 import type React from "react";
-import type { AcademicSession, Application, ApplicationStatus, IdentityDocument, Institution, Resident } from "../../types/api";
+import type { AcademicSession, Application, ApplicationStatus, IdentityDocument, Institution, LeasePeriod, Resident } from "../../types/api";
 import { formatDateTime, formatStatus } from "../../utils/format";
 
 function residentName(resident?: Resident) {
@@ -44,21 +44,30 @@ export function ApplicationDetail({
   resident,
   institution,
   session,
+  leasePeriods,
   documents,
   canManage,
+  canCreateAgreement,
   pending,
-  onAction
+  onAction,
+  onCreateAgreement
 }: {
   application: Application;
   resident?: Resident;
   institution?: Institution;
   session?: AcademicSession;
+  leasePeriods: LeasePeriod[];
   documents: IdentityDocument[];
   canManage: boolean;
+  canCreateAgreement: boolean;
   pending: boolean;
   onAction: (status: ApplicationStatus) => void;
+  onCreateAgreement: () => void;
 }) {
   const other = isOther(resident);
+  const requestedPeriod = application.lease_period_id
+    ? leasePeriods.find((period) => period.id === application.lease_period_id)
+    : undefined;
   return (
     <div className="space-y-3">
       <DetailSection title="Application" rows={[
@@ -76,11 +85,11 @@ export function ApplicationDetail({
         ["Identifier", other ? (resident?.ghana_card_number_masked ?? "••••") : (resident?.student_id ?? "Not set")],
         ["Applicant status", resident?.status ? formatStatus(resident.status) : undefined]
       ]} />
-      <DetailSection title="Requested term (not the final agreement)" rows={[
+      <DetailSection title="REQUEST (applicant intent — not the final agreement)" rows={[
         ["Requested Term", requestedTermLabel(application.lease_kind)],
-        ["Requested Lease Period ID", application.lease_period_id ?? "Not linked"],
+        ["Requested Lease Period", requestedPeriod?.name ?? (application.lease_period_id ? `#${application.lease_period_id}` : "Not linked")],
         ["Academic session", application.academic_session_id == null ? "Not applicable for this request" : (session?.name ?? `Session #${application.academic_session_id}`)],
-        ["Note", "Requested Term is what the applicant asked for. The approved commercial agreement is created separately by management."]
+        ["Note", "Requested Term is what the applicant asked for. Management creates the approved commercial agreement separately."]
       ]} />
       <DetailSection title="Review" rows={[
         ["Reviewed by staff ID", application.reviewed_by_staff_id],
@@ -90,11 +99,25 @@ export function ApplicationDetail({
       <DetailSection title="Documents">
         <DocumentReviewSection documents={documents} />
       </DetailSection>
-      <DetailSection title="Approved agreement / booking" rows={[
-        ["Eligibility", application.status === "approved" ? "Eligible for booking workflow" : "Not eligible for booking workflow"],
+      <DetailSection title="AGREEMENT (management-controlled)" rows={[
+        ["Eligibility", application.status === "approved" ? "Eligible for Create Agreement" : "Approve the application before creating an agreement"],
         ["Automation", "Approval does not create a booking, confirm a booking, allocate a bed, or change payments"],
-        ["Calendar Year / Short-Term booking", "Final booking still requires an academic session until a later commercial stage. Do not invent a fake session."]
-      ]} />
+        ["Authority", "Management chooses the approved lease period, room, rate, agreed amount, and maintenance fee"]
+      ]}>
+        {application.status === "approved" && canCreateAgreement ? (
+          <button
+            type="button"
+            onClick={onCreateAgreement}
+            disabled={pending}
+            className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            Create Agreement
+          </button>
+        ) : null}
+        {application.status === "approved" && !canCreateAgreement ? (
+          <p className="text-xs text-text-secondary">Only Super Admin / Manager can create agreements.</p>
+        ) : null}
+      </DetailSection>
       <DetailSection title="Actions">
         <ApplicationReviewActions application={application} canManage={canManage} pending={pending} onAction={onAction} />
       </DetailSection>

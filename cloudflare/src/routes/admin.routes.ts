@@ -428,7 +428,7 @@ routes.post("/bookings", requirePermission("booking:write"), async (c) => {
     })), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
-routes.post("/bookings/from-rate-card", requirePermission("booking:write"), async (c) => {
+routes.post("/bookings/from-rate-card", requirePermission("admin:write"), async (c) => {
   try {
     const input = await body(c);
     return c.json(ok(await service(c).createBookingFromRateCard(c.get("authUser"), {
@@ -437,6 +437,8 @@ routes.post("/bookings/from-rate-card", requirePermission("booking:write"), asyn
       leasePeriodId: intField(input, "leasePeriodId")!,
       occupancyCapacity: intField(input, "occupancyCapacity", false) ?? undefined,
       maintenanceFeeMinor: intField(input, "maintenanceFeeMinor", false),
+      agreedAmountMinor: intField(input, "agreedAmountMinor", false),
+      overrideReason: stringField(input, "overrideReason", false, 2000),
       startsOn: stringField(input, "startsOn", false, 32),
       endsOn: stringField(input, "endsOn", false, 32),
       expiresAt: stringField(input, "expiresAt", false, 64),

@@ -8,7 +8,7 @@ import { activeRateFor, placementLabel, residentName, sessionName } from "./allo
 export function AllocationDetail({ allocation, allocations, resident, institution, booking, sessions, rooms, bedsByRoom, rates, canWrite, pending, onStatus, onTransfer }: { allocation: Allocation; allocations: Allocation[]; resident?: Resident; institution?: Institution; booking?: Booking; sessions: AcademicSession[]; rooms: Room[]; bedsByRoom: Map<number, Bed[]>; rates: RoomRate[]; canWrite: boolean; pending: boolean; onStatus: (status: "ended" | "cancelled" | "archived") => void; onTransfer: () => void }) {
   const placement = placementLabel(allocation.bed_id, rooms, bedsByRoom);
   const pricedRoom = booking ? rooms.find((room) => room.id === booking.priced_room_id) : undefined;
-  const pricedRate = booking?.priced_room_rate_id ? rates.find((rate) => rate.id === booking.priced_room_rate_id) : booking?.priced_room_id ? activeRateFor(booking.priced_room_id, booking.academic_session_id, rates) : undefined;
+  const pricedRate = booking?.priced_room_rate_id ? rates.find((rate) => rate.id === booking.priced_room_rate_id) : (booking?.priced_room_id != null && booking.academic_session_id != null) ? activeRateFor(booking.priced_room_id, booking.academic_session_id, rates) : undefined;
   return (
     <div className="space-y-3">
       <Section title="Allocation" rows={[["Status", <StatusBadge status={allocation.status} />], ["Assigned date", formatDateTime(allocation.starts_on ?? allocation.created_at)], ["Ended/released", formatDateTime(allocation.ends_on ?? allocation.released_at)], ["Assigning staff", allocation.assigned_by_staff_id ? `Staff #${allocation.assigned_by_staff_id}` : "Not available"]]} />

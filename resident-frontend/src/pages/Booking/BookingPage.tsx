@@ -21,6 +21,13 @@ interface BookingData {
   paymentSummary: ResidentPaymentSummary | null;
 }
 
+function leaseTermLabel(kind?: string | null) {
+  if (kind === "calendar_year") return "Calendar Year";
+  if (kind === "short_term") return "Short-Term";
+  if (kind === "academic_calendar") return "Academic Calendar";
+  return null;
+}
+
 function BookingSummary({ booking, allocation }: { booking: ResidentBooking; allocation: ResidentAllocation | null }) {
   const pricedRoom = pricedRoomLabel(booking);
   const attention = Boolean(booking.payment_attention_required);
@@ -57,8 +64,12 @@ function BookingSummary({ booking, allocation }: { booking: ResidentBooking; all
             </InfoHelp>
           }
         />
-        <Detail label="Academic session" value={booking.academic_session_name ?? booking.academic_session_code} />
+        <Detail label="Approved term" value={leaseTermLabel(booking.lease_kind) ?? (booking.academic_session_id ? "Academic Calendar" : "Agreement")} />
+        <Detail label="Lease period" value={booking.lease_period_name ?? booking.lease_period_code ?? "Not linked"} />
+        <Detail label="Agreement dates" value={booking.starts_on || booking.ends_on ? `${booking.starts_on ?? "—"} → ${booking.ends_on ?? "—"}` : "Not set"} />
+        <Detail label="Academic session" value={booking.academic_session_id == null ? (booking.lease_kind && booking.lease_kind !== "academic_calendar" ? "Not applicable" : "Not linked") : (booking.academic_session_name ?? booking.academic_session_code)} />
         <Detail label="Related application" value={booking.application_number} />
+        <Detail label="Maintenance fee" value={booking.maintenance_fee_minor == null ? "Not set" : bookingAmount({ ...booking, total_amount_minor: booking.maintenance_fee_minor })} />
         <Detail
           label="Room used for booking price"
           value={pricedRoom ?? "Not exposed"}
@@ -184,7 +195,7 @@ export function BookingPage() {
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-text-primary">{item.booking_number}</p>
-                    <p className="mt-1 text-[13px] text-text-secondary">{bookingAmount(item)} captured for {item.academic_session_name ?? item.academic_session_code ?? "session unavailable"}</p>
+                    <p className="mt-1 text-[13px] text-text-secondary">{bookingAmount(item)} captured for {leaseTermLabel(item.lease_kind) ?? item.lease_period_name ?? item.academic_session_name ?? item.academic_session_code ?? "agreement"}</p>
                   </div>
                   <StatusBadge status={bookingStatusLabel(item.status)} />
                 </div>

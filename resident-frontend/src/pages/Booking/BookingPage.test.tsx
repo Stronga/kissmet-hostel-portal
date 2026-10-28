@@ -220,4 +220,30 @@ describe("resident booking", () => {
     await userEvent.click(screen.getByRole("link", { name: "Continue" }));
     expect(await screen.findByRole("heading", { name: "Payments" })).toBeInTheDocument();
   });
+
+
+  it("shows calendar year and short-term agreements without requiring academic session", async () => {
+    seedResidentToken();
+    const cyBooking = {
+      ...pendingBooking,
+      id: 30,
+      booking_number: "KSM-BKG-0030",
+      academic_session_id: null,
+      academic_session_name: null,
+      academic_session_code: null,
+      lease_kind: "calendar_year",
+      lease_period_name: "Calendar Year 2027",
+      starts_on: "2027-01-01",
+      ends_on: "2027-12-31",
+      maintenance_fee_minor: 10000,
+      total_amount_minor: 900000
+    };
+    mockBooking({ bookings: [cyBooking], applications: [approvedApplication] });
+    render(renderResidentApp(["/booking"]));
+    expect(await screen.findByText("Calendar Year")).toBeInTheDocument();
+    expect(screen.getByText("Not applicable")).toBeInTheDocument();
+    expect(screen.getByText("Calendar Year 2027")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create agreement/i })).not.toBeInTheDocument();
+  });
+
 });

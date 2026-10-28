@@ -295,11 +295,14 @@ export class ResidentService {
       SELECT b.id, b.booking_number, b.academic_session_id, b.application_id, b.status,
              b.total_amount_minor, b.currency, b.booked_at, b.expires_at, b.cancelled_at,
              b.completed_at, b.created_at, b.payment_attention_required, b.payment_attention_reason,
+             b.lease_period_id, b.lease_kind, b.starts_on, b.ends_on, b.maintenance_fee_minor,
              s.code AS academic_session_code, s.name AS academic_session_name,
+             lp.code AS lease_period_code, lp.name AS lease_period_name,
              a.application_number,
              room.room_code AS priced_room_code, room.room_name AS priced_room_name
       FROM bookings b
       LEFT JOIN academic_sessions s ON s.id = b.academic_session_id
+      LEFT JOIN lease_periods lp ON lp.id = b.lease_period_id
       LEFT JOIN applications a ON a.id = b.application_id
       LEFT JOIN rooms room ON room.id = b.priced_room_id
       WHERE b.resident_id = ?
