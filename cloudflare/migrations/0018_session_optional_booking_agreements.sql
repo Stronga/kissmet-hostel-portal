@@ -6,6 +6,8 @@ PRAGMA foreign_keys = ON;
 -- Path B agreements can exist without inventing fake academic sessions.
 -- Academic Calendar may still carry a session when the chosen lease period is linked.
 -- Legacy Path A bookings (session present, lease null) survive unchanged.
+-- Preserves payment_attention_required / payment_attention_reason from migration 0005
+-- (values carried through INSERT…SELECT; not recreated empty).
 
 PRAGMA foreign_keys = OFF;
 
@@ -35,6 +37,8 @@ CREATE TABLE bookings__new (
   payment_fixed_amount_minor INTEGER CHECK (payment_fixed_amount_minor IS NULL OR payment_fixed_amount_minor >= 0),
   payment_percentage_basis_points INTEGER CHECK (payment_percentage_basis_points IS NULL OR payment_percentage_basis_points BETWEEN 0 AND 10000),
   partial_payment_authorized INTEGER NOT NULL DEFAULT 0 CHECK (partial_payment_authorized IN (0, 1)),
+  payment_attention_required INTEGER NOT NULL DEFAULT 0 CHECK (payment_attention_required IN (0, 1)),
+  payment_attention_reason TEXT,
   prior_booking_id INTEGER,
   override_reason TEXT,
   FOREIGN KEY (resident_id) REFERENCES residents(id) ON DELETE RESTRICT,
@@ -60,7 +64,8 @@ INSERT INTO bookings__new (
   created_at, updated_at, priced_room_id, priced_room_rate_id,
   lease_period_id, lease_kind, starts_on, ends_on, maintenance_fee_minor,
   payment_requirement_type, payment_fixed_amount_minor, payment_percentage_basis_points,
-  partial_payment_authorized, prior_booking_id, override_reason
+  partial_payment_authorized, payment_attention_required, payment_attention_reason,
+  prior_booking_id, override_reason
 )
 SELECT
   id, resident_id, academic_session_id, application_id, booking_number, status,
@@ -68,7 +73,8 @@ SELECT
   created_at, updated_at, priced_room_id, priced_room_rate_id,
   lease_period_id, lease_kind, starts_on, ends_on, maintenance_fee_minor,
   payment_requirement_type, payment_fixed_amount_minor, payment_percentage_basis_points,
-  partial_payment_authorized, prior_booking_id, override_reason
+  partial_payment_authorized, payment_attention_required, payment_attention_reason,
+  prior_booking_id, override_reason
 FROM bookings;
 
 DROP TABLE bookings;
