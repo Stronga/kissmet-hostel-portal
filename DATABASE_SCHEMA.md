@@ -530,3 +530,47 @@ Management DEFAULT/list pricing by `lease_period_id` + `occupancy_capacity` (`1`
 - Authoritative agreed accommodation fee: existing `total_amount_minor`
 - Added: `lease_period_id`, `lease_kind`, `starts_on`, `ends_on`, `maintenance_fee_minor`, payment arrangement overrides (`payment_requirement_type`, `payment_fixed_amount_minor`, `payment_percentage_basis_points`, `partial_payment_authorized`), `prior_booking_id`, `override_reason`
 - Date range `starts_on <= ends_on` enforced by triggers (SQLite cannot ADD table CHECK via ALTER)
+
+## Stage 2L-C — Lease periods, rate cards & booking agreement APIs
+
+Backend/API activation of the Stage 2L-B schema foundation. **Local only** at the time of this stage; production remains locked at Stage 2K until later authorization.
+
+### Domain distinctions
+
+| Concept | Role |
+|---|---|
+| `academic_sessions` | Institutional Academic Calendar organizer (Stage 2K Setup). Unchanged. |
+| `lease_periods` | Commercial accommodation periods (`academic_calendar` / `calendar_year` / `short_term`). |
+| `room_rates` | **Legacy Path A** default pricing: per room + academic session. Still used by `POST /admin/bookings`. |
+| `rate_cards` | **New Path B** default/list pricing: per lease period + occupancy band (`1`/`2`/`4`). |
+| `bookings` | Durable resident accommodation **agreement snapshot**. |
+
+### Pricing paths (explicit; no silent fallback)
+
+- **Path A (legacy):** `createBooking` → active `room_rates` for `room_id` + application's `academic_session_id` → `total_amount_minor` + `priced_room_rate_id`.
+- **Path B (flexible):** `createBookingFromRateCard` / `POST /admin/bookings/from-rate-card` → active `rate_cards` for `lease_period_id` + room occupancy capacity → snapshot `total_amount_minor`, `lease_period_id`, `lease_kind`, agreement dates, `maintenance_fee_minor`. `priced_room_rate_id` stays null. Rate-card edits never rewrite existing booking amounts.
+
+### Money fields
+
+- `bookings.total_amount_minor` — authoritative **agreed accommodation** price (historical).
+- `bookings.maintenance_fee_minor` — separate non-refundable management fee snapshot; **not** folded into `total_amount_minor`.
+- Payment arrangement columns may be stored on the booking; `payment_confirmation_settings` remains the confirmation enforcement system until Stage 2L-F.
+
+### Agreement override lock (Stage 2L-C)
+
+`PATCH /admin/bookings/:id/agreement` (Super Admin / Manager via `admin:write`):
+
+- Allowed only while booking `status = pending` **and** no `payments` with `status = verified`.
+- Material financial changes require non-empty `overrideReason`.
+- Audited as `admin.booking.terms_override`.
+- Post-lock amendments are rejected (later stage).
+
+### Admin routes added
+
+- `GET/POST /admin/lease-periods`, `GET/PATCH /admin/lease-periods/:id`, `PATCH .../status`
+- `GET/POST /admin/rate-cards`, `GET /admin/rate-cards/resolve`, `GET/PATCH /admin/rate-cards/:id`, `PATCH .../status`
+- `POST /admin/bookings/from-rate-card`
+- `GET /admin/bookings/:id/agreement`, `PATCH /admin/bookings/:id/agreement`
+
+Audit actions: `admin.lease_period.create|update|status_change`, `admin.rate_card.create|update|status_change`, `admin.booking.terms_override`.
+

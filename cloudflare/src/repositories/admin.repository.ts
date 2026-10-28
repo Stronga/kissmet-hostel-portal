@@ -12,6 +12,8 @@ export class AdminRepository {
       roles: ["name", "code"],
       rooms: ["room_code", "room_name"],
       room_rates: ["rate_code"],
+      lease_periods: ["name", "code", "kind", "status"],
+      rate_cards: ["rate_code", "status"],
       applications: ["application_number", "status"],
       bookings: ["booking_number", "status"],
       allocations: ["status"],

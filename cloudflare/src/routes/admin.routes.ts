@@ -44,6 +44,8 @@ listRoute("/academic-sessions", "academic_sessions");
 listRoute("/institutions", "institutions");
 listRoute("/rooms", "rooms");
 listRoute("/room-rates", "room_rates");
+listRoute("/lease-periods", "lease_periods");
+listRoute("/rate-cards", "rate_cards");
 listRoute("/residents", "residents", "resident:read");
 // Staff uses joined users/staff/roles responses below.
 listRoute("/roles", "roles");
@@ -229,6 +231,100 @@ routes.patch("/room-rates/:id/status", requirePermission("admin:write"), async (
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 
+routes.post("/lease-periods", requirePermission("admin:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).createLeasePeriod(c.get("authUser"), {
+      kind: stringField(input, "kind")!,
+      code: stringField(input, "code")!,
+      name: stringField(input, "name")!,
+      startsOn: stringField(input, "startsOn", true, 32)!,
+      endsOn: stringField(input, "endsOn", true, 32)!,
+      status: stringField(input, "status", false) ?? undefined,
+      academicSessionId: intField(input, "academicSessionId", false),
+      notes: stringField(input, "notes", false, 2000)
+    })), 201);
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/lease-periods/:id", requirePermission("admin:read"), async (c) => c.json(ok(await service(c).get("lease_periods", Number(c.req.param("id"))))));
+routes.patch("/lease-periods/:id", requirePermission("admin:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).updateLeasePeriod(c.get("authUser"), Number(c.req.param("id")), {
+      name: stringField(input, "name", false) ?? undefined,
+      startsOn: stringField(input, "startsOn", false, 32) ?? undefined,
+      endsOn: stringField(input, "endsOn", false, 32) ?? undefined,
+      academicSessionId: Object.prototype.hasOwnProperty.call(input, "academicSessionId")
+        ? intField(input, "academicSessionId", false)
+        : undefined,
+      notes: Object.prototype.hasOwnProperty.call(input, "notes")
+        ? stringField(input, "notes", false, 2000)
+        : undefined
+    })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.patch("/lease-periods/:id/status", requirePermission("admin:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).updateLeasePeriodStatus(c.get("authUser"), Number(c.req.param("id")), stringField(input, "status")!)));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+
+routes.post("/rate-cards", requirePermission("admin:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).createRateCard(c.get("authUser"), {
+      leasePeriodId: intField(input, "leasePeriodId")!,
+      occupancyCapacity: intField(input, "occupancyCapacity")!,
+      rateCode: stringField(input, "rateCode")!,
+      amountMinor: intField(input, "amountMinor")!,
+      currency: stringField(input, "currency", false, 3) ?? undefined,
+      packageMonths: intField(input, "packageMonths", false),
+      status: stringField(input, "status", false) ?? undefined,
+      effectiveFrom: stringField(input, "effectiveFrom", false, 32),
+      effectiveTo: stringField(input, "effectiveTo", false, 32),
+      notes: stringField(input, "notes", false, 2000)
+    })), 201);
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/rate-cards/resolve", requirePermission("admin:read"), async (c) => {
+  try {
+    const url = new URL(c.req.url);
+    const leasePeriodId = Number(url.searchParams.get("leasePeriodId"));
+    const occupancyCapacity = Number(url.searchParams.get("occupancyCapacity"));
+    const asOfDate = url.searchParams.get("asOfDate");
+    return c.json(ok(await service(c).resolveActiveRateCard(leasePeriodId, occupancyCapacity, asOfDate)));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/rate-cards/:id", requirePermission("admin:read"), async (c) => c.json(ok(await service(c).get("rate_cards", Number(c.req.param("id"))))));
+routes.patch("/rate-cards/:id", requirePermission("admin:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).updateRateCard(c.get("authUser"), Number(c.req.param("id")), {
+      amountMinor: intField(input, "amountMinor", false) ?? undefined,
+      packageMonths: Object.prototype.hasOwnProperty.call(input, "packageMonths")
+        ? intField(input, "packageMonths", false)
+        : undefined,
+      effectiveFrom: Object.prototype.hasOwnProperty.call(input, "effectiveFrom")
+        ? stringField(input, "effectiveFrom", false, 32)
+        : undefined,
+      effectiveTo: Object.prototype.hasOwnProperty.call(input, "effectiveTo")
+        ? stringField(input, "effectiveTo", false, 32)
+        : undefined,
+      notes: Object.prototype.hasOwnProperty.call(input, "notes")
+        ? stringField(input, "notes", false, 2000)
+        : undefined
+    })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.patch("/rate-cards/:id/status", requirePermission("admin:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).updateRateCardStatus(c.get("authUser"), Number(c.req.param("id")), stringField(input, "status")!)));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+
+
 routes.post("/residents", requirePermission("resident:write"), async (c) => {
   try {
     const input = await body(c);
@@ -314,7 +410,57 @@ routes.post("/bookings", requirePermission("booking:write"), async (c) => {
     })), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
+routes.post("/bookings/from-rate-card", requirePermission("booking:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).createBookingFromRateCard(c.get("authUser"), {
+      applicationId: intField(input, "applicationId")!,
+      roomId: intField(input, "roomId")!,
+      leasePeriodId: intField(input, "leasePeriodId")!,
+      occupancyCapacity: intField(input, "occupancyCapacity", false) ?? undefined,
+      maintenanceFeeMinor: intField(input, "maintenanceFeeMinor", false),
+      startsOn: stringField(input, "startsOn", false, 32),
+      endsOn: stringField(input, "endsOn", false, 32),
+      expiresAt: stringField(input, "expiresAt", false, 64),
+      paymentRequirementType: stringField(input, "paymentRequirementType", false),
+      paymentFixedAmountMinor: intField(input, "paymentFixedAmountMinor", false),
+      paymentPercentageBasisPoints: intField(input, "paymentPercentageBasisPoints", false),
+      priorBookingId: intField(input, "priorBookingId", false)
+    })), 201);
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
 routes.get("/bookings/:id", requirePermission("booking:read"), async (c) => c.json(ok(await service(c).get("bookings", Number(c.req.param("id"))))));
+routes.get("/bookings/:id/agreement", requirePermission("booking:read"), async (c) => {
+  try { return c.json(ok(await service(c).getBookingAgreement(Number(c.req.param("id"))))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.patch("/bookings/:id/agreement", requirePermission("admin:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).overrideBookingAgreementTerms(c.get("authUser"), Number(c.req.param("id")), {
+      totalAmountMinor: intField(input, "totalAmountMinor", false) ?? undefined,
+      maintenanceFeeMinor: Object.prototype.hasOwnProperty.call(input, "maintenanceFeeMinor")
+        ? intField(input, "maintenanceFeeMinor", false)
+        : undefined,
+      startsOn: Object.prototype.hasOwnProperty.call(input, "startsOn")
+        ? stringField(input, "startsOn", false, 32)
+        : undefined,
+      endsOn: Object.prototype.hasOwnProperty.call(input, "endsOn")
+        ? stringField(input, "endsOn", false, 32)
+        : undefined,
+      paymentRequirementType: Object.prototype.hasOwnProperty.call(input, "paymentRequirementType")
+        ? stringField(input, "paymentRequirementType", false)
+        : undefined,
+      paymentFixedAmountMinor: Object.prototype.hasOwnProperty.call(input, "paymentFixedAmountMinor")
+        ? intField(input, "paymentFixedAmountMinor", false)
+        : undefined,
+      paymentPercentageBasisPoints: Object.prototype.hasOwnProperty.call(input, "paymentPercentageBasisPoints")
+        ? intField(input, "paymentPercentageBasisPoints", false)
+        : undefined,
+      overrideReason: stringField(input, "overrideReason", true, 2000)!
+    })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
 routes.patch("/bookings/:id/status", async (c) => {
   try {
     const input = await body(c);

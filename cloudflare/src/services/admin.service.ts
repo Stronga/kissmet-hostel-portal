@@ -4,6 +4,19 @@ import type { AuthUser } from "../auth/context";
 import { AdminRepository } from "../repositories/admin.repository";
 import { MockAnnouncementDeliveryProvider, type AnnouncementDeliveryProvider, type ExternalAnnouncementChannel } from "./announcement-delivery.service";
 import { MockMessageDeliveryProvider, type MessageDeliveryProvider, type MessageExternalChannel } from "./message-delivery.service";
+import {
+  isBookingPaymentRequirementType,
+  isLeaseKind,
+  isLeasePeriodStatus,
+  isRateCardOccupancyCapacity,
+  isRateCardStatus,
+  type BookingAgreementApi,
+  type BookingPaymentRequirementType,
+  type LeaseKind,
+  type LeasePeriodStatus,
+  type RateCardOccupancyCapacity,
+  type RateCardStatus,
+} from "../types/lease-model";
 
 type ApplicationStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "cancelled" | "archived";
 type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "archived";
@@ -149,6 +162,585 @@ export class AdminService {
     await this.repo.audit(actor.id, actor.staffId, "admin.room_rate.create", "room_rate", res.meta.last_row_id);
     return this.get("room_rates", Number(res.meta.last_row_id));
   }
+
+  // ---- Stage 2L-C: lease periods, rate cards, flexible booking agreement ----
+
+  async createLeasePeriod(actor: AuthUser, data: {
+    kind: string;
+    code: string;
+    name: string;
+    startsOn: string;
+    endsOn: string;
+    status?: string;
+    academicSessionId?: number | null;
+    notes?: string | null;
+  }) {
+    if (!isLeaseKind(data.kind)) throw new Error("Invalid lease kind");
+    const status = data.status ?? "draft";
+    if (!isLeasePeriodStatus(status)) throw new Error("Invalid lease period status");
+    if (data.startsOn > data.endsOn) throw new Error("Invalid lease period dates: starts_on must be <= ends_on");
+    const academicSessionId = data.academicSessionId ?? null;
+    if (academicSessionId != null) {
+      if (data.kind !== "academic_calendar") {
+        throw new Error("Invalid academic session link: only academic_calendar lease periods may reference academic_sessions");
+      }
+      const session = await this.get("academic_sessions", academicSessionId);
+      if (!session) throw new Error("Academic session not found");
+    } else if (data.kind === "academic_calendar" && academicSessionId != null) {
+      // unreachable; kept for clarity
+    }
+    // calendar_year / short_term must not require academic_session_id (null is fine)
+    try {
+      const res = await this.repo.run(
+        `INSERT INTO lease_periods (kind, code, name, starts_on, ends_on, status, academic_session_id, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        data.kind,
+        data.code,
+        data.name,
+        data.startsOn,
+        data.endsOn,
+        status,
+        academicSessionId,
+        data.notes ?? null
+      );
+      await this.repo.audit(actor.id, actor.staffId, "admin.lease_period.create", "lease_period", res.meta.last_row_id, {
+        kind: data.kind,
+        code: data.code,
+        status
+      });
+      return this.get("lease_periods", Number(res.meta.last_row_id));
+    } catch (error) {
+      const msg = String((error as Error).message);
+      if (msg.includes("UNIQUE") && msg.includes("code")) throw new Error("Lease period code already exists");
+      if (msg.includes("UNIQUE") && msg.includes("academic_session")) throw new Error("Academic session already linked to a lease period");
+      if (msg.includes("UNIQUE")) throw new Error("Lease period code already exists");
+      throw error;
+    }
+  }
+
+  async updateLeasePeriod(actor: AuthUser, id: number, data: {
+    name?: string;
+    startsOn?: string;
+    endsOn?: string;
+    academicSessionId?: number | null;
+    notes?: string | null;
+  }) {
+    const current = await this.get("lease_periods", id) as Record<string, unknown> | null;
+    if (!current) throw new Error("Lease period not found");
+    const name = data.name ?? String(current.name);
+    const startsOn = data.startsOn ?? String(current.starts_on);
+    const endsOn = data.endsOn ?? String(current.ends_on);
+    if (startsOn > endsOn) throw new Error("Invalid lease period dates: starts_on must be <= ends_on");
+    let academicSessionId: number | null;
+    if (data.academicSessionId === undefined) {
+      academicSessionId = current.academic_session_id == null ? null : Number(current.academic_session_id);
+    } else {
+      academicSessionId = data.academicSessionId;
+    }
+    const kind = String(current.kind);
+    if (academicSessionId != null) {
+      if (kind !== "academic_calendar") {
+        throw new Error("Invalid academic session link: only academic_calendar lease periods may reference academic_sessions");
+      }
+      const session = await this.get("academic_sessions", academicSessionId);
+      if (!session) throw new Error("Academic session not found");
+    }
+    const notes = data.notes === undefined ? (current.notes as string | null) : data.notes;
+    try {
+      await this.repo.run(
+        `UPDATE lease_periods
+         SET name = ?, starts_on = ?, ends_on = ?, academic_session_id = ?, notes = ?,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?`,
+        name, startsOn, endsOn, academicSessionId, notes, id
+      );
+    } catch (error) {
+      const msg = String((error as Error).message);
+      if (msg.includes("UNIQUE") && msg.includes("academic_session")) throw new Error("Academic session already linked to a lease period");
+      throw error;
+    }
+    await this.repo.audit(actor.id, actor.staffId, "admin.lease_period.update", "lease_period", id, {
+      fields: Object.keys(data)
+    });
+    return this.get("lease_periods", id);
+  }
+
+  async updateLeasePeriodStatus(actor: AuthUser, id: number, status: string) {
+    if (!isLeasePeriodStatus(status)) throw new Error("Invalid lease period status");
+    const current = await this.get("lease_periods", id) as Record<string, unknown> | null;
+    if (!current) throw new Error("Lease period not found");
+    const archivedAtSql = status === "archived"
+      ? "archived_at = COALESCE(archived_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+      : "archived_at = archived_at";
+    await this.repo.run(
+      `UPDATE lease_periods SET status = ?, ${archivedAtSql}, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`,
+      status, id
+    );
+    await this.repo.audit(actor.id, actor.staffId, "admin.lease_period.status_change", "lease_period", id, {
+      from: current.status,
+      to: status
+    });
+    return this.get("lease_periods", id);
+  }
+
+  async createRateCard(actor: AuthUser, data: {
+    leasePeriodId: number;
+    occupancyCapacity: number;
+    rateCode: string;
+    amountMinor: number;
+    currency?: string;
+    packageMonths?: number | null;
+    status?: string;
+    effectiveFrom?: string | null;
+    effectiveTo?: string | null;
+    notes?: string | null;
+  }) {
+    if (!isRateCardOccupancyCapacity(data.occupancyCapacity)) {
+      throw new Error("Invalid occupancy capacity: only 1, 2, or 4 are supported");
+    }
+    if (!Number.isInteger(data.amountMinor) || data.amountMinor <= 0) {
+      throw new Error("Invalid rate card amount: amount_minor must be a positive integer");
+    }
+    const status = data.status ?? "draft";
+    if (!isRateCardStatus(status)) throw new Error("Invalid rate card status");
+    const period = await this.get("lease_periods", data.leasePeriodId);
+    if (!period) throw new Error("Lease period not found");
+    const currency = (data.currency ?? "GHS").toUpperCase();
+    if (currency.length !== 3) throw new Error("Invalid currency");
+    if (data.packageMonths != null && (!Number.isInteger(data.packageMonths) || data.packageMonths <= 0)) {
+      throw new Error("Invalid package_months");
+    }
+    const effectiveFrom = data.effectiveFrom ?? null;
+    const effectiveTo = data.effectiveTo ?? null;
+    if (effectiveFrom && effectiveTo && effectiveFrom > effectiveTo) {
+      throw new Error("Invalid effective window: effective_from must be <= effective_to");
+    }
+    try {
+      const res = await this.repo.run(
+        `INSERT INTO rate_cards (
+           lease_period_id, occupancy_capacity, rate_code, amount_minor, currency,
+           package_months, status, effective_from, effective_to, notes
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        data.leasePeriodId,
+        data.occupancyCapacity,
+        data.rateCode,
+        data.amountMinor,
+        currency,
+        data.packageMonths ?? null,
+        status,
+        effectiveFrom,
+        effectiveTo,
+        data.notes ?? null
+      );
+      await this.repo.audit(actor.id, actor.staffId, "admin.rate_card.create", "rate_card", res.meta.last_row_id, {
+        leasePeriodId: data.leasePeriodId,
+        occupancyCapacity: data.occupancyCapacity,
+        amountMinor: data.amountMinor,
+        status
+      });
+      return this.get("rate_cards", Number(res.meta.last_row_id));
+    } catch (error) {
+      const msg = String((error as Error).message);
+      if (msg.includes("UNIQUE") && msg.includes("rate_code")) throw new Error("Rate card code already exists");
+      if (msg.includes("UNIQUE") && (msg.includes("occupancy") || msg.includes("active") || msg.includes("lease_period"))) {
+        throw new Error("An active rate card already exists for this lease period and occupancy");
+      }
+      if (msg.includes("UNIQUE")) throw new Error("An active rate card already exists for this lease period and occupancy");
+      throw error;
+    }
+  }
+
+  async updateRateCard(actor: AuthUser, id: number, data: {
+    amountMinor?: number;
+    packageMonths?: number | null;
+    effectiveFrom?: string | null;
+    effectiveTo?: string | null;
+    notes?: string | null;
+  }) {
+    const current = await this.get("rate_cards", id) as Record<string, unknown> | null;
+    if (!current) throw new Error("Rate card not found");
+    if (String(current.status) === "archived") throw new Error("Archived rate cards cannot be edited");
+    const amountMinor = data.amountMinor ?? Number(current.amount_minor);
+    if (!Number.isInteger(amountMinor) || amountMinor <= 0) {
+      throw new Error("Invalid rate card amount: amount_minor must be a positive integer");
+    }
+    const packageMonths = data.packageMonths === undefined
+      ? (current.package_months == null ? null : Number(current.package_months))
+      : data.packageMonths;
+    if (packageMonths != null && (!Number.isInteger(packageMonths) || packageMonths <= 0)) {
+      throw new Error("Invalid package_months");
+    }
+    const effectiveFrom = data.effectiveFrom === undefined
+      ? (current.effective_from as string | null)
+      : data.effectiveFrom;
+    const effectiveTo = data.effectiveTo === undefined
+      ? (current.effective_to as string | null)
+      : data.effectiveTo;
+    if (effectiveFrom && effectiveTo && effectiveFrom > effectiveTo) {
+      throw new Error("Invalid effective window: effective_from must be <= effective_to");
+    }
+    const notes = data.notes === undefined ? (current.notes as string | null) : data.notes;
+    await this.repo.run(
+      `UPDATE rate_cards
+       SET amount_minor = ?, package_months = ?, effective_from = ?, effective_to = ?, notes = ?,
+           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+       WHERE id = ?`,
+      amountMinor, packageMonths, effectiveFrom, effectiveTo, notes, id
+    );
+    await this.repo.audit(actor.id, actor.staffId, "admin.rate_card.update", "rate_card", id, {
+      fields: Object.keys(data),
+      // amount change does NOT rewrite bookings.total_amount_minor
+      amountMinorChanged: data.amountMinor !== undefined && data.amountMinor !== Number(current.amount_minor)
+    });
+    return this.get("rate_cards", id);
+  }
+
+  async updateRateCardStatus(actor: AuthUser, id: number, status: string) {
+    if (!isRateCardStatus(status)) throw new Error("Invalid rate card status");
+    const current = await this.get("rate_cards", id) as Record<string, unknown> | null;
+    if (!current) throw new Error("Rate card not found");
+    const archivedAtSql = status === "archived"
+      ? "archived_at = COALESCE(archived_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+      : "archived_at = archived_at";
+    try {
+      await this.repo.run(
+        `UPDATE rate_cards SET status = ?, ${archivedAtSql}, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`,
+        status, id
+      );
+    } catch (error) {
+      const msg = String((error as Error).message);
+      if (msg.includes("UNIQUE")) {
+        throw new Error("An active rate card already exists for this lease period and occupancy");
+      }
+      throw error;
+    }
+    await this.repo.audit(actor.id, actor.staffId, "admin.rate_card.status_change", "rate_card", id, {
+      from: current.status,
+      to: status
+    });
+    return this.get("rate_cards", id);
+  }
+
+  /**
+   * Resolve the active default/list rate card for a lease period + occupancy band.
+   * No silent fallback to another occupancy or to room_rates.
+   */
+  async resolveActiveRateCard(leasePeriodId: number, occupancyCapacity: number, asOfDate?: string | null) {
+    if (!isRateCardOccupancyCapacity(occupancyCapacity)) {
+      throw new Error("Invalid occupancy capacity: only 1, 2, or 4 are supported");
+    }
+    const period = await this.get("lease_periods", leasePeriodId);
+    if (!period) throw new Error("Lease period not found");
+    const asOf = asOfDate ?? null;
+    const card = await this.repo.first<Record<string, unknown>>(
+      `SELECT * FROM rate_cards
+       WHERE lease_period_id = ?
+         AND occupancy_capacity = ?
+         AND status = 'active'
+         AND (? IS NULL OR effective_from IS NULL OR effective_from <= ?)
+         AND (? IS NULL OR effective_to IS NULL OR effective_to >= ?)
+       LIMIT 1`,
+      leasePeriodId,
+      occupancyCapacity,
+      asOf, asOf,
+      asOf, asOf
+    );
+    if (!card) {
+      throw new Error("Active rate card not found for lease period and occupancy");
+    }
+    return card;
+  }
+
+  bookingAgreementView(booking: Record<string, unknown>): BookingAgreementApi {
+    const leasePeriodId = booking.lease_period_id == null ? null : Number(booking.lease_period_id);
+    const pricedRoomRateId = booking.priced_room_rate_id == null ? null : Number(booking.priced_room_rate_id);
+    let pricingPath: BookingAgreementApi["pricing_path"] = "unknown";
+    if (leasePeriodId != null) pricingPath = "lease_rate_card";
+    else if (pricedRoomRateId != null) pricingPath = "legacy_room_rate";
+    return {
+      booking_id: Number(booking.id),
+      booking_number: booking.booking_number == null ? null : String(booking.booking_number),
+      status: String(booking.status),
+      pricing_path: pricingPath,
+      agreed_accommodation_amount_minor: Number(booking.total_amount_minor),
+      maintenance_fee_minor: booking.maintenance_fee_minor == null ? null : Number(booking.maintenance_fee_minor),
+      currency: String(booking.currency ?? "GHS"),
+      lease_period_id: leasePeriodId,
+      lease_kind: (booking.lease_kind as LeaseKind | null) ?? null,
+      starts_on: booking.starts_on == null ? null : String(booking.starts_on),
+      ends_on: booking.ends_on == null ? null : String(booking.ends_on),
+      payment_requirement_type: (booking.payment_requirement_type as BookingPaymentRequirementType | null) ?? null,
+      payment_fixed_amount_minor: booking.payment_fixed_amount_minor == null ? null : Number(booking.payment_fixed_amount_minor),
+      payment_percentage_basis_points: booking.payment_percentage_basis_points == null ? null : Number(booking.payment_percentage_basis_points),
+      partial_payment_authorized: Number(booking.partial_payment_authorized ?? 0) === 1 ? 1 : 0,
+      prior_booking_id: booking.prior_booking_id == null ? null : Number(booking.prior_booking_id),
+      override_reason: booking.override_reason == null ? null : String(booking.override_reason),
+      priced_room_id: booking.priced_room_id == null ? null : Number(booking.priced_room_id),
+      priced_room_rate_id: pricedRoomRateId,
+      academic_session_id: booking.academic_session_id == null ? null : Number(booking.academic_session_id)
+    };
+  }
+
+  async getBookingAgreement(id: number) {
+    const booking = await this.get("bookings", id) as Record<string, unknown> | null;
+    if (!booking) throw new Error("Booking not found");
+    return {
+      booking,
+      agreement: this.bookingAgreementView(booking)
+    };
+  }
+
+  /**
+   * Explicit NEW flexible pricing path (Path B): lease period + room occupancy → active rate card.
+   * Snapshots amount into bookings.total_amount_minor. Later rate-card edits do not rewrite it.
+   * Legacy Path A (createBooking + room_rates) remains unchanged.
+   */
+  async createBookingFromRateCard(actor: AuthUser, data: {
+    applicationId: number;
+    roomId: number;
+    leasePeriodId: number;
+    occupancyCapacity?: number;
+    maintenanceFeeMinor?: number | null;
+    startsOn?: string | null;
+    endsOn?: string | null;
+    expiresAt?: string | null;
+    paymentRequirementType?: string | null;
+    paymentFixedAmountMinor?: number | null;
+    paymentPercentageBasisPoints?: number | null;
+    priorBookingId?: number | null;
+  }) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const application = await this.repo.first<Record<string, unknown>>("SELECT * FROM applications WHERE id = ?", data.applicationId);
+      if (!application) throw new Error("Application not found");
+      if (application.status !== "approved") throw new Error("Only approved applications may be booked");
+
+      const period = await this.get("lease_periods", data.leasePeriodId) as Record<string, unknown> | null;
+      if (!period) throw new Error("Lease period not found");
+      if (!isLeaseKind(period.kind)) throw new Error("Invalid lease kind on lease period");
+
+      const room = await this.get("rooms", data.roomId) as Record<string, unknown> | null;
+      if (!room) throw new Error("Room not found");
+      const occupancy = data.occupancyCapacity ?? Number(room.capacity);
+      if (!isRateCardOccupancyCapacity(occupancy)) {
+        throw new Error("Invalid occupancy capacity: only 1, 2, or 4 are supported");
+      }
+      if (Number(room.capacity) !== occupancy) {
+        throw new Error("Occupancy capacity must match the room's configured capacity");
+      }
+
+      const rateCard = await this.resolveActiveRateCard(data.leasePeriodId, occupancy);
+      const startsOn = data.startsOn ?? String(period.starts_on);
+      const endsOn = data.endsOn ?? String(period.ends_on);
+      if (startsOn > endsOn) throw new Error("Invalid agreement dates: starts_on must be <= ends_on");
+
+      const maintenanceFeeMinor = data.maintenanceFeeMinor ?? 0;
+      if (!Number.isInteger(maintenanceFeeMinor) || maintenanceFeeMinor < 0) {
+        throw new Error("Invalid maintenance fee: must be an integer >= 0");
+      }
+
+      let paymentRequirementType: string | null = data.paymentRequirementType ?? null;
+      if (paymentRequirementType != null && !isBookingPaymentRequirementType(paymentRequirementType)) {
+        throw new Error("Invalid payment requirement type");
+      }
+      // Stage 2L-C: store policy fields only; payment_confirmation_settings remains enforcement until 2L-F.
+      if (paymentRequirementType == null) paymentRequirementType = "full";
+
+      if (data.priorBookingId != null) {
+        const prior = await this.get("bookings", data.priorBookingId);
+        if (!prior) throw new Error("Prior booking not found");
+      }
+
+      const duplicate = await this.repo.first(
+        "SELECT id FROM bookings WHERE resident_id = ? AND academic_session_id = ? AND status IN ('pending', 'confirmed')",
+        application.resident_id,
+        application.academic_session_id
+      );
+      if (duplicate) throw new Error("Duplicate active booking");
+
+      const bookingNumber = await this.repo.allocateBookingNumber();
+      try {
+        const res = await this.repo.run(
+          `INSERT INTO bookings (
+             resident_id, academic_session_id, application_id, booking_number, status,
+             total_amount_minor, currency, expires_at, priced_room_id, priced_room_rate_id,
+             lease_period_id, lease_kind, starts_on, ends_on, maintenance_fee_minor,
+             payment_requirement_type, payment_fixed_amount_minor, payment_percentage_basis_points,
+             partial_payment_authorized, prior_booking_id
+           ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+          application.resident_id,
+          application.academic_session_id,
+          data.applicationId,
+          bookingNumber,
+          Number(rateCard.amount_minor),
+          String(rateCard.currency ?? "GHS"),
+          data.expiresAt ?? null,
+          data.roomId,
+          data.leasePeriodId,
+          period.kind,
+          startsOn,
+          endsOn,
+          maintenanceFeeMinor,
+          paymentRequirementType,
+          data.paymentFixedAmountMinor ?? null,
+          data.paymentPercentageBasisPoints ?? null,
+          data.priorBookingId ?? null
+        );
+        const bookingId = Number(res.meta.last_row_id);
+        await this.repo.audit(actor.id, actor.staffId, "admin.booking.create", "booking", bookingId, {
+          bookingNumber,
+          applicationId: data.applicationId,
+          roomId: data.roomId,
+          pricingPath: "lease_rate_card",
+          leasePeriodId: data.leasePeriodId,
+          rateCardId: Number(rateCard.id),
+          occupancyCapacity: occupancy,
+          agreedAccommodationAmountMinor: Number(rateCard.amount_minor),
+          maintenanceFeeMinor
+        });
+        return this.getBookingAgreement(bookingId);
+      } catch (error) {
+        if (String((error as Error).message).includes("booking_number") && attempt < 2) continue;
+        throw error;
+      }
+    }
+    throw new Error("Unable to create booking with unique booking number");
+  }
+
+  /**
+   * Management override of agreement terms before financial lock.
+   * Lock: any verified payment OR booking status not pending → reject material changes.
+   * Material financial fields: total_amount_minor (accommodation), maintenance_fee_minor.
+   */
+  async overrideBookingAgreementTerms(actor: AuthUser, id: number, data: {
+    totalAmountMinor?: number;
+    maintenanceFeeMinor?: number | null;
+    startsOn?: string | null;
+    endsOn?: string | null;
+    paymentRequirementType?: string | null;
+    paymentFixedAmountMinor?: number | null;
+    paymentPercentageBasisPoints?: number | null;
+    overrideReason: string;
+  }) {
+    const reason = data.overrideReason?.trim();
+    if (!reason) throw new Error("Override reason is required");
+
+    const booking = await this.get("bookings", id) as Record<string, unknown> | null;
+    if (!booking) throw new Error("Booking not found");
+
+    const status = String(booking.status);
+    if (status !== "pending") {
+      throw new Error("Booking agreement is locked after confirmation; post-lock amendments belong to a later stage");
+    }
+
+    const verified = await this.repo.first<{ verified_count: number }>(
+      "SELECT COUNT(*) AS verified_count FROM payments WHERE booking_id = ? AND status = 'verified'",
+      id
+    );
+    if (Number(verified?.verified_count ?? 0) > 0) {
+      throw new Error("Booking agreement is financially locked after verified payments exist");
+    }
+
+    const financialChange =
+      (data.totalAmountMinor !== undefined && data.totalAmountMinor !== Number(booking.total_amount_minor)) ||
+      (data.maintenanceFeeMinor !== undefined &&
+        Number(data.maintenanceFeeMinor ?? 0) !== Number(booking.maintenance_fee_minor ?? 0));
+
+    if (financialChange && !reason) {
+      throw new Error("Override reason is required for material financial overrides");
+    }
+
+    const nextTotal = data.totalAmountMinor ?? Number(booking.total_amount_minor);
+    if (!Number.isInteger(nextTotal) || nextTotal <= 0) {
+      throw new Error("Invalid accommodation amount: must be a positive integer");
+    }
+    const nextMaintenance = data.maintenanceFeeMinor === undefined
+      ? (booking.maintenance_fee_minor == null ? null : Number(booking.maintenance_fee_minor))
+      : data.maintenanceFeeMinor;
+    if (nextMaintenance != null && (!Number.isInteger(nextMaintenance) || nextMaintenance < 0)) {
+      throw new Error("Invalid maintenance fee: must be an integer >= 0");
+    }
+
+    const nextStarts = data.startsOn === undefined
+      ? (booking.starts_on == null ? null : String(booking.starts_on))
+      : data.startsOn;
+    const nextEnds = data.endsOn === undefined
+      ? (booking.ends_on == null ? null : String(booking.ends_on))
+      : data.endsOn;
+    if (nextStarts && nextEnds && nextStarts > nextEnds) {
+      throw new Error("Invalid agreement dates: starts_on must be <= ends_on");
+    }
+
+    let nextPayType = data.paymentRequirementType === undefined
+      ? (booking.payment_requirement_type as string | null)
+      : data.paymentRequirementType;
+    if (nextPayType != null && !isBookingPaymentRequirementType(nextPayType)) {
+      throw new Error("Invalid payment requirement type");
+    }
+    const nextFixed = data.paymentFixedAmountMinor === undefined
+      ? (booking.payment_fixed_amount_minor == null ? null : Number(booking.payment_fixed_amount_minor))
+      : data.paymentFixedAmountMinor;
+    const nextPct = data.paymentPercentageBasisPoints === undefined
+      ? (booking.payment_percentage_basis_points == null ? null : Number(booking.payment_percentage_basis_points))
+      : data.paymentPercentageBasisPoints;
+
+    const changedFields: string[] = [];
+    if (data.totalAmountMinor !== undefined && data.totalAmountMinor !== Number(booking.total_amount_minor)) {
+      changedFields.push("total_amount_minor");
+    }
+    if (data.maintenanceFeeMinor !== undefined &&
+        Number(data.maintenanceFeeMinor ?? 0) !== Number(booking.maintenance_fee_minor ?? 0)) {
+      changedFields.push("maintenance_fee_minor");
+    }
+    if (data.startsOn !== undefined && data.startsOn !== booking.starts_on) changedFields.push("starts_on");
+    if (data.endsOn !== undefined && data.endsOn !== booking.ends_on) changedFields.push("ends_on");
+    if (data.paymentRequirementType !== undefined && data.paymentRequirementType !== booking.payment_requirement_type) {
+      changedFields.push("payment_requirement_type");
+    }
+    if (data.paymentFixedAmountMinor !== undefined) changedFields.push("payment_fixed_amount_minor");
+    if (data.paymentPercentageBasisPoints !== undefined) changedFields.push("payment_percentage_basis_points");
+
+    if (changedFields.length === 0) {
+      throw new Error("No agreement fields changed");
+    }
+
+    await this.repo.run(
+      `UPDATE bookings SET
+         total_amount_minor = ?,
+         maintenance_fee_minor = ?,
+         starts_on = ?,
+         ends_on = ?,
+         payment_requirement_type = ?,
+         payment_fixed_amount_minor = ?,
+         payment_percentage_basis_points = ?,
+         override_reason = ?,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+       WHERE id = ?`,
+      nextTotal,
+      nextMaintenance,
+      nextStarts,
+      nextEnds,
+      nextPayType,
+      nextFixed,
+      nextPct,
+      reason,
+      id
+    );
+    await this.repo.audit(actor.id, actor.staffId, "admin.booking.terms_override", "booking", id, {
+      changedFields,
+      financialChange,
+      // do not dump full amounts in audit if avoidable; include before/after for financial keys only
+      before: {
+        total_amount_minor: Number(booking.total_amount_minor),
+        maintenance_fee_minor: booking.maintenance_fee_minor == null ? null : Number(booking.maintenance_fee_minor)
+      },
+      after: {
+        total_amount_minor: nextTotal,
+        maintenance_fee_minor: nextMaintenance
+      }
+    });
+    return this.getBookingAgreement(id);
+  }
+
 
   async createResident(actor: AuthUser, data: { email?: string | null; phone?: string | null; displayName: string; institutionId: number; studentId: string; firstName: string; lastName: string; gender?: string | null; status?: string }) {
     for (let attempt = 0; attempt < 3; attempt += 1) {

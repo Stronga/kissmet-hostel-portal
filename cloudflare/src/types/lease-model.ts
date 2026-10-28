@@ -1,6 +1,6 @@
 /**
- * Stage 2L-B schema foundation types for flexible lease periods, rate cards,
- * and booking agreement snapshot columns. APIs/UI arrive in later stages.
+ * Stage 2L-B/C types for flexible lease periods, rate cards, and booking
+ * agreement snapshots. Stage 2L-C activates Admin APIs on this foundation.
  */
 
 export const LEASE_KINDS = ["academic_calendar", "calendar_year", "short_term"] as const;
@@ -82,4 +82,77 @@ export function isLeaseKind(value: unknown): value is LeaseKind {
 
 export function isRateCardOccupancyCapacity(value: unknown): value is RateCardOccupancyCapacity {
   return typeof value === "number" && (RATE_CARD_OCCUPANCY_CAPACITIES as readonly number[]).includes(value);
+}
+
+export function isLeasePeriodStatus(value: unknown): value is LeasePeriodStatus {
+  return typeof value === "string" && (LEASE_PERIOD_STATUSES as readonly string[]).includes(value);
+}
+
+export function isRateCardStatus(value: unknown): value is RateCardStatus {
+  return typeof value === "string" && (RATE_CARD_STATUSES as readonly string[]).includes(value);
+}
+
+export function isBookingPaymentRequirementType(value: unknown): value is BookingPaymentRequirementType {
+  return typeof value === "string" && (BOOKING_PAYMENT_REQUIREMENT_TYPES as readonly string[]).includes(value);
+}
+
+/** Admin API contract for lease periods (Stage 2L-C). */
+export interface LeasePeriodApi {
+  id: number;
+  kind: LeaseKind;
+  code: string;
+  name: string;
+  starts_on: string;
+  ends_on: string;
+  status: LeasePeriodStatus;
+  academic_session_id: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+/** Admin API contract for rate cards (Stage 2L-C). */
+export interface RateCardApi {
+  id: number;
+  lease_period_id: number;
+  occupancy_capacity: RateCardOccupancyCapacity;
+  rate_code: string;
+  amount_minor: number;
+  currency: string;
+  package_months: number | null;
+  status: RateCardStatus;
+  effective_from: string | null;
+  effective_to: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+/**
+ * Booking agreement view: total_amount_minor = agreed accommodation price;
+ * maintenance_fee_minor is separate and must not be silently folded into total.
+ */
+export interface BookingAgreementApi {
+  booking_id: number;
+  booking_number: string | null;
+  status: string;
+  pricing_path: "legacy_room_rate" | "lease_rate_card" | "unknown";
+  agreed_accommodation_amount_minor: number;
+  maintenance_fee_minor: number | null;
+  currency: string;
+  lease_period_id: number | null;
+  lease_kind: LeaseKind | null;
+  starts_on: string | null;
+  ends_on: string | null;
+  payment_requirement_type: BookingPaymentRequirementType | null;
+  payment_fixed_amount_minor: number | null;
+  payment_percentage_basis_points: number | null;
+  partial_payment_authorized: 0 | 1;
+  prior_booking_id: number | null;
+  override_reason: string | null;
+  priced_room_id: number | null;
+  priced_room_rate_id: number | null;
+  academic_session_id: number | null;
 }
