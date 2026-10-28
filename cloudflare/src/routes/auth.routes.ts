@@ -7,6 +7,7 @@ import { productionAuthConfigGuard } from "../middleware/production-config.middl
 import { AuthService } from "../services/auth.service";
 import { createSmsProvider } from "../services/sms.service";
 import { clientIpFromRequest } from "../config/production-secrets";
+import { OTHER_INSTITUTION_CODE } from "../auth/resident-identity";
 
 type Variables = { authUser: import("../auth/context").AuthUser };
 
@@ -21,6 +22,15 @@ function clientCtx(c: { req: { raw: Request; header: (name: string) => string | 
     ip: clientIpFromRequest(c.req.raw),
     userAgent: c.req.header("User-Agent")
   };
+}
+
+function optionalString(input: Record<string, unknown>, key: string, maxLength: number): string | null {
+  const value = input[key];
+  if (value == null) return null;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maxLength) return null;
+  return trimmed;
 }
 
 authRoutes.use("/staff/login", productionAuthConfigGuard);
@@ -43,11 +53,22 @@ authRoutes.post("/resident/request-otp", async (c) => {
   const input = parseJsonObject(await c.req.json().catch(() => null));
   if (!input) return c.json({ error: "Invalid request body" }, 400);
 
-  const institutionCode = requiredString(input, "institutionCode", 64);
-  const studentId = requiredString(input, "studentId", 64);
-  if (!institutionCode || !studentId) return c.json({ ok: true, message: "If the resident can receive OTP messages, an OTP has been sent." });
+  const institutionCode = optionalString(input, "institutionCode", 64);
+  const studentId = optionalString(input, "studentId", 64);
+  const ghanaCardNumber = optionalString(input, "ghanaCardNumber", 64);
+  // Tolerate empty body with generic success (enumeration-safe).
+  if (!institutionCode && !studentId && !ghanaCardNumber) {
+    return c.json({ ok: true, message: "If the resident can receive OTP messages, an OTP has been sent." });
+  }
 
-  const result = await service(c).requestResidentOtp(institutionCode, studentId, clientCtx(c));
+  const result = await service(c).requestResidentOtp({
+    institutionCode: institutionCode === OTHER_INSTITUTION_CODE ? OTHER_INSTITUTION_CODE : institutionCode,
+    studentId,
+    ghanaCardNumber,
+    identifierType: input.identifierType,
+    residentKind: input.residentKind
+  }, clientCtx(c));
+
   if (!result.ok) {
     return c.json(result.body, result.status as ContentfulStatusCode);
   }
@@ -58,12 +79,26 @@ authRoutes.post("/resident/verify-otp", async (c) => {
   const input = parseJsonObject(await c.req.json().catch(() => null));
   if (!input) return c.json({ error: "Invalid request body" }, 400);
 
-  const institutionCode = requiredString(input, "institutionCode", 64);
-  const studentId = requiredString(input, "studentId", 64);
   const otp = requiredString(input, "otp", 12);
-  if (!institutionCode || !studentId || !otp) return c.json({ error: "Invalid or expired OTP" }, 401);
+  const challengeId = optionalString(input, "challengeId", 128);
+  const institutionCode = optionalString(input, "institutionCode", 64);
+  const studentId = optionalString(input, "studentId", 64);
+  const ghanaCardNumber = optionalString(input, "ghanaCardNumber", 64);
 
-  const result = await service(c).verifyResidentOtp(institutionCode, studentId, otp, clientCtx(c));
+  if (!otp) return c.json({ error: "Invalid or expired OTP" }, 401);
+  if (!challengeId && !institutionCode && !ghanaCardNumber) {
+    return c.json({ error: "Invalid or expired OTP" }, 401);
+  }
+
+  const result = await service(c).verifyResidentOtp({
+    otp,
+    challengeId,
+    institutionCode: institutionCode === OTHER_INSTITUTION_CODE ? OTHER_INSTITUTION_CODE : institutionCode,
+    studentId,
+    ghanaCardNumber,
+    identifierType: input.identifierType,
+    residentKind: input.residentKind
+  }, clientCtx(c));
   return c.json(result.body, result.status as ContentfulStatusCode);
 });
 

@@ -44,7 +44,7 @@ describe("resident login and OTP authentication", () => {
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(await screen.findByText("Institution is required.")).toBeInTheDocument();
-    expect(screen.getByText("Student ID is required.")).toBeInTheDocument();
+    expect(screen.getByText("Student ID / School Number is required.")).toBeInTheDocument();
   });
 
   it("requests login OTP and passes login context to verification", async () => {
@@ -59,14 +59,40 @@ describe("resident login and OTP authentication", () => {
     render(renderResidentApp(["/login"]));
 
     await userEvent.selectOptions(await screen.findByLabelText("Institution"), "ug");
-    await userEvent.type(screen.getByLabelText("Student ID"), "ST-1");
+    await userEvent.type(screen.getByLabelText("Student ID / School Number"), "ST-1");
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(await screen.findByRole("heading", { name: "Verify OTP" })).toBeInTheDocument();
-    expect(screen.getByText(/University of Ghana student ID ST-1/i)).toBeInTheDocument();
+    expect(screen.getByText(/registered phone for University of Ghana/i)).toBeInTheDocument();
+    expect(screen.queryByText(/student ID ST-1/i)).not.toBeInTheDocument();
+  });
+
+  it("offers Other and requests OTP with Ghana Card Number", async () => {
+    mockFetch((url, init) => {
+      if (url.endsWith("/public/institutions")) return json({ ok: true, data: institutions });
+      if (url.endsWith("/auth/resident/request-otp")) {
+        expect(body(init)).toMatchObject({ institutionCode: "__other__", ghanaCardNumber: "GHA-123456789-0" });
+        expect(body(init).studentId).toBeUndefined();
+        return json({ ok: true, message: "sent", challengeId: "abc123" });
+      }
+      return json({ error: "Unauthorized" }, 401);
+    });
+    render(renderResidentApp(["/login"]));
+
+    expect(screen.queryByLabelText("Resident Type")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Academic Session/i)).not.toBeInTheDocument();
+    await userEvent.selectOptions(await screen.findByLabelText("Institution"), "__other__");
+    expect(screen.getByLabelText("Ghana Card Number")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Ghana Card Number"), "GHA-123456789-0");
+    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByRole("heading", { name: "Verify OTP" })).toBeInTheDocument();
+    expect(screen.getByText(/registered phone for Other/i)).toBeInTheDocument();
+    expect(sessionStorage.getItem("kissmet_resident_verification_context") ?? "").not.toMatch(/GHA-123456789-0/);
   });
 
   it("shows a safe login OTP request failure", async () => {
+
     mockFetch((url) => {
       if (url.endsWith("/public/institutions")) return json({ ok: true, data: institutions });
       if (url.endsWith("/auth/resident/request-otp")) return json({ error: "Too many login attempts" }, 429);
@@ -75,7 +101,7 @@ describe("resident login and OTP authentication", () => {
     render(renderResidentApp(["/login"]));
 
     await userEvent.selectOptions(await screen.findByLabelText("Institution"), "ug");
-    await userEvent.type(screen.getByLabelText("Student ID"), "ST-1");
+    await userEvent.type(screen.getByLabelText("Student ID / School Number"), "ST-1");
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(await screen.findByText(/Too many attempts/i)).toBeInTheDocument();
@@ -94,7 +120,7 @@ describe("resident login and OTP authentication", () => {
     render(renderResidentApp(["/login"]));
 
     await userEvent.selectOptions(await screen.findByLabelText("Institution"), "ug");
-    await userEvent.type(screen.getByLabelText("Student ID"), "ST-1");
+    await userEvent.type(screen.getByLabelText("Student ID / School Number"), "ST-1");
     const button = screen.getByRole("button", { name: "Continue" });
     const form = button.closest("form");
     expect(form).toBeTruthy();
@@ -234,7 +260,8 @@ describe("resident registration OTP authentication", () => {
     await userEvent.click(screen.getByRole("button", { name: "Start Registration" }));
 
     expect(await screen.findByRole("heading", { name: "Verify OTP" })).toBeInTheDocument();
-    expect(screen.getByText(/University of Ghana student ID ST-1/i)).toBeInTheDocument();
+    expect(screen.getByText(/registered phone for University of Ghana/i)).toBeInTheDocument();
+    expect(screen.queryByText(/student ID ST-1/i)).not.toBeInTheDocument();
   });
 
   it("shows registration OTP request failure", async () => {

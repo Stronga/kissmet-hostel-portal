@@ -1,7 +1,12 @@
 import type { Env } from "../types/bindings";
-import { AuthRepository } from "../repositories/auth.repository";
+import { AuthRepository, type PendingOtpRecord, type ResidentLoginRecord } from "../repositories/auth.repository";
 import { hashPassword, randomOtp, randomToken, sha256Hex, verifyPassword } from "../auth/crypto";
 import { checkRateLimit, rateLimitKey } from "../auth/rate-limit";
+import {
+  authMethodAuditCategory,
+  parseResidentAuthIdentity,
+  type ResidentAuthIdentity
+} from "../auth/resident-identity";
 import type { SmsProvider } from "./sms.service";
 import { OTP_DELIVERY_FAILURE_MESSAGE } from "./sms.service";
 
@@ -20,6 +25,11 @@ const OTP_VERIFY_IP_WINDOW_MS = 15 * 60_000;
 const STAFF_LOGIN_IP_LIMIT = 30;
 const STAFF_LOGIN_IP_WINDOW_MS = 15 * 60_000;
 
+const GENERIC_OTP_REQUEST = {
+  ok: true as const,
+  message: "If the resident can receive OTP messages, an OTP has been sent."
+};
+
 function futureIso(minutes: number): string {
   return new Date(Date.now() + minutes * 60_000).toISOString();
 }
@@ -33,6 +43,28 @@ export type AuthClientContext = {
   ip?: string;
   userAgent?: string;
 };
+
+export type ResidentOtpRequestInput = {
+  institutionCode?: string | null;
+  studentId?: string | null;
+  ghanaCardNumber?: string | null;
+  residentKind?: unknown;
+  identifierType?: unknown;
+};
+
+export type ResidentOtpVerifyInput = {
+  otp: string;
+  challengeId?: string | null;
+  institutionCode?: string | null;
+  studentId?: string | null;
+  ghanaCardNumber?: string | null;
+  residentKind?: unknown;
+  identifierType?: unknown;
+};
+
+function decoyChallengeId(): string {
+  return randomToken(32);
+}
 
 export class AuthService {
   private readonly repo: AuthRepository;
@@ -82,43 +114,106 @@ export class AuthService {
     return { ok: true as const, status: 200, body: { token, expiresAt, user: { id: staff.user_id, name: staff.display_name, role: staff.role_code } } };
   }
 
-  async requestResidentOtp(institutionCode: string, studentId: string, ctx: AuthClientContext = {}) {
-    const resident = await this.repo.findResidentByStudentId(institutionCode, studentId);
-    const generic = { ok: true as const, message: "If the resident can receive OTP messages, an OTP has been sent." };
-    const ip = ctx.ip ?? "unknown";
+  /**
+   * Resolve at most one resident for the identity. Ambiguous matches fail closed (null).
+   */
+  private async resolveResident(identity: ResidentAuthIdentity): Promise<{
+    resident: ResidentLoginRecord | null;
+    ambiguous: boolean;
+  }> {
+    if (identity.method === "listed_institution") {
+      const rows = await this.repo.findResidentByStudentId(identity.institutionCode, identity.studentId);
+      if (rows.length > 1) return { resident: null, ambiguous: true };
+      return { resident: rows[0] ?? null, ambiguous: false };
+    }
+    const rows = await this.repo.findResidentByGhanaCardNumber(identity.ghanaCardNumber);
+    if (rows.length > 1) return { resident: null, ambiguous: true };
+    return { resident: rows[0] ?? null, ambiguous: false };
+  }
 
-    // Isolate-local IP abuse ceiling for OTP request (does not weaken D1 OTP controls).
+  /**
+   * Universal resident OTP request (listed institution OR Other + Ghana Card).
+   * Always returns a generic success shape for enumeration protection, plus a challengeId
+   * (real when an OTP was issued; decoy otherwise). Never discloses full phone or raw identifiers.
+   */
+  async requestResidentOtp(input: ResidentOtpRequestInput | string, studentIdOrCtx?: string | AuthClientContext, maybeCtx?: AuthClientContext) {
+    // Back-compat: requestResidentOtp(institutionCode, studentId, ctx?)
+    let body: ResidentOtpRequestInput;
+    let ctx: AuthClientContext = {};
+    if (typeof input === "string") {
+      body = { institutionCode: input, studentId: typeof studentIdOrCtx === "string" ? studentIdOrCtx : null };
+      ctx = (typeof studentIdOrCtx === "object" && studentIdOrCtx) ? studentIdOrCtx : (maybeCtx ?? {});
+    } else {
+      body = input;
+      ctx = (typeof studentIdOrCtx === "object" && studentIdOrCtx) ? studentIdOrCtx : {};
+    }
+
+    const parsed = parseResidentAuthIdentity(body);
+    const ip = ctx.ip ?? "unknown";
+    const challengeId = decoyChallengeId();
+    const generic = { ...GENERIC_OTP_REQUEST, challengeId };
+
     if (!checkRateLimit(rateLimitKey({ surface: "otp-request-ip", ip }), 20, OTP_RATE_LIMIT_WINDOW_MINUTES * 60_000)) {
       return generic;
     }
 
+    if (!parsed.ok) {
+      await this.repo.writeAudit(null, null, "auth.resident.otp_request_hidden", "resident", null, {
+        authMethod: parsed.reason === "inconsistent" ? "inconsistent" : "invalid",
+        outcome: "rejected_input"
+      });
+      return generic;
+    }
+
+    const identity = parsed.identity;
+    const method = authMethodAuditCategory(identity.method);
+    const { resident, ambiguous } = await this.resolveResident(identity);
+
+    if (ambiguous) {
+      await this.repo.writeAudit(null, null, "auth.resident.otp_request_ambiguous", "resident", null, {
+        authMethod: method,
+        outcome: "ambiguous"
+      });
+      return generic;
+    }
+
     if (!resident || resident.user_status !== "active" || !resident.phone) {
-      await this.repo.writeAudit(resident?.user_id ?? null, null, "auth.resident.otp_request_hidden", "resident", resident?.resident_id ?? null);
+      await this.repo.writeAudit(resident?.user_id ?? null, null, "auth.resident.otp_request_hidden", "resident", resident?.resident_id ?? null, {
+        authMethod: method,
+        outcome: "not_found_or_inactive"
+      });
       return generic;
     }
 
-    const rateLimitKeyD1 = `otp:resident_login:${resident.institution_code}:${resident.student_id}`;
-    const recent = await this.repo.countRecentOtps(rateLimitKeyD1, pastIso(OTP_RATE_LIMIT_WINDOW_MINUTES));
+    const rateLimitKeyD1 = `otp:resident_login:resident:${resident.resident_id}`;
+    const recent = await this.repo.countRecentOtpsForResident(resident.resident_id, pastIso(OTP_RATE_LIMIT_WINDOW_MINUTES));
     if ((recent?.count ?? 0) >= OTP_RATE_LIMIT_MAX) {
-      await this.repo.writeAudit(resident.user_id, null, "auth.resident.otp_rate_limited", "resident", resident.resident_id);
+      await this.repo.writeAudit(resident.user_id, null, "auth.resident.otp_rate_limited", "resident", resident.resident_id, {
+        authMethod: method,
+        outcome: "rate_limited"
+      });
       return generic;
     }
 
-    // Isolate-local identity+IP complement (NOT a substitute for D1 OTP rate keys).
     if (!checkRateLimit(rateLimitKey({ surface: "otp-request", identity: rateLimitKeyD1, ip }), OTP_RATE_LIMIT_MAX, OTP_RATE_LIMIT_WINDOW_MINUTES * 60_000)) {
-      await this.repo.writeAudit(resident.user_id, null, "auth.resident.otp_rate_limited", "resident", resident.resident_id);
+      await this.repo.writeAudit(resident.user_id, null, "auth.resident.otp_rate_limited", "resident", resident.resident_id, {
+        authMethod: method,
+        outcome: "rate_limited"
+      });
       return generic;
     }
 
-    // Generate exactly one code for this user action; hash before any provider call.
     const otp = randomOtp();
+    const realChallengeId = randomToken(32);
+    const challengeTokenHash = await sha256Hex(realChallengeId);
     await this.repo.createOtp({
       userId: resident.user_id,
       residentId: resident.resident_id,
       destination: resident.phone,
       codeHash: await hashPassword(otp),
       rateLimitKey: rateLimitKeyD1,
-      expiresAt: futureIso(OTP_MINUTES)
+      expiresAt: futureIso(OTP_MINUTES),
+      challengeTokenHash
     });
 
     const delivery = await this.smsProvider.sendOtp({
@@ -128,8 +223,9 @@ export class AuthService {
     });
 
     if (!delivery.ok) {
-      // Provider failure must never look like successful delivery and cannot authenticate.
-      await this.repo.writeAudit(resident.user_id, null, "auth.resident.otp_delivery_failed", "resident", resident.resident_id);
+      await this.repo.writeAudit(resident.user_id, null, "auth.resident.otp_delivery_failed", "resident", resident.resident_id, {
+        authMethod: method
+      });
       return {
         ok: false as const,
         status: 503,
@@ -137,24 +233,86 @@ export class AuthService {
       };
     }
 
-    await this.repo.writeAudit(resident.user_id, null, "auth.resident.otp_requested", "resident", resident.resident_id);
-    return generic;
+    await this.repo.writeAudit(resident.user_id, null, "auth.resident.otp_requested", "resident", resident.resident_id, {
+      authMethod: method,
+      outcome: "sent"
+    });
+
+    // Same shape for success and decoy paths (challengeId always present). No phone disclosure.
+    return {
+      ok: true as const,
+      message: GENERIC_OTP_REQUEST.message,
+      challengeId: realChallengeId
+    };
   }
 
-  async verifyResidentOtp(institutionCode: string, studentId: string, otp: string, ctx: AuthClientContext = {}) {
+  private async loadPendingOtp(input: ResidentOtpVerifyInput): Promise<PendingOtpRecord | null> {
+    if (input.challengeId && input.challengeId.trim()) {
+      const hash = await sha256Hex(input.challengeId.trim());
+      const byChallenge = await this.repo.findPendingOtpByChallengeTokenHash(hash);
+      if (byChallenge) return byChallenge;
+    }
+
+    const parsed = parseResidentAuthIdentity(input);
+    if (!parsed.ok) return null;
+    const { resident, ambiguous } = await this.resolveResident(parsed.identity);
+    if (ambiguous) return null;
+    if (resident) {
+      const byResident = await this.repo.findPendingOtpByResidentId(resident.resident_id);
+      if (byResident) return byResident;
+    }
+    // Legacy listed-institution lookup (institution code + student id) for older clients/tests.
+    if (parsed.identity.method === "listed_institution") {
+      return this.repo.findPendingOtp(parsed.identity.institutionCode, parsed.identity.studentId);
+    }
+    return null;
+  }
+
+  async verifyResidentOtp(
+    inputOrInstitution: ResidentOtpVerifyInput | string,
+    studentIdOrOtp?: string | AuthClientContext,
+    otpOrCtx?: string | AuthClientContext,
+    maybeCtx?: AuthClientContext
+  ) {
+    let input: ResidentOtpVerifyInput;
+    let ctx: AuthClientContext = {};
+
+    if (typeof inputOrInstitution === "string") {
+      // Back-compat: verifyResidentOtp(institutionCode, studentId, otp, ctx?)
+      input = {
+        institutionCode: inputOrInstitution,
+        studentId: typeof studentIdOrOtp === "string" ? studentIdOrOtp : null,
+        otp: typeof otpOrCtx === "string" ? otpOrCtx : ""
+      };
+      ctx = (typeof otpOrCtx === "object" && otpOrCtx)
+        ? otpOrCtx
+        : (maybeCtx ?? {});
+    } else {
+      input = inputOrInstitution;
+      ctx = (studentIdOrOtp && typeof studentIdOrOtp === "object")
+        ? studentIdOrOtp
+        : (maybeCtx ?? {});
+    }
+
     const ip = ctx.ip ?? "unknown";
 
-    // Isolate-local IP ceiling for verify flooding (does not replace D1 attempt_count).
     if (!checkRateLimit(rateLimitKey({ surface: "otp-verify-ip", ip }), OTP_VERIFY_IP_LIMIT, OTP_VERIFY_IP_WINDOW_MS)) {
       return { ok: false as const, status: 429, body: { error: "Too many verification attempts" } };
     }
 
-    const identityKey = `otp-verify:${institutionCode.toLowerCase()}:${studentId.toLowerCase()}`;
-    if (!checkRateLimit(rateLimitKey({ surface: "otp-verify", identity: identityKey, ip }), 10, OTP_VERIFY_IP_WINDOW_MS)) {
+    const identityHint = input.challengeId?.trim()
+      ? `challenge:${input.challengeId.trim().slice(0, 12)}`
+      : `id:${String(input.institutionCode ?? "x").toLowerCase()}`;
+    if (!checkRateLimit(rateLimitKey({ surface: "otp-verify", identity: identityHint, ip }), 10, OTP_VERIFY_IP_WINDOW_MS)) {
       return { ok: false as const, status: 429, body: { error: "Too many verification attempts" } };
     }
 
-    const record = await this.repo.findPendingOtp(institutionCode, studentId);
+    const otp = typeof input.otp === "string" ? input.otp.trim() : "";
+    if (!otp) {
+      return { ok: false as const, status: 401, body: { error: "Invalid or expired OTP" } };
+    }
+
+    const record = await this.loadPendingOtp(input);
     if (!record) return { ok: false as const, status: 401, body: { error: "Invalid or expired OTP" } };
 
     if (new Date(record.expires_at).getTime() <= Date.now()) {
@@ -180,7 +338,12 @@ export class AuthService {
     const tokenHash = await sha256Hex(token);
     const expiresAt = futureIso(SESSION_HOURS * 60);
     await this.repo.createSession(record.user_id, tokenHash, expiresAt, ctx.userAgent);
-    await this.repo.writeAudit(record.user_id, null, "auth.resident.login_succeeded", "resident", record.resident_id);
+    const verifiedIdentity = parseResidentAuthIdentity(input);
+    await this.repo.writeAudit(record.user_id, null, "auth.resident.login_succeeded", "resident", record.resident_id, {
+      authMethod: verifiedIdentity.ok
+        ? authMethodAuditCategory(verifiedIdentity.identity.method)
+        : (input.challengeId ? "challenge" : "unknown")
+    });
 
     return { ok: true as const, status: 200, body: { token, expiresAt } };
   }

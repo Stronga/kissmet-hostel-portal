@@ -6,14 +6,14 @@ import { FormField } from "../../components/common/FormField";
 import { Button } from "../../components/common/Button";
 import { ErrorState } from "../../components/common/ErrorState";
 import { useAuth } from "../../auth/AuthContext";
-import { clearVerificationContext, loadVerificationContext, type VerificationContext } from "../../auth/verificationContext";
+import { clearVerificationContext, loadVerificationContext, peekOtherGhanaCardNumber, saveVerificationContext, type VerificationContext } from "../../auth/verificationContext";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { safeAuthError } from "../../utils/errors";
 
 export function VerifyOtpPage() {
   const { isAuthenticated, acceptSessionToken } = useAuth();
   const navigate = useNavigate();
-  const [context] = useState<VerificationContext | null>(() => loadVerificationContext());
+  const [context, setContext] = useState<VerificationContext | null>(() => loadVerificationContext());
   const [otp, setOtp] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -38,9 +38,37 @@ export function VerifyOtpPage() {
     submitLock.current = true;
     setIsSubmitting(true);
     try {
-      const input = { institutionCode: context.institutionCode, studentId: context.studentId, otp: otp.trim() };
-      const result = context.flow === "login" ? await verifyResidentLoginOtp(input) : (await verifyRegistrationOtp(input)).data;
-      await acceptSessionToken(result.token);
+      if (context.flow === "login") {
+        const input = context.isOther
+          ? {
+              institutionCode: context.institutionCode,
+              otp: otp.trim(),
+              challengeId: context.challengeId
+            }
+          : {
+              institutionCode: context.institutionCode,
+              studentId: context.studentId,
+              otp: otp.trim(),
+              challengeId: context.challengeId
+            };
+        const result = await verifyResidentLoginOtp(input);
+        await acceptSessionToken(result.token);
+      } else {
+        if (!context.registration) throw new Error("Registration verification context is missing.");
+        const input = context.isOther
+          ? {
+              institutionCode: context.institutionCode,
+              ghanaCardNumber: context.registration.ghanaCardNumber,
+              otp: otp.trim()
+            }
+          : {
+              institutionCode: context.institutionCode,
+              studentId: context.studentId ?? context.registration.studentId,
+              otp: otp.trim()
+            };
+        const result = (await verifyRegistrationOtp(input)).data;
+        await acceptSessionToken(result.token);
+      }
       clearVerificationContext();
       setOtp("");
       navigate("/home", { replace: true });
@@ -60,7 +88,20 @@ export function VerifyOtpPage() {
     setIsResending(true);
     try {
       if (context.flow === "login") {
-        await requestResidentLoginOtp({ institutionCode: context.institutionCode, studentId: context.studentId });
+        const otherCard = peekOtherGhanaCardNumber();
+        const payload = context.isOther
+          ? (otherCard
+              ? { institutionCode: context.institutionCode, ghanaCardNumber: otherCard }
+              : null)
+          : { institutionCode: context.institutionCode, studentId: context.studentId! };
+        if (!payload) {
+          setError("For Other sign-in, go back and enter your Ghana Card Number again to resend a code.");
+          return;
+        }
+        const result = await requestResidentLoginOtp(payload);
+        const next = { ...context, challengeId: result.challengeId };
+        saveVerificationContext(next, context.isOther ? otherCard : undefined);
+        setContext(next);
       } else if (context.registration) {
         await requestRegistrationOtp(context.registration);
       } else {
@@ -97,7 +138,7 @@ export function VerifyOtpPage() {
       <Card className="w-full max-w-md">
         <h1 className="text-2xl font-semibold text-text-primary">Verify OTP</h1>
         <p className="mt-2 text-sm text-text-secondary">
-          Enter the one-time code sent to the registered phone for {context.institutionName} student ID {context.studentId}.
+          Enter the one-time code sent to the registered phone for {context.institutionName}.
           The code is never shown in this portal.
         </p>
         <form className="mt-6 space-y-4" onSubmit={handleSubmit}>

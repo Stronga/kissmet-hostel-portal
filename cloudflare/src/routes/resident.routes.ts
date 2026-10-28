@@ -44,7 +44,8 @@ residentRoutes.post("/register/request-otp", async (c) => {
       phone: stringField(input, "phone")!,
       email: stringField(input, "email", false),
       institutionCode: stringField(input, "institutionCode")!,
-      studentId: stringField(input, "studentId")!
+      studentId: stringField(input, "studentId", false),
+      ghanaCardNumber: stringField(input, "ghanaCardNumber", false)
     });
     if ("status" in result && result.ok === false) {
       return c.json(result.body, result.status as import("hono/utils/http-status").ContentfulStatusCode);
@@ -56,7 +57,12 @@ residentRoutes.post("/register/request-otp", async (c) => {
 residentRoutes.post("/register/verify-otp", async (c) => {
   try {
     const input = await body(c);
-    return c.json(ok(await service(c).verifyRegistrationOtp(stringField(input, "institutionCode")!, stringField(input, "studentId")!, stringField(input, "otp")!, c.req.header("User-Agent"))));
+    return c.json(ok(await service(c).verifyRegistrationOtp({
+      institutionCode: stringField(input, "institutionCode")!,
+      studentId: stringField(input, "studentId", false),
+      ghanaCardNumber: stringField(input, "ghanaCardNumber", false),
+      otp: stringField(input, "otp")!
+    }, c.req.header("User-Agent") ?? undefined)));
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 

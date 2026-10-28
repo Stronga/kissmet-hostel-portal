@@ -7,7 +7,15 @@ import type { SmsProvider } from "./sms.service";
 import { OTP_DELIVERY_FAILURE_MESSAGE } from "./sms.service";
 import { normalizeGhanaPhoneForSms } from "./phone";
 import { validateUploadFile } from "../http/uploads";
-import { assertIdentityDocsForSubmit, isResidentKind, type ResidentKind } from "../types/resident-kind";
+import {
+  assertIdentityDocsForSubmit,
+  assertResidentIdentityFields,
+  isResidentKind,
+  normalizeGhanaCardNumber,
+  presentResidentRow,
+  type ResidentKind
+} from "../types/resident-kind";
+import { isOtherInstitutionSelection, normalizeStudentId } from "../auth/resident-identity";
 
 const OTP_MINUTES = 10;
 const SESSION_HOURS = 8;
@@ -45,10 +53,19 @@ export class ResidentService {
     );
   }
 
-  async requestRegistrationOtp(data: { firstName: string; middleName?: string | null; lastName: string; phone: string; email?: string | null; institutionCode: string; studentId: string }) {
+  async requestRegistrationOtp(data: {
+    firstName: string;
+    middleName?: string | null;
+    lastName: string;
+    phone: string;
+    email?: string | null;
+    institutionCode: string;
+    studentId?: string | null;
+    ghanaCardNumber?: string | null;
+  }) {
     const generic = { ok: true as const, message: "If registration can proceed, an OTP has been sent." };
 
-    // Validate phone before identity lookups so format errors do not leak student-ID availability.
+    // Validate phone before identity lookups so format errors do not leak identifier availability.
     const normalized = normalizeGhanaPhoneForSms(data.phone);
     if (!normalized.ok) {
       return {
@@ -58,20 +75,124 @@ export class ResidentService {
       };
     }
     const phone = normalized.e164Digits;
+    const other = isOtherInstitutionSelection(data.institutionCode);
+    const studentId = normalizeStudentId(data.studentId);
+    const ghanaCardNumber = normalizeGhanaCardNumber(data.ghanaCardNumber);
 
-    const institution = await this.repo.first<{ id: number; code: string }>("SELECT id, code FROM institutions WHERE lower(code) = lower(?) AND status = 'active'", data.institutionCode);
-    if (!institution) return generic;
-    const duplicate = await this.repo.first("SELECT id FROM residents WHERE institution_id = ? AND student_id = ?", institution.id, data.studentId);
-    if (duplicate) {
-      await this.repo.audit(null, null, "resident.registration.existing_identity", "resident", null);
+    if (other) {
+      if (studentId || !ghanaCardNumber) {
+        await this.repo.audit(null, null, "resident.registration.invalid_identity", "registration", null, {
+          authMethod: "other",
+          outcome: "rejected_input"
+        });
+        return generic;
+      }
+      try {
+        assertResidentIdentityFields({ institutionId: null, studentId: null, ghanaCardNumber });
+      } catch {
+        return generic;
+      }
+      const duplicate = await this.repo.first("SELECT id FROM residents WHERE ghana_card_number = ?", ghanaCardNumber);
+      if (duplicate) {
+        await this.repo.audit(null, null, "resident.registration.existing_identity", "resident", null, {
+          authMethod: "other",
+          outcome: "duplicate"
+        });
+        return generic;
+      }
+      // Rate key uses a hash-like suffix without embedding the raw Ghana Card number.
+      const gHash = await sha256Hex(ghanaCardNumber);
+      const key = `otp:phone_verification:other:${gHash.slice(0, 32)}`;
+      const recent = await this.repo.first<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM otp_codes WHERE rate_limit_key = ? AND purpose = 'phone_verification' AND requested_at >= ?",
+        key,
+        pastIso(15)
+      );
+      if ((recent?.count ?? 0) >= 3 || !checkRateLimit(key, 3, 15 * 60_000)) return generic;
+      const otp = randomOtp();
+      const payload = {
+        firstName: data.firstName,
+        middleName: data.middleName ?? null,
+        lastName: data.lastName,
+        phone,
+        email: data.email ?? null,
+        institutionId: null as number | null,
+        studentId: null as string | null,
+        ghanaCardNumber,
+        authMethod: "other" as const
+      };
+      await this.repo.run(
+        "INSERT INTO otp_codes (destination, purpose, code_hash, rate_limit_key, expires_at, registration_payload_json) VALUES (?, 'phone_verification', ?, ?, ?, ?)",
+        phone,
+        await hashPassword(otp),
+        key,
+        futureIso(OTP_MINUTES),
+        JSON.stringify(payload)
+      );
+      const delivery = await this.sms.sendOtp({ phone, code: otp, expiresInMinutes: OTP_MINUTES });
+      if (!delivery.ok) {
+        await this.repo.audit(null, null, "resident.registration.otp_delivery_failed", "registration", null, { authMethod: "other" });
+        return { ok: false as const, status: 503, body: { error: OTP_DELIVERY_FAILURE_MESSAGE } };
+      }
+      await this.repo.audit(null, null, "resident.registration.initiated", "registration", null, { authMethod: "other" });
       return generic;
     }
 
-    const key = `otp:phone_verification:${institution.code}:${data.studentId}`;
-    const recent = await this.repo.first<{ count: number }>("SELECT COUNT(*) AS count FROM otp_codes WHERE rate_limit_key = ? AND purpose = 'phone_verification' AND requested_at >= ?", key, pastIso(15));
+    // Listed institution path
+    if (!studentId || ghanaCardNumber) {
+      // Ghana Card must not be the listed login/registration identifier.
+      if (ghanaCardNumber && !studentId) {
+        await this.repo.audit(null, null, "resident.registration.invalid_identity", "registration", null, {
+          authMethod: "listed_institution",
+          outcome: "rejected_input"
+        });
+        return generic;
+      }
+    }
+    if (!studentId) return generic;
+
+    const institution = await this.repo.first<{ id: number; code: string }>(
+      "SELECT id, code FROM institutions WHERE lower(code) = lower(?) AND status = 'active'",
+      data.institutionCode
+    );
+    if (!institution) return generic;
+    try {
+      assertResidentIdentityFields({ institutionId: institution.id, studentId, ghanaCardNumber: null });
+    } catch {
+      return generic;
+    }
+    const duplicate = await this.repo.first(
+      "SELECT id FROM residents WHERE institution_id = ? AND student_id = ?",
+      institution.id,
+      studentId
+    );
+    if (duplicate) {
+      await this.repo.audit(null, null, "resident.registration.existing_identity", "resident", null, {
+        authMethod: "listed_institution",
+        outcome: "duplicate"
+      });
+      return generic;
+    }
+
+    const key = `otp:phone_verification:${institution.code}:${studentId}`;
+    const recent = await this.repo.first<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM otp_codes WHERE rate_limit_key = ? AND purpose = 'phone_verification' AND requested_at >= ?",
+      key,
+      pastIso(15)
+    );
     if ((recent?.count ?? 0) >= 3 || !checkRateLimit(key, 3, 15 * 60_000)) return generic;
     const otp = randomOtp();
-    const payload = { ...data, phone, institutionId: institution.id };
+    const payload = {
+      firstName: data.firstName,
+      middleName: data.middleName ?? null,
+      lastName: data.lastName,
+      phone,
+      email: data.email ?? null,
+      institutionId: institution.id,
+      studentId,
+      ghanaCardNumber: null as string | null,
+      authMethod: "listed_institution" as const
+    };
     await this.repo.run(
       "INSERT INTO otp_codes (destination, purpose, code_hash, rate_limit_key, expires_at, registration_payload_json) VALUES (?, 'phone_verification', ?, ?, ?, ?)",
       phone,
@@ -80,30 +201,62 @@ export class ResidentService {
       futureIso(OTP_MINUTES),
       JSON.stringify(payload)
     );
-    const delivery = await this.sms.sendOtp({
-      phone,
-      code: otp,
-      expiresInMinutes: OTP_MINUTES
-    });
+    const delivery = await this.sms.sendOtp({ phone, code: otp, expiresInMinutes: OTP_MINUTES });
     if (!delivery.ok) {
-      await this.repo.audit(null, null, "resident.registration.otp_delivery_failed", "registration", null);
-      return {
-        ok: false as const,
-        status: 503,
-        body: { error: OTP_DELIVERY_FAILURE_MESSAGE }
-      };
+      await this.repo.audit(null, null, "resident.registration.otp_delivery_failed", "registration", null, { authMethod: "listed_institution" });
+      return { ok: false as const, status: 503, body: { error: OTP_DELIVERY_FAILURE_MESSAGE } };
     }
-    await this.repo.audit(null, null, "resident.registration.initiated", "registration", null);
+    await this.repo.audit(null, null, "resident.registration.initiated", "registration", null, { authMethod: "listed_institution" });
     return generic;
   }
 
-  async verifyRegistrationOtp(institutionCode: string, studentId: string, otp: string, userAgent?: string) {
-    // Normalize institution code to DB value so request/verify keys match case-insensitively.
-    const institution = await this.repo.first<{ code: string }>("SELECT code FROM institutions WHERE lower(code) = lower(?) AND status = 'active'", institutionCode);
-    const keySuffix = `${institution?.code ?? institutionCode}:${studentId}`;
+  async verifyRegistrationOtp(
+    input: { institutionCode: string; studentId?: string | null; ghanaCardNumber?: string | null; otp: string } | string,
+    studentIdOrOtp?: string,
+    otpArg?: string,
+    userAgent?: string
+  ) {
+    // Back-compat: verifyRegistrationOtp(institutionCode, studentId, otp, userAgent?)
+    let institutionCode: string;
+    let studentId: string | null;
+    let ghanaCardNumber: string | null;
+    let otp: string;
+    let ua: string | undefined;
+    if (typeof input === "string") {
+      institutionCode = input;
+      studentId = studentIdOrOtp ?? null;
+      ghanaCardNumber = null;
+      otp = otpArg ?? "";
+      ua = userAgent;
+    } else {
+      institutionCode = input.institutionCode;
+      studentId = input.studentId ?? null;
+      ghanaCardNumber = input.ghanaCardNumber ?? null;
+      otp = input.otp;
+      ua = typeof studentIdOrOtp === "string" ? studentIdOrOtp : undefined;
+    }
+
+    const other = isOtherInstitutionSelection(institutionCode);
+    const normalizedStudentId = normalizeStudentId(studentId);
+    const normalizedGhana = normalizeGhanaCardNumber(ghanaCardNumber);
+
+    let key: string;
+    if (other) {
+      if (!normalizedGhana) throw new Error("Invalid or expired OTP");
+      const gHash = await sha256Hex(normalizedGhana);
+      key = `otp:phone_verification:other:${gHash.slice(0, 32)}`;
+    } else {
+      const institution = await this.repo.first<{ code: string }>(
+        "SELECT code FROM institutions WHERE lower(code) = lower(?) AND status = 'active'",
+        institutionCode
+      );
+      if (!normalizedStudentId) throw new Error("Invalid or expired OTP");
+      key = `otp:phone_verification:${institution?.code ?? institutionCode}:${normalizedStudentId}`;
+    }
+
     const record = await this.repo.first<{ id: number; code_hash: string; attempt_count: number; max_attempts: number; expires_at: string; registration_payload_json: string }>(
       "SELECT id, code_hash, attempt_count, max_attempts, expires_at, registration_payload_json FROM otp_codes WHERE purpose = 'phone_verification' AND status = 'pending' AND rate_limit_key = ? ORDER BY requested_at DESC LIMIT 1",
-      `otp:phone_verification:${keySuffix}`
+      key
     );
     if (!record || new Date(record.expires_at).getTime() <= Date.now()) throw new Error("Invalid or expired OTP");
     if (record.attempt_count >= record.max_attempts) throw new Error("OTP attempt limit reached");
@@ -111,37 +264,94 @@ export class ResidentService {
       await this.repo.run("UPDATE otp_codes SET attempt_count = attempt_count + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", record.id);
       throw new Error("Invalid or expired OTP");
     }
-    const payload = JSON.parse(record.registration_payload_json) as { firstName: string; middleName?: string | null; lastName: string; phone: string; email?: string | null; institutionId: number; studentId: string };
-    if (await this.repo.first("SELECT id FROM residents WHERE institution_id = ? AND student_id = ?", payload.institutionId, payload.studentId)) throw new Error("Registration already exists");
+
+    type RegPayload = {
+      firstName: string;
+      middleName?: string | null;
+      lastName: string;
+      phone: string;
+      email?: string | null;
+      institutionId: number | null;
+      studentId: string | null;
+      ghanaCardNumber?: string | null;
+      authMethod?: string;
+    };
+    const payload = JSON.parse(record.registration_payload_json) as RegPayload;
+    const kind = assertResidentIdentityFields({
+      institutionId: payload.institutionId,
+      studentId: payload.studentId,
+      ghanaCardNumber: payload.ghanaCardNumber ?? null
+    });
+
+    if (kind === "student") {
+      if (await this.repo.first("SELECT id FROM residents WHERE institution_id = ? AND student_id = ?", payload.institutionId, payload.studentId)) {
+        throw new Error("Registration already exists");
+      }
+    } else {
+      const gcn = normalizeGhanaCardNumber(payload.ghanaCardNumber);
+      if (!gcn) throw new Error("Invalid or expired OTP");
+      if (await this.repo.first("SELECT id FROM residents WHERE ghana_card_number = ?", gcn)) {
+        throw new Error("Registration already exists");
+      }
+    }
+
     const displayName = [payload.firstName, payload.middleName, payload.lastName].filter(Boolean).join(" ");
-    const user = await this.repo.run("INSERT INTO users (email, phone, display_name, user_type, status) VALUES (?, ?, ?, 'resident', 'active')", payload.email ?? null, payload.phone, displayName);
+    const user = await this.repo.run(
+      "INSERT INTO users (email, phone, display_name, user_type, status) VALUES (?, ?, ?, 'resident', 'active')",
+      payload.email ?? null,
+      payload.phone,
+      displayName
+    );
     const residentCode = await this.repo.allocateResidentCode();
+    const gcn = kind === "non_student" ? normalizeGhanaCardNumber(payload.ghanaCardNumber) : null;
     const resident = await this.repo.run(
-      "INSERT INTO residents (user_id, institution_id, resident_code, student_id, first_name, middle_name, last_name, status, phone_verified_at, resident_kind) VALUES (?, ?, ?, ?, ?, ?, ?, 'applicant', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'student')",
+      "INSERT INTO residents (user_id, institution_id, resident_code, student_id, first_name, middle_name, last_name, status, phone_verified_at, resident_kind, ghana_card_number) VALUES (?, ?, ?, ?, ?, ?, ?, 'applicant', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?, ?)",
       user.meta.last_row_id,
       payload.institutionId,
       residentCode,
       payload.studentId,
       payload.firstName,
       payload.middleName ?? null,
-      payload.lastName
+      payload.lastName,
+      kind,
+      gcn
     );
-    await this.repo.run("UPDATE otp_codes SET user_id = ?, resident_id = ?, status = 'used', used_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", user.meta.last_row_id, resident.meta.last_row_id, record.id);
+    await this.repo.run(
+      "UPDATE otp_codes SET user_id = ?, resident_id = ?, status = 'used', used_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+      user.meta.last_row_id,
+      resident.meta.last_row_id,
+      record.id
+    );
     const token = randomToken(32);
-    await this.repo.run("INSERT INTO sessions (user_id, session_token_hash, status, user_agent, expires_at) VALUES (?, ?, 'active', ?, ?)", user.meta.last_row_id, await sha256Hex(token), userAgent ?? null, futureIso(SESSION_HOURS * 60));
-    await this.repo.audit(Number(user.meta.last_row_id), null, "resident.registration.phone_verified", "resident", Number(resident.meta.last_row_id));
-    await this.repo.audit(Number(user.meta.last_row_id), null, "resident.registration.resident_created", "resident", Number(resident.meta.last_row_id), { residentCode });
+    await this.repo.run(
+      "INSERT INTO sessions (user_id, session_token_hash, status, user_agent, expires_at) VALUES (?, ?, 'active', ?, ?)",
+      user.meta.last_row_id,
+      await sha256Hex(token),
+      ua ?? null,
+      futureIso(SESSION_HOURS * 60)
+    );
+    await this.repo.audit(Number(user.meta.last_row_id), null, "resident.registration.phone_verified", "resident", Number(resident.meta.last_row_id), {
+      authMethod: kind === "student" ? "listed_institution" : "other"
+    });
+    await this.repo.audit(Number(user.meta.last_row_id), null, "resident.registration.resident_created", "resident", Number(resident.meta.last_row_id), {
+      residentCode,
+      authMethod: kind === "student" ? "listed_institution" : "other",
+      hasGhanaCardNumber: Boolean(gcn)
+    });
     return { token, resident: await this.me({ residentId: Number(resident.meta.last_row_id) } as AuthUser) };
   }
 
   async me(actor: AuthUser) {
     if (!actor.residentId) throw new Error("Resident session required");
-    return this.repo.first(`
+    const row = await this.repo.first<Record<string, unknown>>(`
       SELECT r.id, r.resident_code, r.first_name, r.middle_name, r.last_name, r.status, r.phone_verified_at,
-             r.resident_kind, u.phone, u.email, i.code AS institution_code, i.name AS institution_name, r.student_id
+             r.resident_kind, r.institution_id, r.ghana_card_number, u.phone, u.email,
+             i.code AS institution_code, i.name AS institution_name, r.student_id
       FROM residents r JOIN users u ON u.id = r.user_id LEFT JOIN institutions i ON i.id = r.institution_id
       WHERE r.id = ?
     `, actor.residentId);
+    if (!row) return null;
+    return presentResidentRow(row);
   }
 
   async updateMe(actor: AuthUser, data: { firstName?: string | null; middleName?: string | null; lastName?: string | null; email?: string | null }) {
@@ -272,6 +482,9 @@ export class ResidentService {
     if (!isResidentKind(kindRaw)) throw new Error("Incomplete application");
     const kind = kindRaw as ResidentKind;
     if (kind === "student" && (!profile.student_id || !profile.institution_code)) {
+      throw new Error("Incomplete application");
+    }
+    if (kind === "non_student" && !profile.has_ghana_card_number) {
       throw new Error("Incomplete application");
     }
     const docs = await this.repo.all(

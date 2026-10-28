@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { requestResidentLoginOtp } from "../../api/residentAuth";
+import { OTHER_INSTITUTION_CODE, requestResidentLoginOtp } from "../../api/residentAuth";
 import { Card } from "../../components/common/Card";
 import { ErrorState } from "../../components/common/ErrorState";
 import { FormField, SelectField } from "../../components/common/FormField";
@@ -21,6 +21,7 @@ export function LoginPage() {
   const location = useLocation();
   const [institutionCode, setInstitutionCode] = useState("");
   const [studentId, setStudentId] = useState("");
+  const [ghanaCardNumber, setGhanaCardNumber] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -32,13 +33,21 @@ export function LoginPage() {
   const submitLock = useRef(false);
   usePageTitle("Login");
 
+  const isOther = institutionCode === OTHER_INSTITUTION_CODE;
+
   useEffect(() => {
     if ((location.state as { sessionExpired?: boolean } | null)?.sessionExpired) {
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.pathname, location.state, navigate]);
 
-  const options = useMemo(() => institutions.map((item) => ({ value: item.code, label: item.name })), [institutions]);
+  const options = useMemo(
+    () => [
+      ...institutions.map((item) => ({ value: item.code, label: item.name })),
+      { value: OTHER_INSTITUTION_CODE, label: "Other" }
+    ],
+    [institutions]
+  );
 
   if (isAuthenticated) return <Navigate to="/home" replace />;
 
@@ -47,7 +56,8 @@ export function LoginPage() {
     if (submitLock.current) return;
     const nextErrors: Record<string, string> = {};
     if (!institutionCode) nextErrors.institutionCode = "Institution is required.";
-    if (!studentId.trim()) nextErrors.studentId = "Student ID is required.";
+    if (!isOther && !studentId.trim()) nextErrors.studentId = "Student ID / School Number is required.";
+    if (isOther && !ghanaCardNumber.trim()) nextErrors.ghanaCardNumber = "Ghana Card Number is required.";
     setErrors(nextErrors);
     setSubmitError(null);
     if (Object.keys(nextErrors).length) return;
@@ -56,8 +66,20 @@ export function LoginPage() {
     setIsSubmitting(true);
     try {
       const selected = institutions.find((item) => item.code === institutionCode);
-      await requestResidentLoginOtp({ institutionCode, studentId: studentId.trim() });
-      saveVerificationContext(loginContext({ institutionCode, studentId: studentId.trim() }, selected?.name ?? institutionCode));
+      const payload = isOther
+        ? { institutionCode: OTHER_INSTITUTION_CODE, ghanaCardNumber: ghanaCardNumber.trim() }
+        : { institutionCode, studentId: studentId.trim() };
+      const result = await requestResidentLoginOtp(payload);
+      const institutionName = isOther ? "Other" : (selected?.name ?? institutionCode);
+      saveVerificationContext(
+        loginContext(
+          { ...payload, challengeId: result.challengeId },
+          institutionName
+        ),
+        isOther ? ghanaCardNumber.trim() : undefined
+      );
+      // Clear Ghana Card from component state after hand-off.
+      setGhanaCardNumber("");
       navigate("/verify-otp", { replace: false });
     } catch (error) {
       setSubmitError(safeAuthError(error));
@@ -82,7 +104,9 @@ export function LoginPage() {
         />
         <Card className="w-full">
         <h1 className="text-2xl font-semibold text-text-primary">Resident Portal</h1>
-        <p className="mt-2 text-sm text-text-secondary">Sign in with your institution, student ID, and the OTP sent to your registered phone.</p>
+        <p className="mt-2 text-sm text-text-secondary">
+          Sign in with your institution (or Other), then verify the OTP sent to your registered phone.
+        </p>
         {sessionExpiredMessage ? (
           <div className="mt-4 rounded-token border border-warning/40 bg-amber-50 p-3 text-sm text-warning" role="status">
             {sessionExpiredMessage}
@@ -94,24 +118,42 @@ export function LoginPage() {
             label="Institution"
             name="institutionCode"
             value={institutionCode}
-            onChange={(event) => setInstitutionCode(event.currentTarget.value)}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setInstitutionCode(value);
+              if (value === OTHER_INSTITUTION_CODE) setStudentId("");
+              else setGhanaCardNumber("");
+            }}
             options={options}
-            disabled={isLoading || isSubmitting || Boolean(institutionError) || institutions.length === 0}
-            hint={isLoading ? "Loading institutions" : institutions.length === 0 && !institutionError ? "No institutions are available." : undefined}
+            disabled={isLoading || isSubmitting || Boolean(institutionError)}
+            hint={isLoading ? "Loading institutions" : undefined}
             error={errors.institutionCode}
           />
-          <FormField
-            label="Student ID"
-            name="studentId"
-            placeholder="Enter your student ID"
-            value={studentId}
-            onChange={(event) => setStudentId(event.currentTarget.value)}
-            disabled={isSubmitting}
-            autoComplete="username"
-            error={errors.studentId}
-          />
+          {isOther ? (
+            <FormField
+              label="Ghana Card Number"
+              name="ghanaCardNumber"
+              placeholder="Enter your Ghana Card Number"
+              value={ghanaCardNumber}
+              onChange={(event) => setGhanaCardNumber(event.currentTarget.value)}
+              disabled={isSubmitting}
+              autoComplete="off"
+              error={errors.ghanaCardNumber}
+            />
+          ) : (
+            <FormField
+              label="Student ID / School Number"
+              name="studentId"
+              placeholder="Enter your student ID"
+              value={studentId}
+              onChange={(event) => setStudentId(event.currentTarget.value)}
+              disabled={isSubmitting || !institutionCode}
+              autoComplete="username"
+              error={errors.studentId}
+            />
+          )}
           {submitError ? <ErrorState message={submitError} /> : null}
-          <Button className="w-full" type="submit" disabled={isSubmitting || isLoading || institutions.length === 0}>
+          <Button className="w-full" type="submit" disabled={isSubmitting || isLoading}>
             {isSubmitting ? "Sending OTP" : "Continue"}
           </Button>
         </form>

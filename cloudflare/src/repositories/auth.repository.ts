@@ -15,13 +15,29 @@ export interface StaffLoginRecord {
 export interface ResidentLoginRecord {
   resident_id: number;
   resident_code: string;
-  institution_code: string;
-  student_id: string;
+  institution_id: number | null;
+  institution_code: string | null;
+  student_id: string | null;
+  ghana_card_number: string | null;
   user_id: number;
   display_name: string;
   user_status: string;
   resident_status: string;
   phone: string | null;
+  resident_kind: string | null;
+}
+
+export interface PendingOtpRecord {
+  id: number;
+  code_hash: string;
+  attempt_count: number;
+  max_attempts: number;
+  expires_at: string;
+  status: string;
+  resident_id: number;
+  user_id: number;
+  destination: string;
+  rate_limit_key: string;
 }
 
 export interface SessionRecord {
@@ -39,6 +55,17 @@ export interface SessionRecord {
   role_code: string | null;
 }
 
+const RESIDENT_LOGIN_SELECT = `
+  SELECT r.id AS resident_id, r.resident_code, r.institution_id,
+    i.code AS institution_code, r.student_id, r.ghana_card_number,
+    u.id AS user_id, u.display_name,
+    u.status AS user_status, r.status AS resident_status, u.phone,
+    r.resident_kind
+  FROM residents r
+  JOIN users u ON u.id = r.user_id
+  LEFT JOIN institutions i ON i.id = r.institution_id
+`;
+
 export class AuthRepository {
   constructor(private readonly db: Env["DB"]) {}
 
@@ -54,17 +81,27 @@ export class AuthRepository {
     `).bind(identifier, identifier).first<StaffLoginRecord>();
   }
 
-  findResidentByStudentId(institutionCode: string, studentId: string) {
-    return this.db.prepare(`
-      SELECT r.id AS resident_id, r.resident_code, i.code AS institution_code, r.student_id,
-        u.id AS user_id, u.display_name,
-        u.status AS user_status, r.status AS resident_status, u.phone
-      FROM residents r
-      JOIN users u ON u.id = r.user_id
-      JOIN institutions i ON i.id = r.institution_id
-      WHERE lower(i.code) = lower(?) AND r.student_id = ?
-      LIMIT 1
-    `).bind(institutionCode, studentId).first<ResidentLoginRecord>();
+  async findResidentByStudentId(institutionCode: string, studentId: string): Promise<ResidentLoginRecord[]> {
+    const result = await this.db.prepare(`
+      ${RESIDENT_LOGIN_SELECT}
+      WHERE lower(i.code) = lower(?)
+        AND i.status = 'active'
+        AND r.student_id = ?
+        AND r.institution_id IS NOT NULL
+      LIMIT 2
+    `).bind(institutionCode, studentId).all<ResidentLoginRecord>();
+    return result.results ?? [];
+  }
+
+  async findResidentByGhanaCardNumber(ghanaCardNumber: string): Promise<ResidentLoginRecord[]> {
+    const result = await this.db.prepare(`
+      ${RESIDENT_LOGIN_SELECT}
+      WHERE r.ghana_card_number = ?
+        AND r.institution_id IS NULL
+        AND r.student_id IS NULL
+      LIMIT 2
+    `).bind(ghanaCardNumber).all<ResidentLoginRecord>();
+    return result.results ?? [];
   }
 
   async createSession(userId: number, tokenHash: string, expiresAt: string, userAgent?: string, ipHash?: string) {
@@ -105,11 +142,15 @@ export class AuthRepository {
     codeHash: string;
     rateLimitKey: string;
     expiresAt: string;
+    challengeTokenHash?: string | null;
   }) {
+    const payload = data.challengeTokenHash
+      ? JSON.stringify({ challengeTokenHash: data.challengeTokenHash })
+      : null;
     await this.db.prepare(`
-      INSERT INTO otp_codes (user_id, resident_id, destination, purpose, code_hash, rate_limit_key, expires_at)
-      VALUES (?, ?, ?, 'resident_login', ?, ?, ?)
-    `).bind(data.userId, data.residentId, data.destination, data.codeHash, data.rateLimitKey, data.expiresAt).run();
+      INSERT INTO otp_codes (user_id, resident_id, destination, purpose, code_hash, rate_limit_key, expires_at, registration_payload_json)
+      VALUES (?, ?, ?, 'resident_login', ?, ?, ?, ?)
+    `).bind(data.userId, data.residentId, data.destination, data.codeHash, data.rateLimitKey, data.expiresAt, payload).run();
   }
 
   countRecentOtps(rateLimitKey: string, since: string) {
@@ -119,13 +160,18 @@ export class AuthRepository {
     `).bind(rateLimitKey, since).first<{ count: number }>();
   }
 
+  countRecentOtpsForResident(residentId: number, since: string) {
+    return this.db.prepare(`
+      SELECT COUNT(*) AS count FROM otp_codes
+      WHERE resident_id = ? AND purpose = 'resident_login' AND requested_at >= ?
+    `).bind(residentId, since).first<{ count: number }>();
+  }
+
   /**
    * Durable (D1) staff-login failure counter keyed by hashed identifier.
    * Complements isolate-local Map limiting; still not a global edge distributed limiter.
    */
   countRecentStaffLoginFailures(identifierHash: string, since: string) {
-    // Use json_extract — D1 rejects long LIKE/GLOB patterns such as
-    // `%"identifierHash":"<sha256>"%` with "LIKE or GLOB pattern too complex".
     return this.db.prepare(`
       SELECT COUNT(*) AS count FROM audit_logs
       WHERE action = 'auth.staff.login_failed'
@@ -134,9 +180,11 @@ export class AuthRepository {
     `).bind(since, identifierHash).first<{ count: number }>();
   }
 
+  /** Legacy listed-institution pending OTP lookup (institution code + student id). */
   findPendingOtp(institutionCode: string, studentId: string) {
     return this.db.prepare(`
       SELECT o.id, o.code_hash, o.attempt_count, o.max_attempts, o.expires_at, o.status,
+        o.destination, o.rate_limit_key,
         r.id AS resident_id, u.id AS user_id
       FROM otp_codes o
       JOIN residents r ON r.id = o.resident_id
@@ -145,7 +193,36 @@ export class AuthRepository {
       WHERE lower(i.code) = lower(?) AND r.student_id = ? AND o.purpose = 'resident_login' AND o.status = 'pending'
       ORDER BY o.requested_at DESC
       LIMIT 1
-    `).bind(institutionCode, studentId).first<{ id: number; code_hash: string; attempt_count: number; max_attempts: number; expires_at: string; status: string; resident_id: number; user_id: number }>();
+    `).bind(institutionCode, studentId).first<PendingOtpRecord>();
+  }
+
+  findPendingOtpByChallengeTokenHash(challengeTokenHash: string) {
+    return this.db.prepare(`
+      SELECT o.id, o.code_hash, o.attempt_count, o.max_attempts, o.expires_at, o.status,
+        o.destination, o.rate_limit_key,
+        r.id AS resident_id, u.id AS user_id
+      FROM otp_codes o
+      JOIN residents r ON r.id = o.resident_id
+      JOIN users u ON u.id = o.user_id
+      WHERE o.purpose = 'resident_login' AND o.status = 'pending'
+        AND json_extract(o.registration_payload_json, '$.challengeTokenHash') = ?
+      ORDER BY o.requested_at DESC
+      LIMIT 1
+    `).bind(challengeTokenHash).first<PendingOtpRecord>();
+  }
+
+  findPendingOtpByResidentId(residentId: number) {
+    return this.db.prepare(`
+      SELECT o.id, o.code_hash, o.attempt_count, o.max_attempts, o.expires_at, o.status,
+        o.destination, o.rate_limit_key,
+        r.id AS resident_id, u.id AS user_id
+      FROM otp_codes o
+      JOIN residents r ON r.id = o.resident_id
+      JOIN users u ON u.id = o.user_id
+      WHERE r.id = ? AND o.purpose = 'resident_login' AND o.status = 'pending'
+      ORDER BY o.requested_at DESC
+      LIMIT 1
+    `).bind(residentId).first<PendingOtpRecord>();
   }
 
   async incrementOtpAttempt(id: number) {

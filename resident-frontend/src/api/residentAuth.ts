@@ -1,21 +1,28 @@
 import { apiRequest } from "./client";
 
+export const OTHER_INSTITUTION_CODE = "__other__";
+
 export interface OtpRequestResponse {
   ok: true;
   message: string;
+  challengeId?: string;
 }
 
 export interface LoginOtpInput {
   institutionCode: string;
-  studentId: string;
+  studentId?: string;
+  ghanaCardNumber?: string;
 }
 
-export interface RegistrationOtpInput extends LoginOtpInput {
+export interface RegistrationOtpInput {
   firstName: string;
   middleName?: string | null;
   lastName: string;
   phone: string;
   email?: string | null;
+  institutionCode: string;
+  studentId?: string;
+  ghanaCardNumber?: string;
 }
 
 export function requestResidentLoginOtp(input: LoginOtpInput) {
@@ -25,7 +32,7 @@ export function requestResidentLoginOtp(input: LoginOtpInput) {
   });
 }
 
-export function verifyResidentLoginOtp(input: LoginOtpInput & { otp: string }) {
+export function verifyResidentLoginOtp(input: LoginOtpInput & { otp: string; challengeId?: string }) {
   return apiRequest<{ token: string; expiresAt: string }>("/auth/resident/verify-otp", {
     method: "POST",
     body: JSON.stringify(input)

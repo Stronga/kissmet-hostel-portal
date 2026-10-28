@@ -1,6 +1,6 @@
 import { FormEvent, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { requestRegistrationOtp, type RegistrationOtpInput } from "../../api/residentAuth";
+import { OTHER_INSTITUTION_CODE, requestRegistrationOtp, type RegistrationOtpInput } from "../../api/residentAuth";
 import { Card } from "../../components/common/Card";
 import { ErrorState } from "../../components/common/ErrorState";
 import { FormField, SelectField } from "../../components/common/FormField";
@@ -13,13 +13,11 @@ import { safeAuthError } from "../../utils/errors";
 import hostelIllustration from "../../assets/hostel-illustration.png";
 import kissmetLogo from "../../assets/kissmet-logo.png";
 
-const OTHER_INSTITUTION = "__other__";
-
 export function RegisterPage() {
   const { isAuthenticated } = useAuth();
   const { institutions, isLoading, error: institutionError } = useInstitutions();
   const navigate = useNavigate();
-  const [form, setForm] = useState<RegistrationOtpInput & { ghanaCardNumber?: string }>({
+  const [form, setForm] = useState<RegistrationOtpInput>({
     firstName: "",
     middleName: "",
     lastName: "",
@@ -35,18 +33,18 @@ export function RegisterPage() {
   const submitLock = useRef(false);
   usePageTitle("Register");
 
-  const isOther = form.institutionCode === OTHER_INSTITUTION;
+  const isOther = form.institutionCode === OTHER_INSTITUTION_CODE;
   const options = useMemo(
     () => [
       ...institutions.map((item) => ({ value: item.code, label: item.name })),
-      { value: OTHER_INSTITUTION, label: "Other" }
+      { value: OTHER_INSTITUTION_CODE, label: "Other" }
     ],
     [institutions]
   );
 
   if (isAuthenticated) return <Navigate to="/home" replace />;
 
-  function updateField(name: keyof typeof form, value: string) {
+  function updateField(name: keyof RegistrationOtpInput, value: string) {
     setForm((current) => ({ ...current, [name]: value }));
   }
 
@@ -57,14 +55,14 @@ export function RegisterPage() {
     if (!form.phone.trim()) nextErrors.phone = "Phone number is required.";
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) nextErrors.email = "Enter a valid email address.";
     if (!form.institutionCode) nextErrors.institutionCode = "Institution is required.";
-    if (!isOther && !form.studentId.trim()) nextErrors.studentId = "Student ID / School Number is required.";
+    if (!isOther && !form.studentId?.trim()) nextErrors.studentId = "Student ID / School Number is required.";
     if (isOther && !form.ghanaCardNumber?.trim()) nextErrors.ghanaCardNumber = "Ghana Card Number is required.";
     return nextErrors;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitLock.current || isOther) return;
+    if (submitLock.current) return;
     const nextErrors = validate();
     setErrors(nextErrors);
     setSubmitError(null);
@@ -77,7 +75,9 @@ export function RegisterPage() {
       phone: form.phone.trim(),
       email: form.email?.trim() || null,
       institutionCode: form.institutionCode,
-      studentId: form.studentId.trim()
+      ...(isOther
+        ? { ghanaCardNumber: form.ghanaCardNumber?.trim() }
+        : { studentId: form.studentId?.trim() })
     };
 
     submitLock.current = true;
@@ -85,7 +85,9 @@ export function RegisterPage() {
     try {
       const selected = institutions.find((item) => item.code === payload.institutionCode);
       await requestRegistrationOtp(payload);
-      saveVerificationContext(registrationContext(payload, selected?.name ?? payload.institutionCode));
+      const institutionName = isOther ? "Other" : (selected?.name ?? payload.institutionCode);
+      saveVerificationContext(registrationContext(payload, institutionName), isOther ? payload.ghanaCardNumber : undefined);
+      setForm((current) => ({ ...current, ghanaCardNumber: "" }));
       navigate("/verify-otp", { replace: false });
     } catch (error) {
       setSubmitError(safeAuthError(error));
@@ -111,8 +113,9 @@ export function RegisterPage() {
         <Card className="w-full">
         <h1 className="text-2xl font-semibold text-text-primary">Resident Registration</h1>
         <p className="mt-2 text-sm text-text-secondary">
-          Choose your institution. Listed institutions verify phone with Student ID / School Number.
-          Other uses Ghana Card Number; self-service login for Other is not available yet.
+          Choose your institution. Listed institutions use Student ID / School Number.
+          Other uses Ghana Card Number. After phone verification you become an applicant —
+          documents and a Requested Term application are still required before any agreement.
         </p>
         {institutionError ? <div className="mt-4"><ErrorState message={institutionError} /></div> : null}
         <form className="mt-6 grid gap-4 sm:grid-cols-2" onSubmit={handleSubmit}>
@@ -131,8 +134,8 @@ export function RegisterPage() {
                 setForm((current) => ({
                   ...current,
                   institutionCode: value,
-                  studentId: value === OTHER_INSTITUTION ? "" : current.studentId,
-                  ghanaCardNumber: value === OTHER_INSTITUTION ? current.ghanaCardNumber : ""
+                  studentId: value === OTHER_INSTITUTION_CODE ? "" : current.studentId,
+                  ghanaCardNumber: value === OTHER_INSTITUTION_CODE ? current.ghanaCardNumber : ""
                 }));
               }}
               options={options}
@@ -151,13 +154,14 @@ export function RegisterPage() {
                 disabled={isSubmitting}
                 error={errors.ghanaCardNumber}
                 autoComplete="off"
+                hint="This is your identity number for login — not the Ghana Card document upload (required later)."
               />
             </div>
           ) : (
             <FormField
               label="Student ID / School Number"
               name="studentId"
-              value={form.studentId}
+              value={form.studentId ?? ""}
               onChange={(event) => updateField("studentId", event.currentTarget.value)}
               disabled={isSubmitting || !form.institutionCode}
               error={errors.studentId}
@@ -166,14 +170,19 @@ export function RegisterPage() {
           )}
           {isOther ? (
             <div className="sm:col-span-2 rounded-2xl border border-border bg-muted p-4 text-sm text-text-secondary" role="status">
-              Other self-registration and login are deferred until the phone / resident-code OTP auth migration.
-              Ask Kissmet admin staff to provision your resident record. Ghana Card Number is not a password and cannot be used to log in yet.
+              Other registration creates an applicant account after phone OTP. You will upload a Ghana Card document
+              (separate from the number) and submit a Requested Term application. Management approval is still required
+              before any booking/agreement.
             </div>
-          ) : null}
+          ) : (
+            <div className="sm:col-span-2 rounded-2xl border border-border bg-muted p-4 text-sm text-text-secondary" role="status">
+              Listed-institution applicants later upload both Ghana Card and Student Card documents before submitting an application.
+            </div>
+          )}
           {submitError ? <div className="sm:col-span-2"><ErrorState message={submitError} /></div> : null}
           <div className="sm:col-span-2">
-            <Button className="w-full" type="submit" disabled={isOther || isSubmitting || isLoading || institutions.length === 0}>
-              {isOther ? "Other registration unavailable" : isSubmitting ? "Sending OTP" : "Start Registration"}
+            <Button className="w-full" type="submit" disabled={isSubmitting || isLoading || institutions.length === 0}>
+              {isSubmitting ? "Sending OTP" : "Start Registration"}
             </Button>
           </div>
         </form>

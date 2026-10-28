@@ -166,6 +166,7 @@ class ResidentRepo {
         status: "applicant",
         phone_verified_at: "now",
         resident_kind: "non_student",
+        ghana_card_number: "GHA-123456789-0",
       },
     ],
     users: [

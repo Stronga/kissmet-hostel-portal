@@ -12,29 +12,46 @@ const env = { DB: {} } as Env;
 
 class FakeRepo {
   staff: Awaited<ReturnType<AuthRepository["findStaffByIdentifier"]>> = null;
-  resident: Awaited<ReturnType<AuthRepository["findResidentByStudentId"]>> = null;
+  /** Convenience single-resident setter used by legacy tests. */
+  set resident(value: import("../repositories/auth.repository").ResidentLoginRecord | null) {
+    this.residents = value ? [value] : [];
+  }
+  get resident() {
+    return this.residents[0] ?? null;
+  }
+  residents: import("../repositories/auth.repository").ResidentLoginRecord[] = [];
+  ghanaCardResidents: import("../repositories/auth.repository").ResidentLoginRecord[] = [];
   otp: Awaited<ReturnType<AuthRepository["findPendingOtp"]>> = null;
   recentOtpCount = 0;
+  lastCreateOtp: Record<string, unknown> | null = null;
   session: SessionRecord | null = null;
   revoked = false;
   audit: string[] = [];
+  auditMeta: Array<Record<string, unknown> | undefined> = [];
   sessions = 0;
   otpAttempts = 0;
   otpUsed = false;
   otpExpired = false;
 
   async findStaffByIdentifier() { return this.staff; }
-  async findResidentByStudentId() { return this.resident; }
+  async findResidentByStudentId() { return this.residents; }
+  async findResidentByGhanaCardNumber() { return this.ghanaCardResidents; }
   async createSession() { this.sessions += 1; return this.sessions; }
   async findSessionByTokenHash() { return this.session; }
   async revokeSession() { this.revoked = true; }
-  async createOtp() { return undefined; }
+  async createOtp(data: Record<string, unknown>) { this.lastCreateOtp = data; return undefined; }
   async countRecentOtps() { return { count: this.recentOtpCount }; }
+  async countRecentOtpsForResident() { return { count: this.recentOtpCount }; }
   async findPendingOtp() { return this.otp; }
+  async findPendingOtpByChallengeTokenHash() { return this.otp; }
+  async findPendingOtpByResidentId() { return this.otp; }
   async incrementOtpAttempt() { this.otpAttempts += 1; }
   async markOtpUsed() { this.otpUsed = true; }
   async markOtpExpired() { this.otpExpired = true; }
-  async writeAudit(_actorUserId: number | null, _actorStaffId: number | null, action: string) { this.audit.push(action); }
+  async writeAudit(_a: number | null, _b: number | null, action: string, _c?: string, _d?: number | null, metadata?: Record<string, unknown>) {
+    this.audit.push(action);
+    this.auditMeta.push(metadata);
+  }
   async countRecentStaffLoginFailures() { return { count: this.staffLoginFailures }; }
   staffLoginFailures = 0;
 }
@@ -138,7 +155,7 @@ describe("resident OTP authentication", () => {
   it("creates resident OTP requests through the SMS provider", async () => {
     const repo = new FakeRepo();
     const sms = new MockSmsProvider();
-    repo.resident = { resident_id: 1, resident_code: "KSM-RES-1", institution_code: "ug", student_id: "S1001", user_id: 1, display_name: "Resident", user_status: "active", resident_status: "applicant", phone: "+233000" };
+    repo.resident = { resident_id: 1, resident_code: "KSM-RES-1", institution_id: 1, institution_code: "ug", student_id: "S1001", ghana_card_number: null, user_id: 1, display_name: "Resident", user_status: "active", resident_status: "applicant", phone: "+233000", resident_kind: "student" };
 
     const result = await authService(repo, sms).requestResidentOtp("ug", "S1001");
     expect(result.ok).toBe(true);
@@ -149,7 +166,7 @@ describe("resident OTP authentication", () => {
 
   it("verifies correct OTP and creates a session", async () => {
     const repo = new FakeRepo();
-    repo.otp = { id: 1, code_hash: await hashPassword("123456"), attempt_count: 0, max_attempts: 5, expires_at: new Date(Date.now() + 60_000).toISOString(), status: "pending", resident_id: 1, user_id: 1 };
+    repo.otp = { id: 1, code_hash: await hashPassword("123456"), attempt_count: 0, max_attempts: 5, expires_at: new Date(Date.now() + 60_000).toISOString(), status: "pending", resident_id: 1, user_id: 1, destination: "233000", rate_limit_key: "otp:resident_login:resident:1" };
 
     const result = await authService(repo).verifyResidentOtp("ug", "S1001", "123456");
     expect(result.status).toBe(200);
@@ -159,7 +176,7 @@ describe("resident OTP authentication", () => {
 
   it("rejects incorrect OTP", async () => {
     const repo = new FakeRepo();
-    repo.otp = { id: 1, code_hash: await hashPassword("123456"), attempt_count: 0, max_attempts: 5, expires_at: new Date(Date.now() + 60_000).toISOString(), status: "pending", resident_id: 1, user_id: 1 };
+    repo.otp = { id: 1, code_hash: await hashPassword("123456"), attempt_count: 0, max_attempts: 5, expires_at: new Date(Date.now() + 60_000).toISOString(), status: "pending", resident_id: 1, user_id: 1, destination: "233000", rate_limit_key: "otp:resident_login:resident:1" };
     const result = await authService(repo).verifyResidentOtp("ug", "S1001", "000000");
     expect(result.status).toBe(401);
     expect(repo.otpAttempts).toBe(1);
@@ -167,7 +184,7 @@ describe("resident OTP authentication", () => {
 
   it("rejects expired OTP", async () => {
     const repo = new FakeRepo();
-    repo.otp = { id: 1, code_hash: await hashPassword("123456"), attempt_count: 0, max_attempts: 5, expires_at: new Date(Date.now() - 60_000).toISOString(), status: "pending", resident_id: 1, user_id: 1 };
+    repo.otp = { id: 1, code_hash: await hashPassword("123456"), attempt_count: 0, max_attempts: 5, expires_at: new Date(Date.now() - 60_000).toISOString(), status: "pending", resident_id: 1, user_id: 1, destination: "233000", rate_limit_key: "otp:resident_login:resident:1" };
     const result = await authService(repo).verifyResidentOtp("ug", "S1001", "123456");
     expect(result.status).toBe(401);
     expect(repo.otpExpired).toBe(true);
@@ -175,7 +192,7 @@ describe("resident OTP authentication", () => {
 
   it("enforces OTP attempt limit", async () => {
     const repo = new FakeRepo();
-    repo.otp = { id: 1, code_hash: await hashPassword("123456"), attempt_count: 5, max_attempts: 5, expires_at: new Date(Date.now() + 60_000).toISOString(), status: "pending", resident_id: 1, user_id: 1 };
+    repo.otp = { id: 1, code_hash: await hashPassword("123456"), attempt_count: 5, max_attempts: 5, expires_at: new Date(Date.now() + 60_000).toISOString(), status: "pending", resident_id: 1, user_id: 1, destination: "233000", rate_limit_key: "otp:resident_login:resident:1" };
     const result = await authService(repo).verifyResidentOtp("ug", "S1001", "123456");
     expect(result.status).toBe(429);
   });
@@ -183,7 +200,7 @@ describe("resident OTP authentication", () => {
   it("prevents OTP reuse", async () => {
     const repo = new FakeRepo();
     const service = authService(repo);
-    repo.otp = { id: 1, code_hash: await hashPassword("123456"), attempt_count: 0, max_attempts: 5, expires_at: new Date(Date.now() + 60_000).toISOString(), status: "pending", resident_id: 1, user_id: 1 };
+    repo.otp = { id: 1, code_hash: await hashPassword("123456"), attempt_count: 0, max_attempts: 5, expires_at: new Date(Date.now() + 60_000).toISOString(), status: "pending", resident_id: 1, user_id: 1, destination: "233000", rate_limit_key: "otp:resident_login:resident:1" };
     expect((await service.verifyResidentOtp("ug", "S1001", "123456")).status).toBe(200);
     repo.otp = null;
     expect((await service.verifyResidentOtp("ug", "S1001", "123456")).status).toBe(401);
@@ -192,7 +209,7 @@ describe("resident OTP authentication", () => {
   it("rate limits OTP requests without exposing account existence", async () => {
     const repo = new FakeRepo();
     repo.recentOtpCount = 3;
-    repo.resident = { resident_id: 1, resident_code: "KSM-RES-1", institution_code: "ug", student_id: "S1001", user_id: 1, display_name: "Resident", user_status: "active", resident_status: "applicant", phone: "+233000" };
+    repo.resident = { resident_id: 1, resident_code: "KSM-RES-1", institution_id: 1, institution_code: "ug", student_id: "S1001", ghana_card_number: null, user_id: 1, display_name: "Resident", user_status: "active", resident_status: "applicant", phone: "+233000", resident_kind: "student" };
     const result = await authService(repo).requestResidentOtp("ug", "S1001");
     expect(result.ok).toBe(true);
     expect(repo.audit).toContain("auth.resident.otp_rate_limited");
@@ -200,7 +217,7 @@ describe("resident OTP authentication", () => {
 
   it("surfaces delivery failure without authenticating", async () => {
     const repo = new FakeRepo();
-    repo.resident = { resident_id: 1, resident_code: "KSM-RES-1", institution_code: "ug", student_id: "S1001", user_id: 1, display_name: "Resident", user_status: "active", resident_status: "applicant", phone: "233241234567" };
+    repo.resident = { resident_id: 1, resident_code: "KSM-RES-1", institution_id: 1, institution_code: "ug", student_id: "S1001", ghana_card_number: null, user_id: 1, display_name: "Resident", user_status: "active", resident_status: "applicant", phone: "233241234567", resident_kind: "student" };
     const sms = {
       name: "failing",
       async sendOtp() {
