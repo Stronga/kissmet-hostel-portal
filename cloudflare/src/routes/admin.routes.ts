@@ -191,6 +191,15 @@ routes.patch("/rooms/:id/status", requirePermission("admin:write"), async (c) =>
   try { const input = await body(c); return c.json(ok(await service(c).updateStatus(c.get("authUser"), "rooms", Number(c.req.param("id")), stringField(input, "status")!))); }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
+routes.patch("/rooms/:id/capacity", requirePermission("admin:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).changeRoomCapacity(c.get("authUser"), Number(c.req.param("id")), {
+      capacity: intField(input, "capacity")!,
+      reason: stringField(input, "reason")!
+    })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
 
 routes.get("/rooms/:roomId/beds", requirePermission("admin:read"), async (c) => {
   const p = pagination(new URL(c.req.url));

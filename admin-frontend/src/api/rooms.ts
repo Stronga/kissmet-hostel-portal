@@ -21,6 +21,24 @@ export async function updateRoomStatus(id: number, status: string) {
   return response.data;
 }
 
+export type RoomCapacityChangeResult = {
+  room: Room;
+  configured_capacity: number;
+  active_occupancy: number;
+  usable_bed_count: number;
+  available_bed_count: number;
+  retired_bed_count: number;
+  non_archived_bed_count: number;
+  setup_needed: number;
+  beds_retired: number[];
+  beds_reactivated: number[];
+};
+
+export async function updateRoomCapacity(id: number, input: { capacity: number; reason: string }) {
+  const response = await apiRequest<DataEnvelope<RoomCapacityChangeResult>>(`/admin/rooms/${id}/capacity`, { method: "PATCH", body: JSON.stringify(input) });
+  return response.data;
+}
+
 export async function listRoomBeds(roomId: number) {
   const response = await apiRequest<ListEnvelope<Bed>>(`/admin/rooms/${roomId}/beds?limit=100&offset=0`);
   return response.data;

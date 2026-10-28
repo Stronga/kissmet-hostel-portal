@@ -14,21 +14,27 @@ export function RoomFormDialog({ open, saving, error, onClose, onCreate }: { ope
     event.preventDefault();
     setLocalError(null);
     const parsedCapacity = Number.parseInt(capacity, 10);
-    if (!roomCode.trim() || !Number.isInteger(parsedCapacity) || parsedCapacity < 1) {
-      setLocalError("Room code and a positive configured capacity are required.");
+    if (!roomCode.trim() || ![1, 2, 4].includes(parsedCapacity)) {
+      setLocalError("Room code and a capacity of 1, 2, or 4 persons are required.");
       return;
     }
     onCreate({ roomCode: roomCode.trim(), roomName: roomName.trim() || null, floor: floor.trim() || null, capacity: parsedCapacity, genderPolicy, status });
   }
 
   return (
-    <ConfirmDialog open={open} title="Create Room" description="Configured capacity sets a maximum. Bed records are created separately." onClose={onClose}>
+    <ConfirmDialog open={open} title="Create Room" description="Configured capacity sets the occupancy band (1 / 2 / 4). Bed records are created separately." onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm font-medium">Room code<input aria-label="Room code" value={roomCode} onChange={(event) => setRoomCode(event.target.value)} className="mt-1 w-full rounded-md border border-border px-3 py-2" /></label>
           <label className="text-sm font-medium">Display name<input aria-label="Display name" value={roomName} onChange={(event) => setRoomName(event.target.value)} className="mt-1 w-full rounded-md border border-border px-3 py-2" /></label>
           <label className="text-sm font-medium">Floor<input aria-label="Floor" value={floor} onChange={(event) => setFloor(event.target.value)} className="mt-1 w-full rounded-md border border-border px-3 py-2" /></label>
-          <label className="text-sm font-medium">Configured capacity<input aria-label="Configured capacity" value={capacity} onChange={(event) => setCapacity(event.target.value)} className="mt-1 w-full rounded-md border border-border px-3 py-2" /></label>
+          <label className="text-sm font-medium">Configured capacity
+            <select aria-label="Configured capacity" value={capacity} onChange={(event) => setCapacity(event.target.value)} className="mt-1 w-full rounded-md border border-border px-3 py-2">
+              <option value="1">1 Person</option>
+              <option value="2">2 Persons</option>
+              <option value="4">4 Persons</option>
+            </select>
+          </label>
           <label className="text-sm font-medium">Gender policy<select aria-label="Gender policy" value={genderPolicy} onChange={(event) => setGenderPolicy(event.target.value)} className="mt-1 w-full rounded-md border border-border px-3 py-2"><option value="any">Any</option><option value="female">Female</option><option value="male">Male</option></select></label>
           <label className="text-sm font-medium">Status<select aria-label="Room status" value={status} onChange={(event) => setStatus(event.target.value)} className="mt-1 w-full rounded-md border border-border px-3 py-2"><option value="available">Available</option><option value="maintenance">Maintenance</option><option value="inactive">Inactive</option><option value="archived">Archived</option></select></label>
         </div>

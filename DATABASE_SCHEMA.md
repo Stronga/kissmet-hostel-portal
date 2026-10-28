@@ -128,10 +128,14 @@ Stores normalized room inventory.
 - A room can contain multiple beds through `beds.room_id`.
 - Important fields: `room_code`, `capacity`, `gender_policy`, `status`.
 - Individual `beds` rows are the authoritative source of actual occupancy and bed inventory.
-- `rooms.capacity` is the configured maximum capacity. Application services must prevent creating active beds beyond this configured capacity.
+- `rooms.capacity` is the configured occupancy band / maximum capacity. For the flexible commercial model (Stage 2L-E), supported values are **1, 2, or 4** only (service-enforced).
+- Capacity reconfiguration uses `PATCH /admin/rooms/:id/capacity` and never deletes historical beds or allocations.
+- Active occupancy for reduction safety is counted from **active allocations**, not bed row counts.
+- Application services must prevent creating non-archived beds beyond configured capacity.
 - Gender policy values: `female`, `male`, `any`.
 - Status values: `available`, `maintenance`, `inactive`, `archived`.
 - Unique constraints: `room_code`.
+- No Stage 2L-E migration was required; existing columns and statuses are sufficient.
 
 ### `beds`
 
@@ -139,6 +143,9 @@ Stores normalized bed inventory.
 
 - Relationships: `beds.room_id -> rooms.id`.
 - Status values: `available`, `maintenance`, `inactive`, `archived`.
+- **Retirement from current configured capacity** uses `archived` (not delete). This matches the createBed invariant that non-archived beds must be `<= rooms.capacity`.
+- `maintenance` means temporarily out of service but still occupies a capacity slot while non-archived; unallocated maintenance beds may be archived during a safe capacity reduction.
+- `available` beds are the usable inventory for new allocations.
 - Unique constraints: `bed_code`, `(room_id, label)`.
 
 ### `room_rates`

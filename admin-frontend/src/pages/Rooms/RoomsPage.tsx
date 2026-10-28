@@ -1,6 +1,6 @@
 import { Plus, Search } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { createBed, createRoom, createRoomRate, getRoom, listAcademicSessions, listAllocations, listRoomBeds, listRoomRates, listRooms, occupancyReport, updateBedStatus, updateRoomRateStatus, updateRoomStatus } from "../../api/rooms";
+import { createBed, createRoom, createRoomRate, getRoom, listAcademicSessions, listAllocations, listRoomBeds, listRoomRates, listRooms, occupancyReport, updateBedStatus, updateRoomCapacity, updateRoomRateStatus, updateRoomStatus } from "../../api/rooms";
 import { getResident } from "../../api/applications";
 import { useAuth } from "../../auth/AuthContext";
 import { hasPermission } from "../../auth/permissions";
@@ -16,6 +16,7 @@ import { BedFormDialog } from "./BedFormDialog";
 import { RoomDetail } from "./RoomDetail";
 import { RoomFormDialog } from "./RoomFormDialog";
 import { RoomRateDialog } from "./RoomRateDialog";
+import { CapacityChangeDialog } from "./CapacityChangeDialog";
 import { RoomsTable } from "./RoomsTable";
 
 const statuses = ["all", "available", "maintenance", "inactive", "archived"];
@@ -43,6 +44,7 @@ export function RoomsPage() {
   const [roomFormOpen, setRoomFormOpen] = useState(false);
   const [bedFormOpen, setBedFormOpen] = useState(false);
   const [rateFormOpen, setRateFormOpen] = useState(false);
+  const [capacityFormOpen, setCapacityFormOpen] = useState(false);
   const [confirm, setConfirm] = useState<{ title: string; description?: string; action: () => Promise<void> } | null>(null);
 
   async function load() {
@@ -125,10 +127,11 @@ export function RoomsPage() {
       </section>
       {error ? <ErrorState message={error} /> : null}
       {loading ? <LoadingState label="Loading rooms..." /> : visibleRooms.length ? <RoomsTable rooms={visibleRooms} occupancyByCode={occupancyByCode} rates={rates} onView={(room) => void openRoom(room)} /> : <EmptyState title="No matching rooms" message="No rooms match the current filters." />}
-      <ConfirmDialog open={Boolean(selected)} title="Room Management" onClose={() => setSelected(null)}>{selected ? <RoomDetail room={selected} occupancy={selectedOccupancy} beds={beds} allocations={allocations} residentsById={residentsById} rates={selectedRates} sessions={sessions} canWrite={canWrite} onAddBed={() => setBedFormOpen(true)} onBedStatus={(bed, status) => setConfirm({ title: status === "maintenance" ? `Take ${bed.bed_code} out of service?` : `Return ${bed.bed_code} to service?`, description: status === "maintenance" ? "This bed will no longer be available for new allocations." : undefined, action: () => withSave(async () => { await updateBedStatus(bed.id, status); await refreshSelected(); setConfirm(null); }) })} onAddRate={() => setRateFormOpen(true)} onRateStatus={(rate, status) => setConfirm({ title: `Mark ${rate.rate_code} ${formatStatus(status)}?`, action: () => withSave(async () => { await updateRoomRateStatus(rate.id, status); await refreshSelected(); setConfirm(null); }) })} onRoomStatus={(status) => setConfirm({ title: status === "maintenance" ? "Take room out of service?" : "Return room to service?", description: status === "maintenance" ? "This room will no longer be available for new allocations." : undefined, action: () => withSave(async () => { await updateRoomStatus(selected.id, status); await refreshSelected(); setConfirm(null); }) })} /> : null}</ConfirmDialog>
+      <ConfirmDialog open={Boolean(selected)} title="Room Management" onClose={() => setSelected(null)}>{selected ? <RoomDetail room={selected} occupancy={selectedOccupancy} beds={beds} allocations={allocations} residentsById={residentsById} rates={selectedRates} sessions={sessions} canWrite={canWrite} onAddBed={() => setBedFormOpen(true)} onBedStatus={(bed, status) => setConfirm({ title: status === "maintenance" ? `Take ${bed.bed_code} out of service?` : `Return ${bed.bed_code} to service?`, description: status === "maintenance" ? "This bed will no longer be available for new allocations." : undefined, action: () => withSave(async () => { await updateBedStatus(bed.id, status); await refreshSelected(); setConfirm(null); }) })} onAddRate={() => setRateFormOpen(true)} onRateStatus={(rate, status) => setConfirm({ title: `Mark ${rate.rate_code} ${formatStatus(status)}?`, action: () => withSave(async () => { await updateRoomRateStatus(rate.id, status); await refreshSelected(); setConfirm(null); }) })} onRoomStatus={(status) => setConfirm({ title: status === "maintenance" ? "Take room out of service?" : "Return room to service?", description: status === "maintenance" ? "This room will no longer be available for new allocations." : undefined, action: () => withSave(async () => { await updateRoomStatus(selected.id, status); await refreshSelected(); setConfirm(null); }) })} onChangeCapacity={() => { setFormError(null); setCapacityFormOpen(true); }} /> : null}</ConfirmDialog>
       <RoomFormDialog open={roomFormOpen} saving={saving} error={formError} onClose={() => setRoomFormOpen(false)} onCreate={(input) => void withSave(async () => { await createRoom(input); setRoomFormOpen(false); await load(); })} />
       <BedFormDialog open={bedFormOpen} saving={saving} error={formError} disabledReason={bedCapacityReason} onClose={() => setBedFormOpen(false)} onCreate={(input) => selected ? void withSave(async () => { await createBed({ roomId: selected.id, ...input }); setBedFormOpen(false); await refreshSelected(); }) : undefined} />
       <RoomRateDialog open={rateFormOpen} sessions={sessions} saving={saving} error={formError} onClose={() => setRateFormOpen(false)} onCreate={(input) => selected ? void withSave(async () => { await createRoomRate({ roomId: selected.id, ...input }); setRateFormOpen(false); await refreshSelected(); }) : undefined} />
+      {selected ? <CapacityChangeDialog open={capacityFormOpen} currentCapacity={selected.capacity} occupied={Number(selectedOccupancy?.occupied_bed_count ?? allocations.filter((allocation) => allocation.status === "active").length)} usableBeds={Number(selectedOccupancy?.active_bed_count ?? beds.filter((bed) => bed.status === "available").length)} nonArchivedBeds={beds.filter((bed) => bed.status !== "archived").length} saving={saving} error={formError} onClose={() => setCapacityFormOpen(false)} onSubmit={(input) => void withSave(async () => { await updateRoomCapacity(selected.id, input); setCapacityFormOpen(false); await refreshSelected(); })} /> : null}
       <ConfirmDialog open={Boolean(confirm)} title={confirm?.title ?? "Confirm change"} description={confirm?.description} onClose={() => setConfirm(null)}>{formError ? <p role="alert" className="mb-3 text-sm font-medium text-danger">{formError}</p> : null}<div className="flex justify-end gap-2"><button type="button" onClick={() => setConfirm(null)} className="rounded-md border border-border px-3 py-2 text-sm font-semibold">Cancel</button><button type="button" disabled={saving} onClick={() => void confirm?.action()} className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Confirm</button></div></ConfirmDialog>
     </div>
   );

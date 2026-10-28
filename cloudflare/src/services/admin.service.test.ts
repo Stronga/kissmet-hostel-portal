@@ -60,6 +60,13 @@ class FakeRepo {
     if (sql.includes("FROM staff s") && sql.includes("JOIN users u") && sql.includes("WHERE s.id")) {
       return this.joinedStaff(Number(binds[0])) as T | null;
     }
+    if (sql.includes("SELECT id, room_id, status FROM beds WHERE id")) {
+      return (this.rows.beds.find((b) => b.id === binds[0]) ?? null) as T | null;
+    }
+    if (sql.includes("capacity") && sql.includes("active_beds")) {
+      const room = this.rows.rooms.find((r) => r.id === binds[0]) ?? this.rows.rooms[0];
+      return { capacity: Number(room?.capacity ?? 2), active_beds: this.rows.beds.filter((b) => b.room_id === (room?.id ?? 1) && b.status !== "archived").length } as T;
+    }
     if (sql.includes("capacity")) return { capacity: 2, active_beds: this.rows.beds.filter((b) => b.status !== "archived").length } as T;
     if (sql.includes("FROM allocations WHERE bed_id")) return (this.rows.allocations.find((a) => a.bed_id === binds[0] && a.status === "active") ?? null) as T | null;
     if (sql.includes("FROM allocations a") && sql.includes("JOIN beds b")) {
@@ -166,8 +173,23 @@ class FakeRepo {
       return { meta: { last_row_id: 1 } };
     }
     if (sql.startsWith("UPDATE beds SET status")) {
-      const bed = this.rows.beds.find((item) => item.id === binds[1]);
-      if (bed) bed.status = binds[0];
+      const bedId = binds[binds.length - 1];
+      const bed = this.rows.beds.find((item) => item.id === bedId);
+      if (bed) {
+        if (sql.includes("status = 'archived'")) {
+          bed.status = "archived";
+          bed.archived_at = bed.archived_at ?? "now";
+        } else {
+          bed.status = binds[0];
+          if (sql.includes("archived_at = NULL")) bed.archived_at = null;
+          if (String(binds[0]) === "archived") bed.archived_at = bed.archived_at ?? "now";
+        }
+      }
+      return { meta: { last_row_id: 0 } };
+    }
+    if (sql.startsWith("UPDATE rooms SET capacity")) {
+      const room = this.rows.rooms.find((item) => item.id === binds[1]);
+      if (room) room.capacity = binds[0];
       return { meta: { last_row_id: 0 } };
     }
     if (sql.startsWith("UPDATE rooms SET status")) {

@@ -345,6 +345,7 @@ The Rooms & Beds interface uses the existing backend APIs:
 - `POST /admin/rooms`
 - `GET /admin/rooms/:id`
 - `PATCH /admin/rooms/:id/status`
+- `PATCH /admin/rooms/:id/capacity` (Stage 2L-E; local until separately authorized for deployment)
 - `GET /admin/rooms/:id/beds`
 - `POST /admin/beds`
 - `PATCH /admin/beds/:id/status`
@@ -366,6 +367,7 @@ Implemented functionality:
 - room detail view with Overview, Beds, and Rates tabs
 - room creation using backend validation
 - room status changes with confirmation
+- Change Capacity dialog (1 / 2 / 4 Person bands) with required reason, consequence copy, and setup-needed messaging
 - bed creation by room
 - bed status changes for unoccupied beds
 - occupied beds show protected messaging and do not offer out-of-service actions when active allocation data is known
@@ -375,15 +377,19 @@ Implemented functionality:
 
 Capacity and occupancy rules:
 
-- `rooms.capacity` is shown as the configured maximum capacity only.
+- `rooms.capacity` is shown as the configured occupancy band (1 / 2 / 4 Persons).
 - Actual room inventory comes from bed records.
+- Metrics shown: Configured capacity, Usable beds (`available`), Occupied (active allocations), Available, Setup needed (`capacity - non-archived beds`).
 - Occupancy and available-bed counts come from `GET /admin/dashboard/occupancy` where possible.
 - The frontend does not reconstruct occupancy from booking status.
 - Bed creation is locally blocked when active bed inventory has already reached configured room capacity, and the backend capacity guard remains authoritative.
-- Room creation does not implicitly create beds.
+- Room creation does not implicitly create beds and only offers capacities 1, 2, or 4.
+- Capacity changes require a management reason; reductions that would leave more active residents than the target capacity are blocked by the backend.
+- Capacity changes do not reprice bookings or mutate rate cards.
 - Taking a bed or room out of service stores the backend `maintenance` status.
 - A bed or room with an active allocation cannot be moved to `maintenance`, `inactive`, or `archived` by the backend status endpoint.
 - Failed room/bed status changes do not alter allocation history.
+- This Stage 2L-E UI remains local until separately authorized for deployment; it is not production-live by default.
 
 Room-rate and pricing rules:
 
@@ -397,13 +403,13 @@ Room-rate and pricing rules:
 RBAC behavior:
 
 - Users with `admin:read` can view the Rooms & Beds page.
-- Users with `admin:write` can create rooms, create beds, create room rates, and perform status changes.
+- Users with `admin:write` can create rooms, create beds, create room rates, change capacity, and perform status changes.
 - Roles without `admin:write`, such as `maintenance` in the current permission map, do not see write actions.
 - Backend authorization remains authoritative.
 
 Known backend/API limitations:
 
-- There are no general room, bed, or room-rate update endpoints yet; only create and status-change operations are exposed.
+- There are no general room, bed, or room-rate update endpoints yet; create, status-change, and explicit capacity-change operations are exposed.
 - `GET /admin/rooms` and `GET /admin/room-rates` do not provide server-side search/status/gender filters yet. The UI applies those filters to the bounded current result page.
 - `GET /admin/rooms/:id/beds` returns bed rows without joined resident/allocation details. The UI combines the existing allocations endpoint with resident lookups for active bed occupancy display.
 

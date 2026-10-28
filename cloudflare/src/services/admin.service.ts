@@ -98,21 +98,55 @@ export class AdminService {
     if (table === "academic_sessions" && status === "active") {
       await this.repo.run("UPDATE academic_sessions SET status = 'closed', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE status = 'active' AND id <> ?", id);
     }
-    await this.repo.run(`UPDATE ${table} SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`, status, id);
+    if (table === "beds") {
+      if (status === "archived") {
+        await this.repo.run(
+          `UPDATE beds SET status = ?, archived_at = COALESCE(archived_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`,
+          status,
+          id
+        );
+      } else {
+        await this.repo.run(
+          `UPDATE beds SET status = ?, archived_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`,
+          status,
+          id
+        );
+      }
+    } else {
+      await this.repo.run(`UPDATE ${table} SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`, status, id);
+    }
     await this.repo.audit(actor.id, actor.staffId, `admin.${table}.status`, table, id, { status });
     return this.get(table, id);
   }
 
   private async validateOperationalStatusChange(table: string, id: number, status: string) {
-    if (!unavailableInventoryStatuses.has(status)) return;
-
     if (table === "beds") {
-      const activeAllocation = await this.repo.first(
-        "SELECT id FROM allocations WHERE bed_id = ? AND status = 'active' LIMIT 1",
-        id
-      );
-      if (activeAllocation) throw new Error(occupiedBedStatusMessage);
+      const bed = await this.repo.first<{ id: number; room_id: number; status: string }>("SELECT id, room_id, status FROM beds WHERE id = ?", id);
+      if (!bed) throw new Error("Bed not found");
+
+      if (unavailableInventoryStatuses.has(status)) {
+        const activeAllocation = await this.repo.first(
+          "SELECT id FROM allocations WHERE bed_id = ? AND status = 'active' LIMIT 1",
+          id
+        );
+        if (activeAllocation) throw new Error(occupiedBedStatusMessage);
+      }
+
+      // Reactivating a bed into the capacity pool must respect rooms.capacity
+      // (non-archived beds <= capacity). Archived is the retirement status used
+      // by flexible capacity reconfiguration.
+      if (bed.status === "archived" && status !== "archived") {
+        const room = await this.repo.first<{ capacity: number; active_beds: number }>(
+          "SELECT capacity, (SELECT COUNT(*) FROM beds WHERE room_id = rooms.id AND status <> 'archived') AS active_beds FROM rooms WHERE id = ?",
+          bed.room_id
+        );
+        if (!room) throw new Error("Room not found");
+        if (room.active_beds >= room.capacity) throw new Error("Room capacity exceeded");
+      }
+      return;
     }
+
+    if (!unavailableInventoryStatuses.has(status)) return;
 
     if (table === "rooms") {
       const activeAllocation = await this.repo.first(`
@@ -133,6 +167,9 @@ export class AdminService {
   }
 
   async createRoom(actor: AuthUser, data: { roomCode: string; roomName?: string | null; floor?: string | null; capacity: number; genderPolicy?: string; status?: string }) {
+    if (!isRateCardOccupancyCapacity(data.capacity)) {
+      throw new Error("Invalid room capacity: only 1, 2, or 4 are supported");
+    }
     const res = await this.repo.run("INSERT INTO rooms (room_code, room_name, floor, capacity, gender_policy, status) VALUES (?, ?, ?, ?, ?, ?)", data.roomCode, data.roomName ?? null, data.floor ?? null, data.capacity, data.genderPolicy ?? "any", data.status ?? "available");
     await this.repo.audit(actor.id, actor.staffId, "admin.room.create", "room", res.meta.last_row_id);
     return this.room(Number(res.meta.last_row_id));
@@ -155,6 +192,163 @@ export class AdminService {
     const res = await this.repo.run("INSERT INTO beds (room_id, bed_code, label, status) VALUES (?, ?, ?, ?)", data.roomId, data.bedCode, data.label, data.status ?? "available");
     await this.repo.audit(actor.id, actor.staffId, "admin.bed.create", "bed", res.meta.last_row_id);
     return this.get("beds", Number(res.meta.last_row_id));
+  }
+
+  /**
+   * Stage 2L-E: reconfigure rooms.capacity between supported bands 1|2|4.
+   * Occupancy authority = active allocations (not bed row counts).
+   * Retirement status = archived (matches createBed non-archived <= capacity).
+   * Maintenance beds still occupy a capacity slot while non-archived; they may
+   * be retired only when unallocated and excess. Never deletes beds/allocations.
+   * Does not mutate rate_cards or bookings.total_amount_minor.
+   */
+  async changeRoomCapacity(actor: AuthUser, roomId: number, data: { capacity: number; reason: string }) {
+    if (!isRateCardOccupancyCapacity(data.capacity)) {
+      throw new Error("Invalid room capacity: only 1, 2, or 4 are supported");
+    }
+    const reason = data.reason.trim();
+    if (!reason) throw new Error("A management reason is required to change room capacity");
+
+    const room = await this.repo.first<{ id: number; room_code: string; capacity: number; status: string }>(
+      "SELECT id, room_code, capacity, status FROM rooms WHERE id = ?",
+      roomId
+    );
+    if (!room) throw new Error("Room not found");
+
+    const oldCapacity = Number(room.capacity);
+    const newCapacity = data.capacity;
+    if (oldCapacity === newCapacity) {
+      throw new Error(`Room capacity is already set to ${newCapacity}`);
+    }
+
+    const occupancyRow = await this.repo.first<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM allocations a
+       JOIN beds b ON b.id = a.bed_id
+       WHERE b.room_id = ? AND a.status = 'active'`,
+      roomId
+    );
+    const activeOccupancy = Number(occupancyRow?.count ?? 0);
+    if (activeOccupancy > newCapacity) {
+      throw new Error(
+        `Capacity cannot be reduced to ${newCapacity} because this room currently has ${activeOccupancy} active residents`
+      );
+    }
+
+    const bedsResult = await this.repo.all<{ id: number; status: string; label: string; bed_code: string }>(
+      "SELECT id, status, label, bed_code FROM beds WHERE room_id = ? ORDER BY label ASC, id ASC",
+      roomId
+    );
+    const beds = (bedsResult.results ?? []) as Array<{ id: number; status: string; label: string; bed_code: string }>;
+
+    const allocatedBedIds = new Set<number>();
+    const allocatedRows = await this.repo.all<{ bed_id: number }>(
+      `SELECT a.bed_id AS bed_id
+       FROM allocations a
+       JOIN beds b ON b.id = a.bed_id
+       WHERE b.room_id = ? AND a.status = 'active'`,
+      roomId
+    );
+    for (const row of allocatedRows.results ?? []) {
+      allocatedBedIds.add(Number(row.bed_id));
+    }
+
+    const retiredBedIds: number[] = [];
+    if (newCapacity < oldCapacity) {
+      const nonArchived = beds.filter((bed) => bed.status !== "archived");
+      let excess = nonArchived.length - newCapacity;
+      if (excess > 0) {
+        // Retire unallocated excess only. Prefer available, then maintenance, then inactive.
+        const retirementRank = (status: string) => {
+          if (status === "available") return 0;
+          if (status === "maintenance") return 1;
+          if (status === "inactive") return 2;
+          return 3;
+        };
+        const candidates = nonArchived
+          .filter((bed) => !allocatedBedIds.has(bed.id))
+          .sort((a, b) => retirementRank(a.status) - retirementRank(b.status) || String(a.label).localeCompare(String(b.label)) || a.id - b.id);
+
+        if (candidates.length < excess) {
+          throw new Error("Unable to reduce capacity: not enough unallocated beds can be safely retired while preserving active allocations");
+        }
+
+        for (const bed of candidates) {
+          if (excess <= 0) break;
+          if (allocatedBedIds.has(bed.id)) {
+            throw new Error("Refusing to retire an occupied bed during capacity reduction");
+          }
+          await this.repo.run(
+            `UPDATE beds SET status = 'archived', archived_at = COALESCE(archived_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`,
+            bed.id
+          );
+          retiredBedIds.push(bed.id);
+          excess -= 1;
+        }
+      }
+    }
+
+    await this.repo.run(
+      `UPDATE rooms SET capacity = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`,
+      newCapacity,
+      roomId
+    );
+
+    const inventory = await this.roomCapacityInventory(roomId);
+    await this.repo.audit(actor.id, actor.staffId, "admin.room.capacity_change", "room", roomId, {
+      room_code: room.room_code,
+      old_capacity: oldCapacity,
+      new_capacity: newCapacity,
+      active_occupancy: activeOccupancy,
+      beds_retired: retiredBedIds,
+      beds_reactivated: [],
+      reason
+    });
+
+    return {
+      room: await this.room(roomId),
+      configured_capacity: newCapacity,
+      active_occupancy: inventory.active_occupancy,
+      usable_bed_count: inventory.usable_bed_count,
+      available_bed_count: inventory.available_bed_count,
+      retired_bed_count: inventory.retired_bed_count,
+      non_archived_bed_count: inventory.non_archived_bed_count,
+      setup_needed: inventory.setup_needed,
+      beds_retired: retiredBedIds,
+      beds_reactivated: [] as number[]
+    };
+  }
+
+  async roomCapacityInventory(roomId: number) {
+    const row = await this.repo.first<{
+      capacity: number;
+      usable_bed_count: number;
+      non_archived_bed_count: number;
+      retired_bed_count: number;
+      active_occupancy: number;
+    }>(
+      `SELECT r.capacity,
+        (SELECT COUNT(*) FROM beds b WHERE b.room_id = r.id AND b.status = 'available') AS usable_bed_count,
+        (SELECT COUNT(*) FROM beds b WHERE b.room_id = r.id AND b.status <> 'archived') AS non_archived_bed_count,
+        (SELECT COUNT(*) FROM beds b WHERE b.room_id = r.id AND b.status = 'archived') AS retired_bed_count,
+        (SELECT COUNT(*) FROM allocations a JOIN beds b ON b.id = a.bed_id WHERE b.room_id = r.id AND a.status = 'active') AS active_occupancy
+       FROM rooms r WHERE r.id = ?`,
+      roomId
+    );
+    if (!row) throw new Error("Room not found");
+    const capacity = Number(row.capacity);
+    const usable = Number(row.usable_bed_count);
+    const occupied = Number(row.active_occupancy);
+    const nonArchived = Number(row.non_archived_bed_count);
+    return {
+      configured_capacity: capacity,
+      usable_bed_count: usable,
+      available_bed_count: Math.max(usable - occupied, 0),
+      retired_bed_count: Number(row.retired_bed_count),
+      non_archived_bed_count: nonArchived,
+      active_occupancy: occupied,
+      setup_needed: Math.max(capacity - nonArchived, 0)
+    };
   }
 
   async createRoomRate(actor: AuthUser, data: { roomId: number; academicSessionId: number; rateCode: string; amountMinor: number; currency?: string; status?: string }) {

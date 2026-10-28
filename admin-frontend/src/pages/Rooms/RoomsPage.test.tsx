@@ -32,16 +32,21 @@ function list(data: unknown) {
   return json({ ok: true, data, pagination: { limit: 100, offset: 0 } });
 }
 
-function renderRooms(options: { role?: "manager" | "maintenance"; rooms?: unknown[]; rates?: unknown[]; beds?: unknown[]; allocations?: unknown[]; failCreateBed?: boolean; failCreateRate?: boolean; failRooms?: boolean } = {}) {
+function renderRooms(options: { role?: "manager" | "maintenance"; rooms?: unknown[]; rates?: unknown[]; beds?: unknown[]; allocations?: unknown[]; failCreateBed?: boolean; failCreateRate?: boolean; failRooms?: boolean; failCapacity?: boolean; capacityRoom?: unknown } = {}) {
   localStorage.setItem("kissmet_admin_token", "token");
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     if (url.endsWith("/auth/me")) return json({ user: options.role === "maintenance" ? maintenance : manager });
     if (url.includes("/admin/dashboard/occupancy")) return options.failRooms ? json({ error: { message: "Unable to load occupancy" } }, 500) : json({ ok: true, data: occupancy });
     if (url.includes("/admin/rooms?")) return list(options.rooms ?? [room, roomTwo]);
-    if (url.endsWith("/admin/rooms/1")) return json({ ok: true, data: room });
+    if (url.endsWith("/admin/rooms/1")) return json({ ok: true, data: options.capacityRoom ?? room });
     if (url.endsWith("/admin/rooms") && init?.method === "POST") return json({ ok: true, data: { ...room, id: 3, room_code: "ROOM-203" } }, 201);
     if (url.endsWith("/admin/rooms/1/status")) return json({ ok: true, data: { ...room, status: "maintenance" } });
+    if (url.endsWith("/admin/rooms/1/capacity") && init?.method === "PATCH") {
+      if (options.failCapacity) return json({ error: { message: "Capacity cannot be reduced to 2 because this room currently has 3 active residents" } }, 409);
+      const body = JSON.parse(String(init.body ?? "{}")) as { capacity?: number; reason?: string };
+      return json({ ok: true, data: { room: { ...room, capacity: body.capacity ?? 2 }, configured_capacity: body.capacity ?? 2, active_occupancy: 2, usable_bed_count: 2, available_bed_count: 0, retired_bed_count: 2, non_archived_bed_count: 2, setup_needed: 0, beds_retired: [12, 13], beds_reactivated: [] } });
+    }
     if (url.includes("/admin/rooms/1/beds")) return list(options.beds ?? beds);
     if (url.endsWith("/admin/beds") && init?.method === "POST") return options.failCreateBed ? json({ error: { message: "Room capacity exceeded" } }, 409) : json({ ok: true, data: { id: 13, room_id: 1, bed_code: "ROOM-101-D", label: "D", status: "available" } }, 201);
     if (url.endsWith("/admin/beds/11/status")) return json({ ok: true, data: { ...beds[1], status: "maintenance" } });
@@ -82,7 +87,7 @@ describe("RoomsPage", () => {
   it("shows room detail using occupancy from active allocations", async () => {
     renderRooms();
     await openRoom();
-    expect(screen.getByText("Configured capacity is the maximum; beds are the actual usable inventory.")).toBeInTheDocument();
+    expect(screen.getByText(/Configured capacity is the occupancy band/)).toBeInTheDocument();
     expect(screen.getByText("Ama Mensah")).toBeInTheDocument();
     expect(screen.getByText("Kojo Boateng")).toBeInTheDocument();
     expect(screen.getAllByText("Occupied bed protected")).toHaveLength(2);
@@ -93,7 +98,7 @@ describe("RoomsPage", () => {
     renderRooms();
     await userEvent.click(await screen.findByRole("button", { name: /create room/i }));
     await userEvent.type(screen.getByLabelText("Room code"), "ROOM-203");
-    await userEvent.type(screen.getByLabelText("Configured capacity"), "{selectall}4");
+    await userEvent.selectOptions(screen.getByLabelText("Configured capacity"), "4");
     await userEvent.click(screen.getAllByRole("button", { name: "Create Room" }).at(-1)!);
     await waitFor(() => {
       const post = vi.mocked(globalThis.fetch).mock.calls.find(([url, init]) => String(url).endsWith("/admin/rooms") && init?.method === "POST");
@@ -158,6 +163,70 @@ describe("RoomsPage", () => {
     await openRoom();
     expect(screen.queryByRole("button", { name: "Add Bed" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add Rate" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Change Capacity" })).not.toBeInTheDocument();
+  });
+
+
+  it("shows capacity, occupancy, usable beds and Change Capacity for authorized roles", async () => {
+    renderRooms();
+    await openRoom();
+    expect(screen.getByText("4 Persons")).toBeInTheDocument();
+    expect(screen.getByText("Usable beds")).toBeInTheDocument();
+    expect(screen.getAllByText("Occupied").length).toBeGreaterThan(0);
+    expect(screen.getByText("Setup needed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change Capacity" })).toBeInTheDocument();
+  });
+
+  it("requires a reason and only offers supported capacity bands", async () => {
+    renderRooms();
+    await openRoom();
+    await userEvent.click(screen.getByRole("button", { name: "Change Capacity" }));
+    expect(screen.getByRole("heading", { name: "Change Capacity" })).toBeInTheDocument();
+    const select = screen.getByLabelText("New capacity");
+    expect(select).toContainHTML("1 Person");
+    expect(select).toContainHTML("2 Persons");
+    expect(select).toContainHTML("4 Persons");
+    await userEvent.selectOptions(select, "2");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm capacity change" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("A management reason is required");
+  });
+
+  it("submits capacity change with reason and refreshes room state", async () => {
+    renderRooms();
+    await openRoom();
+    await userEvent.click(screen.getByRole("button", { name: "Change Capacity" }));
+    await userEvent.selectOptions(screen.getByLabelText("New capacity"), "2");
+    await userEvent.type(screen.getByLabelText("Capacity change reason"), "Convert to double occupancy");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm capacity change" }));
+    await waitFor(() => {
+      const call = vi.mocked(globalThis.fetch).mock.calls.find(([url, init]) => String(url).endsWith("/admin/rooms/1/capacity") && init?.method === "PATCH");
+      expect(call).toBeTruthy();
+      expect(String(call?.[1]?.body)).toContain("\"capacity\":2");
+      expect(String(call?.[1]?.body)).toContain("Convert to double occupancy");
+    });
+  });
+
+  it("surfaces impossible capacity reduction errors from the backend", async () => {
+    renderRooms({ failCapacity: true });
+    await openRoom();
+    await userEvent.click(screen.getByRole("button", { name: "Change Capacity" }));
+    await userEvent.selectOptions(screen.getByLabelText("New capacity"), "2");
+    await userEvent.type(screen.getByLabelText("Capacity change reason"), "Attempt unsafe reduction");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm capacity change" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Capacity cannot be reduced to 2 because this room currently has 3 active residents");
+  });
+
+  it("shows setup-needed state when configured capacity exceeds inventory", async () => {
+    renderRooms({
+      capacityRoom: { ...room, capacity: 4 },
+      beds: [
+        { id: 10, room_id: 1, bed_code: "ROOM-101-A", label: "A", status: "available" },
+        { id: 11, room_id: 1, bed_code: "ROOM-101-B", label: "B", status: "available" }
+      ],
+      allocations: [allocations[0]]
+    });
+    await openRoom();
+    expect(screen.getByText(/Setup needed: create or reactivate 2 beds/i)).toBeInTheDocument();
   });
 
   it("shows API failure state", async () => {
