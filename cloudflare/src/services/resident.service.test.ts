@@ -35,7 +35,7 @@ class Repo {
     sessions: [],
     documents: [],
     applications: [],
-    bookings: [{ id: 1, resident_id: 1, academic_session_id: 1, application_id: 1, booking_number: "KSM-BKG-0001", status: "pending", total_amount_minor: 250000, currency: "GHS", priced_room_id: 1, payment_attention_required: 0 }],
+    bookings: [{ id: 1, resident_id: 1, academic_session_id: 1, application_id: 1, booking_number: "KSM-BKG-0001", status: "pending", total_amount_minor: 250000, currency: "GHS", priced_room_id: 1, payment_attention_required: 0, maintenance_fee_minor: null, partial_payment_authorized: 0, payment_requirement_type: "full" }],
     payments: [],
     receipts: [],
     payment_confirmation_settings: [{ id: 1, requirement_type: "full", fixed_amount_minor: null, percentage_basis_points: null, status: "active" }],
@@ -435,11 +435,13 @@ describe("resident onboarding", () => {
 
   it("creates resident-owned payments with backend references and matching currency", async () => {
     const { svc, repo } = make();
-    const payment = await svc.createPayment(resident, { bookingId: 1, amountMinor: 100000, currency: "GHS", method: "mobile_money" }) as Record<string, unknown>;
+    // Full-payment default: resident must submit the full outstanding obligation.
+    await expect(svc.createPayment(resident, { bookingId: 1, amountMinor: 100000, currency: "GHS", method: "mobile_money" })).rejects.toThrow(/Full payment is required/);
+    const payment = await svc.createPayment(resident, { bookingId: 1, amountMinor: 250000, currency: "GHS", method: "mobile_money" }) as Record<string, unknown>;
     expect(payment.payment_reference).toBe("KSM-PAY-0001");
     expect(payment.status).toBe("pending");
-    await expect(svc.createPayment(otherResident, { bookingId: 1, amountMinor: 100000, currency: "GHS", method: "cash" })).rejects.toThrow("Booking not found");
-    await expect(svc.createPayment(resident, { bookingId: 1, amountMinor: 100000, currency: "USD", method: "cash" })).rejects.toThrow("Payment currency must match booking currency");
+    await expect(svc.createPayment(otherResident, { bookingId: 1, amountMinor: 250000, currency: "GHS", method: "cash" })).rejects.toThrow("Booking not found");
+    await expect(svc.createPayment(resident, { bookingId: 1, amountMinor: 250000, currency: "USD", method: "cash" })).rejects.toThrow("Payment currency must match booking currency");
     await expect(svc.createPayment(resident, { bookingId: 1, amountMinor: 0, currency: "GHS", method: "cash" })).rejects.toThrow("Payment amount must be positive");
     expect(repo.audits).toContain("resident.payment.created");
   });
@@ -463,7 +465,7 @@ describe("resident onboarding", () => {
 
   it("submits payments without verifying them and uploads private slips", async () => {
     const { svc, repo, puts } = make();
-    const payment = await svc.createPayment(resident, { bookingId: 1, amountMinor: 50000, currency: "GHS", method: "bank_transfer" }) as Record<string, unknown>;
+    const payment = await svc.createPayment(resident, { bookingId: 1, amountMinor: 250000, currency: "GHS", method: "bank_transfer" }) as Record<string, unknown>;
     await expect(svc.submitPayment(resident, Number(payment.id))).resolves.toMatchObject({ status: "submitted" });
     await svc.uploadPaymentSlip(resident, Number(payment.id), new File(["x"], "slip.pdf", { type: "application/pdf" }));
     expect(puts[0]).toContain("payment-slips/KSM-PAY-0001/");

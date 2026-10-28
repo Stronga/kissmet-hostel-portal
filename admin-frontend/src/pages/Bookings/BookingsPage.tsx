@@ -1,6 +1,6 @@
 import { Plus, Search } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { bookingPaymentSummary, createBooking, getBooking, getBookingAgreement, listAvailability, listBookings, listRoomRates, listRooms, updateBookingStatus } from "../../api/bookings";
+import { bookingPaymentSummary, createBooking, getBooking, getBookingAgreement, listAvailability, listBookings, listRoomRates, listRooms, setBookingPaymentPolicy, updateBookingStatus } from "../../api/bookings";
 import { listLeasePeriods } from "../../api/setup";
 import { getApplication, getResident, listAcademicSessions, listApplications } from "../../api/applications";
 import { listInstitutions } from "../../api/residents";
@@ -17,6 +17,7 @@ import { formatStatus } from "../../utils/format";
 import { BookingDetail } from "./BookingDetail";
 import { BookingTable } from "./BookingTable";
 import { CreateBookingDialog } from "./CreateBookingDialog";
+import { PaymentPolicyDialog } from "./PaymentPolicyDialog";
 
 const pageSize = 25;
 const statuses: Array<BookingStatus | "all"> = ["all", "pending", "confirmed", "cancelled", "expired", "completed", "archived"];
@@ -25,6 +26,7 @@ export function BookingsPage() {
   const { user } = useAuth();
   const canWrite = hasPermission(user?.role, "booking:write");
   const canConfirm = hasPermission(user?.role, "booking:confirm");
+  const canManagePaymentPolicy = hasPermission(user?.role, "admin:write");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [applicationsById, setApplicationsById] = useState<Map<number, Application>>(new Map());
   const [residentsById, setResidentsById] = useState<Map<number, Resident>>(new Map());
@@ -52,6 +54,9 @@ export function BookingsPage() {
   const [saving, setSaving] = useState(false);
   const [decisionStatus, setDecisionStatus] = useState<BookingStatus | null>(null);
   const [transitionError, setTransitionError] = useState<string | null>(null);
+  const [policyOpen, setPolicyOpen] = useState(false);
+  const [policyError, setPolicyError] = useState<string | null>(null);
+
 
   async function load(nextOffset = offset, nextSearch = submittedSearch) {
     setLoading(true);
@@ -217,12 +222,42 @@ export function BookingsPage() {
       {error ? <ErrorState message={error} /> : null}
       {loading ? <LoadingState label="Loading bookings..." /> : visibleBookings.length ? <BookingTable bookings={visibleBookings} residentsById={residentsById} applicationsById={applicationsById} institutions={institutions} sessions={sessions} rooms={rooms} onView={(booking) => void openDetail(booking)} /> : <EmptyState title={submittedSearch || statusFilter !== "all" || sessionFilter !== "all" ? "No matching bookings" : "No bookings"} message="Bookings will appear after approved applications are converted into bookings." />}
       <div className="flex items-center justify-between"><button type="button" disabled={offset === 0 || loading} onClick={() => { const next = Math.max(0, offset - pageSize); setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Previous</button><p className="text-sm text-text-secondary">Showing {offset + 1}-{offset + bookings.length}</p><button type="button" disabled={bookings.length < pageSize || loading} onClick={() => { const next = offset + pageSize; setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Next</button></div>
-      <ConfirmDialog open={Boolean(selected)} title="Booking Details" onClose={() => { setSelected(null); setDecisionStatus(null); setTransitionError(null); }}>{selected ? <BookingDetail booking={selected} application={selectedApplication} resident={selectedResident} institution={selectedInstitution} session={selectedSession} room={selectedRoom} rate={selectedRate} leasePeriods={leasePeriods} financial={financial} summary={summary} summaryError={summaryError} canWrite={canWrite} canConfirm={canConfirm} pending={saving} onAction={setDecisionStatus} /> : null}</ConfirmDialog>
+      <ConfirmDialog open={Boolean(selected)} title="Booking Details" onClose={() => { setSelected(null); setDecisionStatus(null); setTransitionError(null); }}>{selected ? <BookingDetail booking={selected} application={selectedApplication} resident={selectedResident} institution={selectedInstitution} session={selectedSession} room={selectedRoom} rate={selectedRate} leasePeriods={leasePeriods} financial={financial} summary={summary} summaryError={summaryError} canWrite={canWrite} canConfirm={canConfirm} canManagePaymentPolicy={canManagePaymentPolicy} pending={saving} onAction={setDecisionStatus} onEditPaymentPolicy={() => { setPolicyError(null); setPolicyOpen(true); }} /> : null}</ConfirmDialog>
       <ConfirmDialog open={Boolean(decisionStatus)} title={decisionStatus === "confirmed" ? "Confirm this booking?" : `${formatStatus(decisionStatus)} booking`} description={decisionStatus === "confirmed" ? "Payment requirements must be satisfied. Confirming the booking does not allocate a bed automatically." : undefined} onClose={() => { if (!saving) setDecisionStatus(null); }}>
         {transitionError ? <p role="alert" className="mb-3 text-sm font-medium text-danger">{transitionError}</p> : null}
         <div className="flex justify-end gap-2"><button type="button" disabled={saving} onClick={() => setDecisionStatus(null)} className="rounded-md border border-border px-3 py-2 text-sm font-semibold disabled:opacity-50">Cancel</button><button type="button" disabled={saving} onClick={() => void confirmTransition()} className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Confirm</button></div>
       </ConfirmDialog>
       <CreateBookingDialog open={createOpen} applications={approvedApplications} residentsById={residentsById} institutions={institutions} sessions={sessions} availability={availability} loadingAvailability={loadingAvailability} error={createError} saving={saving} onApplicationChange={(application) => void loadAvailabilityFor(application)} onCreate={(applicationId, roomId) => void submitCreate(applicationId, roomId)} onClose={() => { if (!saving) { setCreateOpen(false); setCreateError(null); setAvailability([]); } }} />
+      <PaymentPolicyDialog
+        open={policyOpen && Boolean(selected)}
+        currency={selected?.currency ?? "GHS"}
+        obligationMinor={financial?.total_obligation_minor ?? ((selected?.total_amount_minor ?? 0) + (selected?.maintenance_fee_minor ?? 0))}
+        initialAuthorized={Number(selected?.partial_payment_authorized) === 1}
+        initialType={selected?.payment_requirement_type ?? null}
+        initialFixedMinor={selected?.payment_fixed_amount_minor ?? null}
+        initialPercentageBps={selected?.payment_percentage_basis_points ?? null}
+        saving={saving}
+        error={policyError}
+        onClose={() => { if (!saving) { setPolicyOpen(false); setPolicyError(null); } }}
+        onSave={(input) => void (async () => {
+          if (!selected) return;
+          setSaving(true);
+          setPolicyError(null);
+          try {
+            const result = await setBookingPaymentPolicy(selected.id, input);
+            setSelected(result.booking);
+            setFinancial(result.financial);
+            setBookings((current) => current.map((booking) => booking.id === result.booking.id ? result.booking : booking));
+            const payment = await bookingPaymentSummary(result.booking.id).catch(() => null);
+            setSummary(payment);
+            setPolicyOpen(false);
+          } catch (err) {
+            setPolicyError(err instanceof Error ? err.message : "Unable to save payment policy.");
+          } finally {
+            setSaving(false);
+          }
+        })()}
+      />
     </div>
   );
 }

@@ -83,3 +83,17 @@ export async function resolveActiveRateCard(leasePeriodId: number, occupancyCapa
   const response = await apiRequest<DataEnvelope<RateCard>>(`/admin/rate-cards/resolve?${query.toString()}`);
   return response.data;
 }
+
+export async function setBookingPaymentPolicy(id: number, input: {
+  partialPaymentAuthorized: boolean;
+  paymentRequirementType?: string | null;
+  paymentFixedAmountMinor?: number | null;
+  paymentPercentageBasisPoints?: number | null;
+  reason: string;
+}) {
+  const response = await apiRequest<DataEnvelope<BookingAgreementResponse>>(`/admin/bookings/${id}/payment-policy`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+  return response.data;
+}

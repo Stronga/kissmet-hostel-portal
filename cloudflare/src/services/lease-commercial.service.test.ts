@@ -282,8 +282,8 @@ class LeaseCommercialRepo {
       });
       return { meta: { last_row_id: id, changes: 1 } };
     }
-    if (sql.startsWith("UPDATE bookings SET") && sql.includes("override_reason")) {
-      const row = this.rows.bookings.find((b) => b.id === binds[8]);
+    if (sql.startsWith("UPDATE bookings SET") && sql.includes("override_reason") && sql.includes("partial_payment_authorized")) {
+      const row = this.rows.bookings.find((b) => b.id === binds[9]);
       if (row) {
         Object.assign(row, {
           total_amount_minor: binds[0],
@@ -293,7 +293,20 @@ class LeaseCommercialRepo {
           payment_requirement_type: binds[4],
           payment_fixed_amount_minor: binds[5],
           payment_percentage_basis_points: binds[6],
-          override_reason: binds[7]
+          partial_payment_authorized: binds[7],
+          override_reason: binds[8]
+        });
+      }
+      return { meta: { changes: 1 } };
+    }
+    if (sql.startsWith("UPDATE bookings SET") && sql.includes("partial_payment_authorized") && sql.includes("payment_requirement_type") && !sql.includes("override_reason") && !sql.includes("total_amount_minor")) {
+      const row = this.rows.bookings.find((b) => b.id === binds[4]);
+      if (row) {
+        Object.assign(row, {
+          partial_payment_authorized: binds[0],
+          payment_requirement_type: binds[1],
+          payment_fixed_amount_minor: binds[2],
+          payment_percentage_basis_points: binds[3]
         });
       }
       return { meta: { changes: 1 } };

@@ -14,7 +14,9 @@ export function BookingFinancialSummary({
   rate,
   financial,
   leasePeriodName,
-  requestedLeaseKind
+  requestedLeaseKind,
+  canManagePaymentPolicy,
+  onEditPaymentPolicy
 }: {
   booking: Booking;
   room?: Room;
@@ -22,6 +24,8 @@ export function BookingFinancialSummary({
   financial?: BookingAgreementFinancial | null;
   leasePeriodName?: string | null;
   requestedLeaseKind?: string | null;
+  canManagePaymentPolicy?: boolean;
+  onEditPaymentPolicy?: () => void;
 }) {
   const badge = leaseBadge(booking.lease_kind);
   const isLegacy = booking.lease_period_id == null && booking.priced_room_rate_id != null;
@@ -99,6 +103,32 @@ export function BookingFinancialSummary({
           <dd className="font-medium">{currency}</dd>
         </div>
       </dl>
+      <div className="mt-3 rounded border border-border bg-muted/40 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-xs text-text-secondary">Payment Requirement</p>
+            <p className="font-semibold text-text-primary">
+              {Number(booking.partial_payment_authorized) === 1 ? "Partial Payment Authorized" : "Full Payment"}
+            </p>
+            {Number(booking.partial_payment_authorized) === 1 ? (
+              <p className="mt-1 text-sm text-text-secondary">
+                {booking.payment_requirement_type === "fixed" && booking.payment_fixed_amount_minor != null
+                  ? `Approved minimum initial amount: ${formatCurrencyMinor(booking.payment_fixed_amount_minor, currency)}`
+                  : booking.payment_requirement_type === "percentage" && booking.payment_percentage_basis_points != null
+                    ? `Approved minimum initial share: ${(Number(booking.payment_percentage_basis_points) / 100).toFixed(2)}%`
+                    : "Management-authorized partial arrangement"}
+              </p>
+            ) : (
+              <p className="mt-1 text-sm text-text-secondary">Resident must pay the full outstanding obligation unless management authorizes a partial arrangement.</p>
+            )}
+          </div>
+          {canManagePaymentPolicy && onEditPaymentPolicy ? (
+            <button type="button" onClick={onEditPaymentPolicy} className="rounded-md border border-border bg-white px-3 py-2 text-sm font-semibold">
+              Payment Policy
+            </button>
+          ) : null}
+        </div>
+      </div>
       <p className="mt-2 text-xs text-text-secondary">
         Captured agreement amounts are shown from the booking snapshot. Future rate-card edits do not rewrite agreed accommodation.
         Verified Paid counts only payments with status verified.

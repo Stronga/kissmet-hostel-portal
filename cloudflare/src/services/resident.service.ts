@@ -16,6 +16,12 @@ import {
   type ResidentKind
 } from "../types/resident-kind";
 import { isOtherInstitutionSelection, normalizeStudentId } from "../auth/resident-identity";
+import {
+  agreementObligationMinor,
+  arrangementMinimumMinor,
+  computeAgreementFinancial,
+  isPartialPaymentAuthorized,
+} from "./agreement-financial";
 
 const OTP_MINUTES = 10;
 const SESSION_HOURS = 8;
@@ -509,6 +515,8 @@ export class ResidentService {
              b.total_amount_minor, b.currency, b.booked_at, b.expires_at, b.cancelled_at,
              b.completed_at, b.created_at, b.payment_attention_required, b.payment_attention_reason,
              b.lease_period_id, b.lease_kind, b.starts_on, b.ends_on, b.maintenance_fee_minor,
+             b.partial_payment_authorized, b.payment_requirement_type,
+             b.payment_fixed_amount_minor, b.payment_percentage_basis_points,
              s.code AS academic_session_code, s.name AS academic_session_name,
              lp.code AS lease_period_code, lp.name AS lease_period_name,
              a.application_number,
@@ -553,16 +561,21 @@ export class ResidentService {
       WHERE booking_id = ? AND resident_id = ?
     `, booking.id, actor.residentId);
     const setting = await this.repo.first<{ requirement_type: string; fixed_amount_minor: number | null; percentage_basis_points: number | null }>("SELECT requirement_type, fixed_amount_minor, percentage_basis_points FROM payment_confirmation_settings WHERE id = 1 AND status = 'active'");
-    const total = Number(booking.total_amount_minor);
-    const verified = Number(totals?.verified_minor ?? 0);
-    const required = this.requiredConfirmationAmount(total, setting ?? { requirement_type: "full", fixed_amount_minor: null, percentage_basis_points: null });
+    const financial = computeAgreementFinancial(booking, Number(totals?.verified_minor ?? 0));
+    const accommodation = financial.agreed_accommodation_amount_minor;
+    const verified = financial.verified_paid_minor;
+    const required = this.requiredConfirmationAmount(accommodation, setting ?? { requirement_type: "full", fixed_amount_minor: null, percentage_basis_points: null });
+    const partial = isPartialPaymentAuthorized(booking);
     return {
       bookingId: booking.id,
       bookingNumber: booking.booking_number,
       bookingStatus: booking.status,
-      bookingTotalMinor: total,
+      bookingTotalMinor: accommodation,
+      maintenanceFeeMinor: financial.maintenance_fee_minor,
+      agreementObligationMinor: financial.total_obligation_minor,
       verifiedTotalMinor: verified,
-      outstandingMinor: Math.max(total - verified, 0),
+      outstandingMinor: Math.max(financial.balance_minor, 0),
+      balanceMinor: financial.balance_minor,
       submittedTotalMinor: Number(totals?.submitted_minor ?? 0),
       pendingTotalMinor: Number(totals?.pending_minor ?? 0),
       refundedTotalMinor: Number(totals?.refunded_minor ?? 0),
@@ -571,7 +584,11 @@ export class ResidentService {
       confirmationRequirementMet: verified >= required,
       currency: booking.currency ?? "GHS",
       paymentAttentionRequired: Boolean(booking.payment_attention_required),
-      paymentAttentionReason: booking.payment_attention_reason ?? null
+      paymentAttentionReason: booking.payment_attention_reason ?? null,
+      partialPaymentAuthorized: partial,
+      paymentRequirementType: (booking.payment_requirement_type as string | null) ?? (partial ? null : "full"),
+      paymentFixedAmountMinor: booking.payment_fixed_amount_minor == null ? null : Number(booking.payment_fixed_amount_minor),
+      paymentPercentageBasisPoints: booking.payment_percentage_basis_points == null ? null : Number(booking.payment_percentage_basis_points)
     };
   }
 
@@ -584,13 +601,28 @@ export class ResidentService {
   async createPayment(actor: AuthUser, data: { bookingId: number; amountMinor: number; currency: string; method: string; paidAt?: string | null; notes?: string | null }) {
     if (!actor.residentId) throw new Error("Resident session required");
     if (!paymentMethods.has(data.method)) throw new Error("Invalid payment method");
-    if (data.amountMinor <= 0) throw new Error("Payment amount must be positive");
+    if (!Number.isInteger(data.amountMinor) || data.amountMinor <= 0) throw new Error("Payment amount must be positive");
     const booking = await this.repo.first<Record<string, unknown>>("SELECT * FROM bookings WHERE id = ? AND resident_id = ? AND status IN ('pending', 'confirmed')", data.bookingId, actor.residentId);
     if (!booking) throw new Error("Booking not found");
     if (String(data.currency).toUpperCase() !== String(booking.currency).toUpperCase()) throw new Error("Payment currency must match booking currency");
     const totals = await this.repo.first<{ verified_minor: number }>("SELECT COALESCE(SUM(amount_minor), 0) AS verified_minor FROM payments WHERE booking_id = ? AND resident_id = ? AND status = 'verified'", data.bookingId, actor.residentId);
-    const outstandingMinor = Math.max(Number(booking.total_amount_minor) - Number(totals?.verified_minor ?? 0), 0);
+    const verified = Number(totals?.verified_minor ?? 0);
+    const obligation = agreementObligationMinor(booking);
+    const outstandingMinor = Math.max(obligation - verified, 0);
     if (data.amountMinor > outstandingMinor) throw new Error("Payment would exceed booking total");
+
+    const partial = isPartialPaymentAuthorized(booking);
+    if (!partial) {
+      // Full-payment default: resident must submit the full remaining obligation.
+      if (data.amountMinor !== outstandingMinor) {
+        throw new Error("Full payment is required for this agreement; submit the full outstanding balance");
+      }
+    } else if (verified === 0) {
+      const minimum = arrangementMinimumMinor(obligation, booking);
+      if (data.amountMinor < minimum && data.amountMinor !== outstandingMinor) {
+        throw new Error("Payment amount is below the approved partial-payment arrangement minimum");
+      }
+    }
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const paymentReference = await this.repo.allocatePaymentReference();
       try {

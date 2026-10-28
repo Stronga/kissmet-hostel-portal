@@ -12,8 +12,10 @@ const summary = {
   bookingNumber: "KSM-BKG-0001",
   bookingStatus: "pending",
   bookingTotalMinor: 250000,
+  maintenanceFeeMinor: 50000,
+  agreementObligationMinor: 300000,
   verifiedTotalMinor: 100000,
-  outstandingMinor: 150000,
+  outstandingMinor: 200000,
   submittedTotalMinor: 50000,
   pendingTotalMinor: 25000,
   refundedTotalMinor: 30000,
@@ -21,7 +23,9 @@ const summary = {
   remainingToConfirmationMinor: 150000,
   confirmationRequirementMet: false,
   currency: "GHS",
-  paymentAttentionRequired: false
+  paymentAttentionRequired: false,
+  partialPaymentAuthorized: false,
+  paymentRequirementType: "full"
 };
 
 const payments = [
@@ -124,12 +128,15 @@ describe("resident payments", () => {
     render(renderResidentApp(["/payments"]));
 
     expect(await screen.findByText("KSM-BKG-0001")).toBeInTheDocument();
-    expect(screen.getAllByText("GHS 2,500.00").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("GHS 1,000.00").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("GHS 1,500.00").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("GHS 500.00").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("GHS 300.00").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Payment requirement: Full Payment/)).toBeInTheDocument();
+    expect(screen.getAllByText("GHS 2,500.00").length).toBeGreaterThan(0); // accommodation
+    expect(screen.getAllByText("GHS 500.00").length).toBeGreaterThan(0); // maintenance / submitted
+    expect(screen.getAllByText("GHS 3,000.00").length).toBeGreaterThan(0); // obligation
+    expect(screen.getAllByText("GHS 1,000.00").length).toBeGreaterThan(0); // verified
+    expect(screen.getAllByText("GHS 2,000.00").length).toBeGreaterThan(0); // balance
+    expect(screen.getAllByText("GHS 300.00").length).toBeGreaterThan(0); // refunded
     expect(screen.queryByText(/receipt-based balance/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Security Deposit")).not.toBeInTheDocument();
   });
 
   it("creates payment with backend-generated reference and no resident-owned identifiers", async () => {
@@ -160,7 +167,7 @@ describe("resident payments", () => {
     expect(await screen.findByText("Enter an amount greater than zero.")).toBeInTheDocument();
 
     await userEvent.clear(screen.getByLabelText("Amount in GHS"));
-    await userEvent.type(screen.getByLabelText("Amount in GHS"), "2000");
+    await userEvent.type(screen.getByLabelText("Amount in GHS"), "2500");
     await userEvent.click(screen.getByRole("button", { name: "Create payment record" }));
     expect(await screen.findByText("Payment amount cannot exceed the outstanding balance.")).toBeInTheDocument();
 
@@ -254,4 +261,38 @@ describe("resident payments", () => {
     expect(screen.queryByRole("button", { name: /issue|void/i })).not.toBeInTheDocument();
     expect(requests.some((request) => request.url.includes("/admin/receipts"))).toBe(false);
   });
+
+  it("shows full payment requirement with accommodation, maintenance, obligation and balance", async () => {
+    seedResidentToken();
+    mockPayments({ payments, receipts, summary });
+    render(renderResidentApp(["/payments"]));
+    expect(await screen.findByText(/Payment requirement: Full Payment/)).toBeInTheDocument();
+    expect(screen.getByText("Accommodation")).toBeInTheDocument();
+    expect(screen.getByText("Maintenance Fee")).toBeInTheDocument();
+    expect(screen.getByText("Total Obligation")).toBeInTheDocument();
+    expect(screen.getByText("Verified Paid")).toBeInTheDocument();
+    expect(screen.getByText("Balance")).toBeInTheDocument();
+    expect(screen.queryByText("Security Deposit")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /enable partial/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /pay later/i })).not.toBeInTheDocument();
+  });
+
+  it("shows partial payment authorized arrangement as read-only", async () => {
+    seedResidentToken();
+    mockPayments({
+      payments,
+      receipts,
+      summary: {
+        ...summary,
+        partialPaymentAuthorized: true,
+        paymentRequirementType: "fixed",
+        paymentFixedAmountMinor: 150000
+      }
+    });
+    render(renderResidentApp(["/payments"]));
+    expect(await screen.findByText(/Payment requirement: Partial Payment Authorized/)).toBeInTheDocument();
+    expect(screen.getByText(/minimum initial amount of/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /authorize/i })).not.toBeInTheDocument();
+  });
+
 });

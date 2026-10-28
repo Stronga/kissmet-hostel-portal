@@ -24,6 +24,11 @@ import {
   normalizeGhanaCardNumber,
   presentResidentRow,
 } from "../types/resident-kind";
+import {
+  agreementObligationMinor,
+  computeAgreementFinancial,
+  isPartialPaymentAuthorized,
+} from "./agreement-financial";
 
 type ApplicationStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "cancelled" | "archived";
 type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "archived";
@@ -717,16 +722,9 @@ export class AdminService {
       "SELECT COALESCE(SUM(amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
       bookingId
     );
-    const accommodation = Number(row.total_amount_minor);
-    const maintenance = row.maintenance_fee_minor == null ? 0 : Number(row.maintenance_fee_minor);
-    const verifiedPaid = Number(paid?.verified_paid_minor ?? 0);
-    const totalObligation = accommodation + maintenance;
+    const financial = computeAgreementFinancial(row, Number(paid?.verified_paid_minor ?? 0));
     return {
-      agreed_accommodation_amount_minor: accommodation,
-      maintenance_fee_minor: row.maintenance_fee_minor == null ? null : maintenance,
-      total_obligation_minor: totalObligation,
-      verified_paid_minor: verifiedPaid,
-      balance_minor: totalObligation - verifiedPaid,
+      ...financial,
       currency: String(row.currency ?? "GHS")
     };
   }
@@ -1032,6 +1030,12 @@ export class AdminService {
       throw new Error("No agreement fields changed");
     }
 
+    // Keep partial_payment_authorized aligned when payment requirement type changes via terms override.
+    const nextPartial = nextPayType != null && nextPayType !== "full" ? 1 : 0;
+    if (nextPartial !== (Number(booking.partial_payment_authorized ?? 0) === 1 ? 1 : 0)) {
+      changedFields.push("partial_payment_authorized");
+    }
+
     await this.repo.run(
       `UPDATE bookings SET
          total_amount_minor = ?,
@@ -1041,6 +1045,7 @@ export class AdminService {
          payment_requirement_type = ?,
          payment_fixed_amount_minor = ?,
          payment_percentage_basis_points = ?,
+         partial_payment_authorized = ?,
          override_reason = ?,
          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
        WHERE id = ?`,
@@ -1051,6 +1056,7 @@ export class AdminService {
       nextPayType,
       nextFixed,
       nextPct,
+      nextPartial,
       reason,
       id
     );
@@ -1067,6 +1073,123 @@ export class AdminService {
         maintenance_fee_minor: nextMaintenance
       }
     });
+    return this.getBookingAgreement(id);
+  }
+
+  /**
+   * Stage 2L-J: management-controlled per-agreement payment POLICY (schedule/permission).
+   * Does NOT change agreed accommodation price or maintenance fee snapshots.
+   * Allowed after verified payments (unlike material price overrides).
+   * RBAC: callers must enforce admin:write (Super Admin / Manager).
+   */
+  async setBookingPaymentPolicy(actor: AuthUser, id: number, data: {
+    partialPaymentAuthorized: boolean;
+    paymentRequirementType?: string | null;
+    paymentFixedAmountMinor?: number | null;
+    paymentPercentageBasisPoints?: number | null;
+    reason: string;
+  }) {
+    const reason = data.reason?.trim();
+    if (!reason) throw new Error("Payment policy reason is required");
+
+    const booking = await this.get("bookings", id) as Record<string, unknown> | null;
+    if (!booking) throw new Error("Booking not found");
+
+    const status = String(booking.status);
+    if (status === "cancelled" || status === "archived" || status === "expired") {
+      throw new Error("Cannot change payment policy on a closed booking");
+    }
+
+    const previousAuthorized = Number(booking.partial_payment_authorized ?? 0) === 1 ? 1 : 0;
+    const previousType = (booking.payment_requirement_type as string | null) ?? null;
+    const previousFixed = booking.payment_fixed_amount_minor == null ? null : Number(booking.payment_fixed_amount_minor);
+    const previousPct = booking.payment_percentage_basis_points == null ? null : Number(booking.payment_percentage_basis_points);
+
+    let nextAuthorized: 0 | 1 = data.partialPaymentAuthorized ? 1 : 0;
+    let nextType: string | null;
+    let nextFixed: number | null;
+    let nextPct: number | null;
+
+    if (nextAuthorized === 0) {
+      nextType = "full";
+      nextFixed = null;
+      nextPct = null;
+    } else {
+      nextType = data.paymentRequirementType ?? previousType;
+      if (nextType == null || nextType === "full") {
+        throw new Error("Partial payment requires payment requirement type fixed or percentage");
+      }
+      if (!isBookingPaymentRequirementType(nextType) || nextType === "full") {
+        throw new Error("Invalid payment requirement type for partial authorization");
+      }
+      if (nextType === "fixed") {
+        nextFixed = data.paymentFixedAmountMinor !== undefined
+          ? data.paymentFixedAmountMinor
+          : previousFixed;
+        nextPct = null;
+        if (nextFixed == null || !Number.isInteger(nextFixed) || nextFixed <= 0) {
+          throw new Error("Fixed arrangement amount must be a positive integer");
+        }
+        const obligation = agreementObligationMinor(booking);
+        if (nextFixed > obligation) {
+          throw new Error("Fixed arrangement amount cannot exceed agreement obligation");
+        }
+      } else {
+        nextPct = data.paymentPercentageBasisPoints !== undefined
+          ? data.paymentPercentageBasisPoints
+          : previousPct;
+        nextFixed = null;
+        if (nextPct == null || !Number.isInteger(nextPct) || nextPct <= 0 || nextPct > 10000) {
+          throw new Error("Percentage arrangement must be between 1 and 10000 basis points");
+        }
+      }
+    }
+
+    // Safety: revoking partial when verified payments already exist is allowed —
+    // verified rows stay authoritative; remaining balance becomes full-payment due.
+    // Enabling partial after verified payments is also allowed (schedule/permission only).
+
+    if (
+      nextAuthorized === previousAuthorized
+      && nextType === previousType
+      && nextFixed === previousFixed
+      && nextPct === previousPct
+    ) {
+      throw new Error("No payment policy fields changed");
+    }
+
+    await this.repo.run(
+      `UPDATE bookings SET
+         partial_payment_authorized = ?,
+         payment_requirement_type = ?,
+         payment_fixed_amount_minor = ?,
+         payment_percentage_basis_points = ?,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+       WHERE id = ?`,
+      nextAuthorized,
+      nextType,
+      nextFixed,
+      nextPct,
+      id
+    );
+
+    await this.repo.audit(actor.id, actor.staffId, "admin.booking.payment_policy_change", "booking", id, {
+      previous: {
+        partial_payment_authorized: previousAuthorized,
+        payment_requirement_type: previousType,
+        payment_fixed_amount_minor: previousFixed,
+        payment_percentage_basis_points: previousPct
+      },
+      next: {
+        partial_payment_authorized: nextAuthorized,
+        payment_requirement_type: nextType,
+        payment_fixed_amount_minor: nextFixed,
+        payment_percentage_basis_points: nextPct
+      },
+      reason
+      // never include Ghana Card, OTP, tokens, or slip contents
+    });
+
     return this.getBookingAgreement(id);
   }
 
@@ -1514,24 +1637,33 @@ export class AdminService {
     return this.get("allocations", id);
   }
 
-    async bookingPaymentSummary(bookingId: number) {
+  async bookingPaymentSummary(bookingId: number) {
     const booking = await this.get("bookings", bookingId) as Record<string, unknown> | null;
     if (!booking) throw new Error("Booking not found");
     const paid = await this.repo.first<{ verified_paid_minor: number }>("SELECT COALESCE(SUM(amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'", bookingId);
     const setting = await this.repo.first<{ requirement_type: string; fixed_amount_minor: number | null; percentage_basis_points: number | null }>("SELECT requirement_type, fixed_amount_minor, percentage_basis_points FROM payment_confirmation_settings WHERE id = 1 AND status = 'active'");
-    const total = Number(booking.total_amount_minor);
-    const verifiedPaid = Number(paid?.verified_paid_minor ?? 0);
-    const required = this.requiredConfirmationAmount(total, setting ?? { requirement_type: "full", fixed_amount_minor: null, percentage_basis_points: null });
+    const financial = computeAgreementFinancial(booking, Number(paid?.verified_paid_minor ?? 0));
+    // Confirmation threshold remains based on agreed accommodation (historical confirmation policy).
+    const accommodation = financial.agreed_accommodation_amount_minor;
+    const verifiedPaid = financial.verified_paid_minor;
+    const required = this.requiredConfirmationAmount(accommodation, setting ?? { requirement_type: "full", fixed_amount_minor: null, percentage_basis_points: null });
     return {
       bookingId,
-      bookingTotalMinor: total,
+      bookingTotalMinor: accommodation,
+      maintenanceFeeMinor: financial.maintenance_fee_minor,
+      agreementObligationMinor: financial.total_obligation_minor,
       verifiedPaidMinor: verifiedPaid,
-      balanceMinor: total - verifiedPaid,
+      // Authoritative outstanding uses accommodation + maintenance.
+      balanceMinor: financial.balance_minor,
       requiredConfirmationAmountMinor: required,
       remainingToConfirmationMinor: Math.max(required - verifiedPaid, 0),
       confirmationRequirementMet: verifiedPaid >= required,
       bookingStatus: booking.status,
-      paymentAttentionRequired: Boolean(booking.payment_attention_required)
+      paymentAttentionRequired: Boolean(booking.payment_attention_required),
+      partialPaymentAuthorized: isPartialPaymentAuthorized(booking),
+      paymentRequirementType: (booking.payment_requirement_type as string | null) ?? null,
+      paymentFixedAmountMinor: booking.payment_fixed_amount_minor == null ? null : Number(booking.payment_fixed_amount_minor),
+      paymentPercentageBasisPoints: booking.payment_percentage_basis_points == null ? null : Number(booking.payment_percentage_basis_points)
     };
   }
 
@@ -1539,7 +1671,13 @@ export class AdminService {
     const booking = await this.get("bookings", data.bookingId) as Record<string, unknown> | null;
     if (!booking) throw new Error("Booking not found");
     if (Number(booking.resident_id) !== data.residentId) throw new Error("Payment resident/booking mismatch");
-    if (data.amountMinor <= 0) throw new Error("Payment amount must be positive");
+    if (!Number.isInteger(data.amountMinor) || data.amountMinor <= 0) throw new Error("Payment amount must be positive");
+    const paid = await this.repo.first<{ verified_paid_minor: number }>(
+      "SELECT COALESCE(SUM(amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
+      data.bookingId
+    );
+    const outstanding = Math.max(agreementObligationMinor(booking) - Number(paid?.verified_paid_minor ?? 0), 0);
+    if (data.amountMinor > outstanding) throw new Error("Payment would exceed booking total");
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const paymentReference = await this.repo.allocatePaymentReference();
       try {
@@ -1588,7 +1726,8 @@ export class AdminService {
     if (!payment) throw new Error("Payment not found");
     if (payment.status !== "submitted") throw new Error("Invalid workflow transition");
     const before = await this.bookingPaymentSummary(Number(payment.booking_id));
-    if (before.verifiedPaidMinor + Number(payment.amount_minor) > before.bookingTotalMinor) throw new Error("Payment would exceed booking total");
+    const obligation = before.agreementObligationMinor ?? before.bookingTotalMinor;
+    if (before.verifiedPaidMinor + Number(payment.amount_minor) > obligation) throw new Error("Payment would exceed booking total");
     const update = await this.repo.run(`
       UPDATE payments
       SET status = 'verified',
@@ -1598,7 +1737,10 @@ export class AdminService {
           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
       WHERE id = ?
         AND status = 'submitted'
-        AND (SELECT b.total_amount_minor FROM bookings b WHERE b.id = ?) >= (
+        AND (
+          SELECT b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)
+          FROM bookings b WHERE b.id = ?
+        ) >= (
           SELECT COALESCE(SUM(p.amount_minor), 0) + ?
           FROM payments p
           WHERE p.booking_id = ?
@@ -2020,7 +2162,7 @@ export class AdminService {
       SELECT
         (SELECT COALESCE(SUM(total_amount_minor), 0) FROM bookings WHERE status IN ('pending', 'confirmed', 'completed')) AS expected_booking_revenue,
         (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status = 'verified') AS verified_payments,
-        ((SELECT COALESCE(SUM(total_amount_minor), 0) FROM bookings WHERE status IN ('pending', 'confirmed', 'completed')) - (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status = 'verified')) AS outstanding_booking_balances,
+        ((SELECT COALESCE(SUM(total_amount_minor + COALESCE(maintenance_fee_minor, 0)), 0) FROM bookings WHERE status IN ('pending', 'confirmed', 'completed')) - (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status = 'verified')) AS outstanding_booking_balances,
         (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status IN ('pending', 'submitted')) AS pending_submitted_payment_totals,
         (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status = 'refunded') AS refunded_totals,
         (SELECT COUNT(*) FROM bookings b WHERE b.total_amount_minor <= (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS fully_paid_bookings,
@@ -2108,7 +2250,7 @@ export class AdminService {
         r.resident_code, r.first_name, r.last_name,
         room.room_code AS priced_room_code,
         COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS verified_amount_minor,
-        b.total_amount_minor - COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS outstanding_amount_minor
+        (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) - COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS outstanding_amount_minor
        FROM bookings b
        JOIN residents r ON r.id = b.resident_id
        LEFT JOIN academic_sessions s ON s.id = b.academic_session_id
@@ -2132,11 +2274,11 @@ export class AdminService {
     const paymentScope = paymentWhere.length ? `AND ${paymentWhere.join(" AND ")}` : "";
     const summary = await this.repo.first<Record<string, unknown>>(
       `SELECT
-        (SELECT COALESCE(SUM(b.total_amount_minor), 0) FROM bookings b WHERE ${bookingWhere.join(" AND ")}) AS expected_booking_revenue,
+        (SELECT COALESCE(SUM(b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)), 0) FROM bookings b WHERE ${bookingWhere.join(" AND ")}) AS expected_booking_revenue,
         (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p LEFT JOIN bookings b ON b.id = p.booking_id WHERE p.status = 'verified' ${paymentScope}) AS verified_payments,
         (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p LEFT JOIN bookings b ON b.id = p.booking_id WHERE p.status IN ('pending', 'submitted') ${paymentScope}) AS pending_submitted_payment_totals,
         (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p LEFT JOIN bookings b ON b.id = p.booking_id WHERE p.status = 'refunded' ${paymentScope}) AS refunded_totals,
-        (SELECT COUNT(*) FROM bookings b WHERE ${bookingWhere.join(" AND ")} AND b.total_amount_minor <= (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS fully_paid_bookings,
+        (SELECT COUNT(*) FROM bookings b WHERE ${bookingWhere.join(" AND ")} AND (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) <= (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS fully_paid_bookings,
         (SELECT COUNT(*) FROM bookings b WHERE ${bookingWhere.join(" AND ")} AND b.payment_attention_required = 1) AS bookings_requiring_payment_attention`,
       ...bookingBinds,
       ...paymentBinds,
@@ -2162,10 +2304,11 @@ export class AdminService {
     const binds: unknown[] = [];
     if (filters.academicSessionId) { where.push("b.academic_session_id = ?"); binds.push(filters.academicSessionId); }
     const rows = await this.repo.all<Record<string, unknown>>(
-      `SELECT b.id, b.booking_number, b.status, b.total_amount_minor, b.currency, b.payment_attention_required,
+      `SELECT b.id, b.booking_number, b.status, b.total_amount_minor, b.maintenance_fee_minor, b.currency, b.payment_attention_required,
+        b.lease_kind, b.academic_session_id,
         r.resident_code, r.first_name, r.last_name,
         COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS verified_amount_minor,
-        b.total_amount_minor - COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS outstanding_amount_minor
+        (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) - COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS outstanding_amount_minor
        FROM bookings b
        JOIN residents r ON r.id = b.resident_id
        WHERE ${where.join(" AND ")}

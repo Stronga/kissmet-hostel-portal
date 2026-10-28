@@ -33,6 +33,14 @@ const SAFE_PREFIXES = [
   "Payment would exceed",
   "Confirmation threshold",
   "required",
+  "Full payment",
+  "Partial payment",
+  "Cannot change payment",
+  "No payment policy",
+  "Fixed arrangement",
+  "Percentage arrangement",
+  "Override reason",
+  "No agreement",
   "Service temporarily",
   "Misconfigured"
 ];

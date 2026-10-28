@@ -94,6 +94,10 @@ export interface ResidentBooking {
   starts_on?: string | null;
   ends_on?: string | null;
   maintenance_fee_minor?: number | null;
+  partial_payment_authorized?: number | boolean | null;
+  payment_requirement_type?: "full" | "fixed" | "percentage" | string | null;
+  payment_fixed_amount_minor?: number | null;
+  payment_percentage_basis_points?: number | null;
   lease_period_code?: string | null;
   lease_period_name?: string | null;
   academic_session_code?: string | null;
@@ -127,8 +131,11 @@ export interface ResidentPaymentSummary {
   bookingNumber: string;
   bookingStatus: BookingStatus;
   bookingTotalMinor: number;
+  maintenanceFeeMinor?: number | null;
+  agreementObligationMinor?: number;
   verifiedTotalMinor: number;
   outstandingMinor: number;
+  balanceMinor?: number;
   submittedTotalMinor: number;
   pendingTotalMinor: number;
   refundedTotalMinor: number;
@@ -138,6 +145,10 @@ export interface ResidentPaymentSummary {
   currency: string;
   paymentAttentionRequired: boolean;
   paymentAttentionReason?: string | null;
+  partialPaymentAuthorized?: boolean;
+  paymentRequirementType?: string | null;
+  paymentFixedAmountMinor?: number | null;
+  paymentPercentageBasisPoints?: number | null;
 }
 
 export interface ResidentReceipt {

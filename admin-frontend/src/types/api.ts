@@ -133,6 +133,10 @@ export interface Booking {
   starts_on?: string | null;
   ends_on?: string | null;
   maintenance_fee_minor?: number | null;
+  partial_payment_authorized?: number | boolean | null;
+  payment_requirement_type?: "full" | "fixed" | "percentage" | string | null;
+  payment_fixed_amount_minor?: number | null;
+  payment_percentage_basis_points?: number | null;
   override_reason?: string | null;
   payment_attention_required?: number | boolean | null;
   payment_attention_reason?: string | null;
@@ -152,6 +156,10 @@ export interface BookingAgreementView {
   lease_kind: "academic_calendar" | "calendar_year" | "short_term" | string | null;
   starts_on: string | null;
   ends_on: string | null;
+  payment_requirement_type?: "full" | "fixed" | "percentage" | string | null;
+  payment_fixed_amount_minor?: number | null;
+  payment_percentage_basis_points?: number | null;
+  partial_payment_authorized?: number | boolean | null;
   priced_room_id: number | null;
   priced_room_rate_id: number | null;
   academic_session_id: number | null;
@@ -253,6 +261,8 @@ export interface AvailabilityBed {
 export interface BookingPaymentSummary {
   bookingId: number;
   bookingTotalMinor: number;
+  maintenanceFeeMinor?: number | null;
+  agreementObligationMinor?: number;
   verifiedPaidMinor: number;
   balanceMinor: number;
   requiredConfirmationAmountMinor: number;
@@ -260,6 +270,10 @@ export interface BookingPaymentSummary {
   confirmationRequirementMet: boolean;
   bookingStatus: BookingStatus;
   paymentAttentionRequired: boolean;
+  partialPaymentAuthorized?: boolean;
+  paymentRequirementType?: string | null;
+  paymentFixedAmountMinor?: number | null;
+  paymentPercentageBasisPoints?: number | null;
 }
 
 export type PaymentStatus = "pending" | "submitted" | "verified" | "rejected" | "refunded" | "cancelled" | "archived";

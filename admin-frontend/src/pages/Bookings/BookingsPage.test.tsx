@@ -16,8 +16,9 @@ const submittedApp = { ...approvedApp, id: 12, application_number: "KSM-APP-0012
 const room = { id: 2, room_code: "A1", room_name: "Aster", capacity: 2, gender_policy: "female", status: "available" };
 const rate = { id: 5, room_id: 2, academic_session_id: 1, rate_code: "A1-2026", amount_minor: 250000, currency: "GHS", status: "active" };
 const leasePeriod = { id: 3, kind: "short_term", code: "ST", name: "Short-Term Jan–Mar 2027", starts_on: "2027-01-01", ends_on: "2027-03-31", status: "active", academic_session_id: null, notes: null };
-const booking = { id: 21, resident_id: 7, academic_session_id: 1, application_id: 11, booking_number: "KSM-BKG-0021", status: "pending", total_amount_minor: 250000, currency: "GHS", priced_room_id: 2, priced_room_rate_id: 5, created_at: "2026-08-28T03:37:35.599Z", payment_attention_required: 0 };
-const flexibleBooking = { id: 22, resident_id: 7, academic_session_id: null, application_id: 11, booking_number: "KSM-BKG-0022", status: "pending", total_amount_minor: 350000, currency: "GHS", priced_room_id: 2, priced_room_rate_id: null, lease_period_id: 3, lease_kind: "short_term", starts_on: "2027-01-01", ends_on: "2027-03-31", maintenance_fee_minor: 15000, created_at: "2026-08-28T03:37:35.599Z", payment_attention_required: 0 };
+const booking = { id: 21, resident_id: 7, academic_session_id: 1, application_id: 11, booking_number: "KSM-BKG-0021", status: "pending", total_amount_minor: 250000, currency: "GHS", priced_room_id: 2, priced_room_rate_id: 5, created_at: "2026-08-28T03:37:35.599Z", payment_attention_required: 0, partial_payment_authorized: 0, payment_requirement_type: "full" };
+const flexibleBooking = { id: 22, resident_id: 7, academic_session_id: null, application_id: 11, booking_number: "KSM-BKG-0022", status: "pending", total_amount_minor: 350000, currency: "GHS", priced_room_id: 2, priced_room_rate_id: null, lease_period_id: 3, lease_kind: "short_term", starts_on: "2027-01-01", ends_on: "2027-03-31", maintenance_fee_minor: 15000, created_at: "2026-08-28T03:37:35.599Z", payment_attention_required: 0, partial_payment_authorized: 0, payment_requirement_type: "full" };
+const partialBooking = { ...flexibleBooking, id: 23, booking_number: "KSM-BKG-0023", partial_payment_authorized: 1, payment_requirement_type: "fixed", payment_fixed_amount_minor: 150000 };
 const eligibleSummary = { bookingId: 21, bookingTotalMinor: 250000, verifiedPaidMinor: 250000, balanceMinor: 0, requiredConfirmationAmountMinor: 250000, remainingToConfirmationMinor: 0, confirmationRequirementMet: true, bookingStatus: "pending", paymentAttentionRequired: false };
 const insufficientSummary = { ...eligibleSummary, verifiedPaidMinor: 50000, balanceMinor: 200000, remainingToConfirmationMinor: 200000, confirmationRequirementMet: false };
 
@@ -69,6 +70,28 @@ function renderBookings(options: { role?: "manager" | "maintenance"; bookings?: 
         request: { application_id: 11, requested_lease_kind: "short_term", requested_lease_period_id: 3, requested_academic_session_id: null, application_number: "KSM-APP-0011" }
       }
     });
+    if (url.endsWith("/admin/bookings/23")) return json({ ok: true, data: partialBooking });
+    if (url.endsWith("/admin/bookings/23/payment-summary")) return json({ ok: true, data: { ...eligibleSummary, bookingId: 23, bookingTotalMinor: 350000, maintenanceFeeMinor: 15000, agreementObligationMinor: 365000, verifiedPaidMinor: 0, balanceMinor: 365000, confirmationRequirementMet: false, partialPaymentAuthorized: true, paymentRequirementType: "fixed", paymentFixedAmountMinor: 150000 } });
+    if (url.endsWith("/admin/bookings/23/agreement")) return json({
+      ok: true,
+      data: {
+        booking: partialBooking,
+        agreement: { pricing_path: "lease_rate_card", lease_kind: "short_term", academic_session_id: null, agreed_accommodation_amount_minor: 350000, maintenance_fee_minor: 15000, lease_period_id: 3, partial_payment_authorized: 1, payment_requirement_type: "fixed", payment_fixed_amount_minor: 150000 },
+        financial: { agreed_accommodation_amount_minor: 350000, maintenance_fee_minor: 15000, total_obligation_minor: 365000, verified_paid_minor: 0, balance_minor: 365000, currency: "GHS" },
+        request: null
+      }
+    });
+    if (url.endsWith("/admin/bookings/23/payment-policy") && init?.method === "PATCH") {
+      return json({
+        ok: true,
+        data: {
+          booking: { ...partialBooking, partial_payment_authorized: 0, payment_requirement_type: "full", payment_fixed_amount_minor: null },
+          agreement: { partial_payment_authorized: 0, payment_requirement_type: "full", agreed_accommodation_amount_minor: 350000, maintenance_fee_minor: 15000 },
+          financial: { agreed_accommodation_amount_minor: 350000, maintenance_fee_minor: 15000, total_obligation_minor: 365000, verified_paid_minor: 0, balance_minor: 365000, currency: "GHS" },
+          request: null
+        }
+      });
+    }
     if (url.includes("/admin/availability")) return json({ ok: true, data: [{ room_id: 2, room_code: "A1", room_name: "Aster", capacity: 2, gender_policy: "female", bed_id: 9, bed_code: "A1-A", label: "A", amount_minor: 250000, currency: "GHS" }] });
     return new Response(null, { status: 404 });
   });
@@ -196,6 +219,33 @@ describe("BookingsPage", () => {
     expect(screen.getAllByText("GHS 3,500.00").length).toBeGreaterThan(0);
     expect(screen.getAllByText("GHS 150.00").length).toBeGreaterThan(0);
     expect(screen.getAllByText("GHS 3,650.00").length).toBeGreaterThan(0);
+    expect(screen.getByText("Full Payment")).toBeInTheDocument();
+    expect(screen.queryByText("Security Deposit")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Payment Policy" })).toBeInTheDocument();
+  });
+
+  it("shows partial payment authorized arrangement and allows manager policy control", async () => {
+    renderBookings({ bookings: [partialBooking] });
+    await userEvent.click(await screen.findByRole("button", { name: "View" }));
+    expect(await screen.findByText("Partial Payment Authorized")).toBeInTheDocument();
+    expect(screen.getByText(/Approved minimum initial amount: GHS 1,500.00/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Payment Policy" }));
+    expect(await screen.findByText("Agreement Payment Policy")).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("Full Payment"));
+    await userEvent.type(screen.getByLabelText("Management reason"), "Resident can now pay remaining in full");
+    await userEvent.click(screen.getByRole("button", { name: "Save Payment Policy" }));
+    await waitFor(() => {
+      const patch = vi.mocked(globalThis.fetch).mock.calls.find(([url, init]) => String(url).endsWith("/payment-policy") && init?.method === "PATCH");
+      expect(patch).toBeTruthy();
+      expect(String(patch?.[1]?.body)).toContain('"partialPaymentAuthorized":false');
+    });
+  });
+
+  it("hides payment policy control for maintenance role", async () => {
+    renderBookings({ role: "maintenance", bookings: [flexibleBooking] });
+    await userEvent.click(await screen.findByRole("button", { name: "View" }));
+    expect(await screen.findByText("Full Payment")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Payment Policy" })).not.toBeInTheDocument();
   });
 
 });

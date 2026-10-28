@@ -146,7 +146,7 @@ class WorkflowRepo {
       const verified = this.rows.payments
         .filter((p) => p.booking_id === binds[5] && p.status === "verified" && p.id !== binds[6])
         .reduce((sum, p) => sum + Number(p.amount_minor), 0);
-      if (row && booking && Number(booking.total_amount_minor) >= verified + Number(binds[4])) {
+      if (row && booking && (Number(booking.total_amount_minor) + Number(booking.maintenance_fee_minor ?? 0)) >= verified + Number(binds[4])) {
         Object.assign(row, { status: "verified", verified_by_staff_id: binds[0], notes: binds[1] });
         return { meta: { changes: 1 } };
       }
@@ -493,7 +493,10 @@ describe("phase 5 workflows", () => {
     repo.rows.bookings[0].status = "cancelled";
     repo.rows.applications[0].status = "archived";
     const secondBooking = await approvedBooking(svc, repo);
-    await svc.createPayment(manager, { bookingId: secondBooking, residentId: 1, amountMinor: 300000, method: "cash" });
+    await expect(svc.createPayment(manager, { bookingId: secondBooking, residentId: 1, amountMinor: 300000, method: "cash" })).rejects.toThrow("Payment would exceed booking total");
+    await svc.createPayment(manager, { bookingId: secondBooking, residentId: 1, amountMinor: 250000, method: "cash" });
+    // Simulate a race where submitted amount is raised above obligation before verify.
+    repo.rows.payments[1].amount_minor = 300000;
     await svc.updatePaymentStatus(manager, 2, "submitted");
     await expect(svc.verifyPayment(manager, 2)).rejects.toThrow("Payment would exceed booking total");
   });

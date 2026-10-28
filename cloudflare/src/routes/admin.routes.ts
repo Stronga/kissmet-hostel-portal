@@ -481,6 +481,26 @@ routes.patch("/bookings/:id/agreement", requirePermission("admin:write"), async 
     })));
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
+routes.patch("/bookings/:id/payment-policy", requirePermission("admin:write"), async (c) => {
+  try {
+    const input = await body(c);
+    const authorizedRaw = input.partialPaymentAuthorized;
+    if (typeof authorizedRaw !== "boolean") throw new Error("partialPaymentAuthorized must be a boolean");
+    return c.json(ok(await service(c).setBookingPaymentPolicy(c.get("authUser"), Number(c.req.param("id")), {
+      partialPaymentAuthorized: authorizedRaw,
+      paymentRequirementType: Object.prototype.hasOwnProperty.call(input, "paymentRequirementType")
+        ? stringField(input, "paymentRequirementType", false)
+        : undefined,
+      paymentFixedAmountMinor: Object.prototype.hasOwnProperty.call(input, "paymentFixedAmountMinor")
+        ? intField(input, "paymentFixedAmountMinor", false)
+        : undefined,
+      paymentPercentageBasisPoints: Object.prototype.hasOwnProperty.call(input, "paymentPercentageBasisPoints")
+        ? intField(input, "paymentPercentageBasisPoints", false)
+        : undefined,
+      reason: stringField(input, "reason", true, 2000)!
+    })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
 routes.patch("/bookings/:id/status", async (c) => {
   try {
     const input = await body(c);

@@ -153,19 +153,41 @@ export function PaymentsPage() {
               <p className="mt-1">{data.summary.paymentAttentionReason || "This booking needs payment review."}</p>
             </div>
           ) : null}
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="mt-4 rounded-2xl border border-border bg-muted/40 p-4 text-sm">
+            <p className="font-semibold text-text-primary">
+              Payment requirement: {data.summary.partialPaymentAuthorized ? "Partial Payment Authorized" : "Full Payment"}
+            </p>
+            <p className="mt-1 text-text-secondary">
+              {data.summary.partialPaymentAuthorized
+                ? (data.summary.paymentRequirementType === "fixed" && data.summary.paymentFixedAmountMinor != null
+                  ? `Management approved a minimum initial amount of ${formatMoneyMinor(data.summary.paymentFixedAmountMinor, data.summary.currency)}. Contact management if you need the arrangement changed.`
+                  : data.summary.paymentRequirementType === "percentage" && data.summary.paymentPercentageBasisPoints != null
+                    ? `Management approved a minimum initial share of ${(Number(data.summary.paymentPercentageBasisPoints) / 100).toFixed(2)}%. Contact management if you need the arrangement changed.`
+                    : "Management has authorized a partial-payment arrangement for this agreement. Contact management if you need changes.")
+                : "Full payment of the outstanding obligation is required. Partial payment is not a self-service option — contact management if you need an arrangement."}
+            </p>
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <SummaryMetric
-              label="Booking total"
+              label="Accommodation"
               value={formatMoneyMinor(data.summary.bookingTotalMinor, data.summary.currency)}
             />
             <SummaryMetric
-              label="Verified"
+              label="Maintenance Fee"
+              value={data.summary.maintenanceFeeMinor == null ? "Not set" : formatMoneyMinor(data.summary.maintenanceFeeMinor, data.summary.currency)}
+            />
+            <SummaryMetric
+              label="Total Obligation"
+              value={formatMoneyMinor(data.summary.agreementObligationMinor ?? data.summary.bookingTotalMinor, data.summary.currency)}
+            />
+            <SummaryMetric
+              label="Verified Paid"
               value={formatMoneyMinor(data.summary.verifiedTotalMinor, data.summary.currency)}
               helpLabel="About verified payment"
               help="Outstanding balance uses verified payments only. Uploading a slip or submitting a payment does not verify it."
             />
             <SummaryMetric
-              label="Outstanding"
+              label="Balance"
               value={formatMoneyMinor(data.summary.outstandingMinor, data.summary.currency)}
               helpLabel="About outstanding balance"
               help="Outstanding balance uses verified payments only. Meeting the confirmation threshold does not auto-confirm the booking."

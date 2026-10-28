@@ -153,10 +153,12 @@ export function BookingPage() {
             </h2>
             {booking ? (
               <div className="mt-3 space-y-3 text-sm text-text-secondary">
-                <Detail label="Captured amount due" value={bookingAmount(booking)} />
-                <Detail label="Verified payments" value={data.paymentSummary ? formatMoneyMinor(data.paymentSummary.verifiedTotalMinor, data.paymentSummary.currency) : "Unavailable"} />
-                <Detail label="Outstanding" value={data.paymentSummary ? formatMoneyMinor(data.paymentSummary.outstandingMinor, data.paymentSummary.currency) : "Unavailable"} />
-                <p>Meeting the payment threshold does not confirm the booking automatically.</p>
+                <Detail label="Payment requirement" value={Number(booking.partial_payment_authorized) === 1 || data.paymentSummary?.partialPaymentAuthorized ? "Partial Payment Authorized" : "Full Payment"} />
+                <Detail label="Accommodation" value={bookingAmount(booking)} />
+                <Detail label="Maintenance fee" value={booking.maintenance_fee_minor == null ? "Not set" : bookingAmount({ ...booking, total_amount_minor: booking.maintenance_fee_minor })} />
+                <Detail label="Verified paid" value={data.paymentSummary ? formatMoneyMinor(data.paymentSummary.verifiedTotalMinor, data.paymentSummary.currency) : "Unavailable"} />
+                <Detail label="Balance" value={data.paymentSummary ? formatMoneyMinor(data.paymentSummary.outstandingMinor, data.paymentSummary.currency) : "Unavailable"} />
+                <p>Payment policy is set by management. Meeting the payment threshold does not confirm the booking automatically.</p>
                 <Link to="/payments" className="inline-flex min-h-11 items-center rounded-full border border-border bg-surface px-4 py-2 text-sm font-semibold text-text-primary">
                   Go to payments
                 </Link>

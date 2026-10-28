@@ -26,8 +26,10 @@ export function BookingDetail({
   summaryError,
   canWrite,
   canConfirm,
+  canManagePaymentPolicy,
   pending,
-  onAction
+  onAction,
+  onEditPaymentPolicy
 }: {
   booking: Booking;
   application?: Application;
@@ -42,8 +44,10 @@ export function BookingDetail({
   summaryError: string | null;
   canWrite: boolean;
   canConfirm: boolean;
+  canManagePaymentPolicy?: boolean;
   pending: boolean;
   onAction: (status: BookingStatus) => void;
+  onEditPaymentPolicy?: () => void;
 }) {
   const leasePeriod = booking.lease_period_id
     ? leasePeriods?.find((period) => period.id === booking.lease_period_id)
@@ -78,6 +82,8 @@ export function BookingDetail({
         financial={financial}
         leasePeriodName={leasePeriod?.name}
         requestedLeaseKind={application?.lease_kind}
+        canManagePaymentPolicy={canManagePaymentPolicy}
+        onEditPaymentPolicy={onEditPaymentPolicy}
       />
       <BookingPaymentSummary booking={booking} summary={summary} error={summaryError} />
       <Section title="Allocation" rows={[
