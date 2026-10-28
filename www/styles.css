@@ -1,10 +1,10 @@
-/* Kissmet Group — under-construction / coming-soon
-   Light page; brand palette accents from the emblem */
+/* Kissmet Group — coming soon
+   White page; hostel sketch as large blended background */
 
 :root {
   --bg: #ffffff;
   --fg: #1a1a1a;
-  --fg-muted: #5c5c5c;
+  --fg-muted: #4a4a4a;
   --gold: #b8860b;
   --red: #c62828;
   --green-soft: #2e7d32;
@@ -32,13 +32,14 @@ body {
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
 
 .skip-link {
   position: absolute;
   left: 1rem;
   top: -3rem;
-  z-index: 10;
+  z-index: 20;
   padding: 0.5rem 0.85rem;
   background: var(--gold);
   color: #111;
@@ -51,11 +52,36 @@ body {
   top: 1rem;
 }
 
+/* Large building sketch as page background — blends into white */
+.bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: var(--bg);
+}
+
+.bg picture,
+.bg img {
+  display: block;
+  width: min(132vw, 92rem);
+  max-width: none;
+  height: auto;
+  margin: 0 auto -4vh;
+  opacity: 0.55;
+  mix-blend-mode: multiply;
+  user-select: none;
+}
+
 .page {
   position: relative;
-  width: min(100% - 2.5rem, 56rem);
+  z-index: 1;
+  width: min(100% - 2.5rem, 48rem);
   margin: 0 auto;
-  padding: 2.75rem 0 11rem;
+  padding: 2.75rem 0 3rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -73,14 +99,17 @@ body {
   width: min(15.5rem, 62vw);
   height: auto;
   border: none;
-  border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
 
 .content {
-  width: min(100%, 42rem);
+  width: min(100%, 40rem);
   text-align: center;
+  padding: 1.25rem 1.1rem 1.35rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(6px);
 }
 
 .eyebrow {
@@ -111,44 +140,18 @@ h1 {
 .support {
   margin: 0 auto;
   max-width: 32rem;
-  color: #6e6e6e;
+  color: #5f5f5f;
   font-size: 0.98rem;
-}
-
-.building {
-  position: fixed;
-  left: max(1rem, env(safe-area-inset-left));
-  bottom: max(1rem, env(safe-area-inset-bottom));
-  z-index: 1;
-  margin: 0;
-  width: min(42vw, 22rem);
-  max-width: calc(100vw - 2rem);
-}
-
-.building-image {
-  display: block;
-  width: 100%;
-  height: auto;
-  border: none;
-  background: transparent;
-}
-
-.building figcaption {
-  margin: 0.4rem 0 0;
-  font-size: 0.7rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #8a8a8a;
-  text-align: left;
 }
 
 .footer {
   margin-top: auto;
-  width: min(100%, 42rem);
+  width: min(100%, 40rem);
   text-align: center;
-  padding-top: 0.5rem;
-  position: relative;
-  z-index: 2;
+  padding: 0.85rem 1rem 0.25rem;
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(6px);
 }
 
 .accent-bar {
@@ -162,13 +165,12 @@ h1 {
 .footer p {
   margin: 0;
   font-size: 0.85rem;
-  color: #7a7a7a;
+  color: #6a6a6a;
 }
 
 @media (min-width: 720px) {
   .page {
-    padding-top: 3.5rem;
-    padding-bottom: 13rem;
+    padding-top: 3.25rem;
     gap: 2rem;
   }
 
@@ -176,20 +178,26 @@ h1 {
     width: 17rem;
   }
 
-  .building {
-    width: min(36vw, 26rem);
-    left: 1.5rem;
-    bottom: 1.5rem;
+  .bg img {
+    width: min(118vw, 96rem);
+    margin-bottom: -6vh;
+    opacity: 0.6;
+  }
+}
+
+@media (min-width: 1100px) {
+  .bg img {
+    width: min(105vw, 100rem);
+    opacity: 0.65;
   }
 }
 
 @media (max-width: 520px) {
-  .page {
-    padding-bottom: 9.5rem;
-  }
-
-  .building {
-    width: min(58vw, 14rem);
+  .bg img {
+    width: 165vw;
+    margin-left: -12vw;
+    margin-bottom: -2vh;
+    opacity: 0.5;
   }
 }
 
@@ -200,10 +208,18 @@ h1 {
 }
 
 @media (prefers-contrast: more) {
+  .content,
+  .footer {
+    background: #fff;
+  }
+
+  .bg img {
+    opacity: 0.35;
+  }
+
   .lede,
   .support,
-  .footer p,
-  .building figcaption {
+  .footer p {
     color: #222;
   }
 }
