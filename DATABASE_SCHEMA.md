@@ -23,6 +23,10 @@ cloudflare/migrations/0008_booking_priced_room.sql
 cloudflare/migrations/0009_announcements_alerts.sql
 cloudflare/migrations/0010_messages_communications.sql
 cloudflare/migrations/0011_system_settings.sql
+cloudflare/migrations/0012_resident_internet_accounts.sql
+cloudflare/migrations/0013_lease_periods_and_kinds.sql
+cloudflare/migrations/0014_rate_cards.sql
+cloudflare/migrations/0015_booking_agreement_terms.sql
 ```
 
 Development seed data is:
@@ -497,3 +501,32 @@ cloudflare/tests/constraint-duplicate-room-rate.sql
 cloudflare/tests/constraint-invalid-money.sql
 cloudflare/tests/constraint-invalid-foreign-key.sql
 ```
+
+
+## Stage 2L-B — Flexible lease foundation
+
+Additive schema only. Migrations `0013`–`0015` introduce commercial lease periods and default rate cards while evolving `bookings` into the durable agreement snapshot. Existing application/session/`room_rates` flows remain operational; new columns are nullable during transition.
+
+### `lease_periods`
+
+Commercial accommodation periods distinct from institutional `academic_sessions`.
+
+- Kinds: `academic_calendar`, `calendar_year`, `short_term`
+- Statuses: `draft`, `active`, `closed`, `archived` (same lifecycle pattern as academic sessions)
+- Optional nullable `academic_session_id` only when `kind = 'academic_calendar'`
+- Calendar Year and Short-Term do not require academic sessions
+- Short-term package defaults (`package_months`) live on `rate_cards`, not here
+
+### `rate_cards`
+
+Management DEFAULT/list pricing by `lease_period_id` + `occupancy_capacity` (`1`/`2`/`4`) + `amount_minor`.
+
+- `room_rates` remains intact for compatibility
+- Editing a rate card must never alter historical `bookings.total_amount_minor`
+- Partial unique index: one **active** card per period/occupancy
+
+### `bookings` agreement columns (`0015`)
+
+- Authoritative agreed accommodation fee: existing `total_amount_minor`
+- Added: `lease_period_id`, `lease_kind`, `starts_on`, `ends_on`, `maintenance_fee_minor`, payment arrangement overrides (`payment_requirement_type`, `payment_fixed_amount_minor`, `payment_percentage_basis_points`, `partial_payment_authorized`), `prior_booking_id`, `override_reason`
+- Date range `starts_on <= ends_on` enforced by triggers (SQLite cannot ADD table CHECK via ALTER)
