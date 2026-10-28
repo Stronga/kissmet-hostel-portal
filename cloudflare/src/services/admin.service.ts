@@ -1193,6 +1193,494 @@ export class AdminService {
     return this.getBookingAgreement(id);
   }
 
+  /**
+   * Stage 2L-K RENEWAL: create a NEW booking linked via prior_booking_id.
+   * Old agreement is never mutated. application_id is NULL (management-created;
+   * does not share/reuse the prior application due to one-active-per-application).
+   * Full payment default; no payment/partial carry-forward; no auto allocation.
+   */
+  async renewBooking(actor: AuthUser, priorBookingId: number, data: {
+    roomId: number;
+    leasePeriodId: number;
+    occupancyCapacity?: number;
+    maintenanceFeeMinor?: number | null;
+    agreedAmountMinor?: number | null;
+    overrideReason?: string | null;
+    startsOn?: string | null;
+    endsOn?: string | null;
+    expiresAt?: string | null;
+    reason?: string | null;
+  }) {
+    const prior = await this.get("bookings", priorBookingId) as Record<string, unknown> | null;
+    if (!prior) throw new Error("Prior booking not found");
+    const priorStatus = String(prior.status);
+    const eligible = new Set(["pending", "confirmed", "completed"]);
+    if (!eligible.has(priorStatus)) {
+      throw new Error("Prior agreement is not eligible for renewal");
+    }
+    if (priorBookingId === Number(prior.prior_booking_id)) {
+      throw new Error("Invalid prior booking reference");
+    }
+
+    // Reject renewal cycles in the ancestry of the chosen prior (defensive).
+    const seen = new Set<number>([priorBookingId]);
+    let walkId = prior.prior_booking_id == null ? null : Number(prior.prior_booking_id);
+    let depth = 0;
+    while (walkId != null && depth < 50) {
+      if (seen.has(walkId)) throw new Error("Renewal cycle detected in prior booking chain");
+      seen.add(walkId);
+      const node = await this.get("bookings", walkId) as Record<string, unknown> | null;
+      walkId = node?.prior_booking_id == null ? null : Number(node.prior_booking_id);
+      depth += 1;
+    }
+
+    const period = await this.get("lease_periods", data.leasePeriodId) as Record<string, unknown> | null;
+    if (!period) throw new Error("Lease period not found");
+    if (!isLeaseKind(period.kind)) throw new Error("Invalid lease kind on lease period");
+    const approvedKind = period.kind as LeaseKind;
+
+    let bookingSessionId: number | null = null;
+    if (approvedKind === "academic_calendar") {
+      bookingSessionId = period.academic_session_id == null ? null : Number(period.academic_session_id);
+    } else {
+      bookingSessionId = null;
+    }
+
+    const room = await this.get("rooms", data.roomId) as Record<string, unknown> | null;
+    if (!room) throw new Error("Room not found");
+    const occupancy = data.occupancyCapacity ?? Number(room.capacity);
+    if (!isRateCardOccupancyCapacity(occupancy)) {
+      throw new Error("Invalid occupancy capacity: only 1, 2, or 4 are supported");
+    }
+    if (Number(room.capacity) !== occupancy) {
+      throw new Error("Occupancy capacity must match the room's configured capacity");
+    }
+
+    let rateCard: Record<string, unknown>;
+    try {
+      rateCard = await this.resolveActiveRateCard(data.leasePeriodId, occupancy);
+    } catch (error) {
+      const msg = String((error as Error).message);
+      if (msg.includes("Active rate card not found")) {
+        throw new Error("No active rate configured for the selected lease period and room occupancy");
+      }
+      throw error;
+    }
+    const defaultAmount = Number(rateCard.amount_minor);
+    const startsOn = (data.startsOn ?? String(period.starts_on)).slice(0, 10);
+    const endsOn = (data.endsOn ?? String(period.ends_on)).slice(0, 10);
+    if (startsOn > endsOn) throw new Error("Invalid agreement dates: starts_on must be <= ends_on");
+
+    // Date overlap with prior agreement: reject by default (do not silently shorten prior).
+    const priorStarts = prior.starts_on == null ? null : String(prior.starts_on).slice(0, 10);
+    const priorEnds = prior.ends_on == null ? null : String(prior.ends_on).slice(0, 10);
+    if (priorStarts) {
+      const overlaps = allocationIntervalsOverlap(priorStarts, priorEnds, startsOn, endsOn);
+      if (overlaps) {
+        throw new Error("Renewal dates overlap the prior agreement; choose non-overlapping dates or use extension");
+      }
+    }
+
+    // Maintenance is independent — never auto-copy prior maintenance.
+    const maintenanceFeeMinor = data.maintenanceFeeMinor ?? 0;
+    if (!Number.isInteger(maintenanceFeeMinor) || maintenanceFeeMinor < 0) {
+      throw new Error("Invalid maintenance fee: must be an integer >= 0");
+    }
+
+    let agreedAmount = defaultAmount;
+    let overrideReason: string | null = null;
+    let creationOverride = false;
+    if (data.agreedAmountMinor != null && data.agreedAmountMinor !== defaultAmount) {
+      const reason = data.overrideReason?.trim() ?? "";
+      if (!reason) throw new Error("Override reason is required when agreed amount differs from the active rate card");
+      if (!Number.isInteger(data.agreedAmountMinor) || data.agreedAmountMinor <= 0) {
+        throw new Error("Invalid accommodation amount: must be a positive integer");
+      }
+      agreedAmount = data.agreedAmountMinor;
+      overrideReason = reason;
+      creationOverride = true;
+    }
+
+    const residentId = Number(prior.resident_id);
+
+    if (bookingSessionId != null) {
+      const duplicateBySession = await this.repo.first(
+        "SELECT id FROM bookings WHERE resident_id = ? AND academic_session_id = ? AND status IN ('pending', 'confirmed')",
+        residentId,
+        bookingSessionId
+      );
+      if (duplicateBySession) throw new Error("Duplicate active booking");
+    }
+
+    const duplicateByLease = await this.repo.first(
+      "SELECT id FROM bookings WHERE resident_id = ? AND lease_period_id = ? AND status IN ('pending', 'confirmed')",
+      residentId,
+      data.leasePeriodId
+    );
+    if (duplicateByLease) throw new Error("Duplicate active booking for this lease period");
+
+    const auditReason = data.reason?.trim() || overrideReason || "Management renewal";
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const bookingNumber = await this.repo.allocateBookingNumber();
+      try {
+        const res = await this.repo.run(
+          `INSERT INTO bookings (
+             resident_id, academic_session_id, application_id, booking_number, status,
+             total_amount_minor, currency, expires_at, priced_room_id, priced_room_rate_id,
+             lease_period_id, lease_kind, starts_on, ends_on, maintenance_fee_minor,
+             payment_requirement_type, payment_fixed_amount_minor, payment_percentage_basis_points,
+             partial_payment_authorized, prior_booking_id, override_reason
+           ) VALUES (?, ?, NULL, ?, 'pending', ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 'full', NULL, NULL, 0, ?, ?)`,
+          residentId,
+          bookingSessionId,
+          bookingNumber,
+          agreedAmount,
+          String(rateCard.currency ?? "GHS"),
+          data.expiresAt ?? null,
+          data.roomId,
+          data.leasePeriodId,
+          approvedKind,
+          startsOn,
+          endsOn,
+          maintenanceFeeMinor,
+          priorBookingId,
+          overrideReason
+        );
+        const bookingId = Number(res.meta.last_row_id);
+        await this.repo.audit(actor.id, actor.staffId, "admin.booking.renewal", "booking", bookingId, {
+          priorBookingId,
+          newBookingId: bookingId,
+          bookingNumber,
+          residentId,
+          roomId: data.roomId,
+          leasePeriodId: data.leasePeriodId,
+          approvedLeaseKind: approvedKind,
+          academicSessionId: bookingSessionId,
+          startsOn,
+          endsOn,
+          rateCardId: Number(rateCard.id),
+          defaultAmountMinor: defaultAmount,
+          agreedAccommodationAmountMinor: agreedAmount,
+          maintenanceFeeMinor,
+          creationOverride,
+          overrideReason,
+          reason: auditReason,
+          partialPaymentAuthorized: 0,
+          applicationId: null
+          // never include Ghana Card, OTP, tokens
+        });
+        return this.getBookingAgreement(bookingId);
+      } catch (error) {
+        const msg = String((error as Error).message);
+        if (msg.includes("booking_number") && attempt < 2) continue;
+        if (msg.includes("UNIQUE") || msg.includes("one_active")) throw new Error("Duplicate active booking");
+        throw error;
+      }
+    }
+    throw new Error("Unable to create renewal with unique booking number");
+  }
+
+  /**
+   * Stage 2L-K EXTENSION: same agreement, management extends ends_on.
+   * Financial change is explicit (no silent day-based pro-rating).
+   * Verified payments preserved; unsafe obligation reduction rejected.
+   * Active allocation may be extended only after date-overlap validation.
+   */
+  async extendBookingAgreement(actor: AuthUser, id: number, data: {
+    endsOn: string;
+    totalAmountMinor?: number;
+    maintenanceFeeMinor?: number | null;
+    reason: string;
+    extendAllocation?: boolean;
+  }) {
+    const reason = data.reason?.trim();
+    if (!reason) throw new Error("Extension reason is required");
+    const newEndsOn = data.endsOn.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newEndsOn)) throw new Error("Invalid end date");
+
+    const booking = await this.get("bookings", id) as Record<string, unknown> | null;
+    if (!booking) throw new Error("Booking not found");
+    const status = String(booking.status);
+    if (status === "cancelled" || status === "archived" || status === "expired") {
+      throw new Error("Cannot extend a closed booking");
+    }
+    if (status !== "pending" && status !== "confirmed" && status !== "completed") {
+      throw new Error("Agreement is not eligible for extension");
+    }
+
+    const oldEndsOn = booking.ends_on == null ? null : String(booking.ends_on).slice(0, 10);
+    const startsOn = booking.starts_on == null ? null : String(booking.starts_on).slice(0, 10);
+    if (!oldEndsOn) throw new Error("Agreement has no end date to extend");
+    if (newEndsOn <= oldEndsOn) throw new Error("New end date must be after the current end date");
+    if (startsOn && newEndsOn < startsOn) throw new Error("Invalid agreement dates: starts_on must be <= ends_on");
+
+    const oldTotal = Number(booking.total_amount_minor);
+    const oldMaintenance = booking.maintenance_fee_minor == null ? null : Number(booking.maintenance_fee_minor);
+    const nextTotal = data.totalAmountMinor !== undefined ? data.totalAmountMinor : oldTotal;
+    if (!Number.isInteger(nextTotal) || nextTotal <= 0) {
+      throw new Error("Invalid accommodation amount: must be a positive integer");
+    }
+    const nextMaintenance = data.maintenanceFeeMinor === undefined
+      ? oldMaintenance
+      : data.maintenanceFeeMinor;
+    if (nextMaintenance != null && (!Number.isInteger(nextMaintenance) || nextMaintenance < 0)) {
+      throw new Error("Invalid maintenance fee: must be an integer >= 0");
+    }
+
+    const verifiedRow = await this.repo.first<{ verified_paid_minor: number }>(
+      "SELECT COALESCE(SUM(amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
+      id
+    );
+    const verifiedPaid = Number(verifiedRow?.verified_paid_minor ?? 0);
+    const nextObligation = nextTotal + Number(nextMaintenance ?? 0);
+    if (nextObligation < verifiedPaid) {
+      throw new Error("Extension would reduce obligation below verified payments");
+    }
+
+    const activeAllocation = await this.repo.first<Record<string, unknown>>(
+      "SELECT * FROM allocations WHERE booking_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1",
+      id
+    );
+    const shouldExtendAllocation = data.extendAllocation !== false && activeAllocation != null;
+    let allocationExtended = false;
+
+    // Update agreement first, then validate + extend allocation against the new window.
+    // On allocation conflict, roll back the agreement so commercial + physical stay consistent.
+    await this.repo.run(
+      `UPDATE bookings SET
+         ends_on = ?,
+         total_amount_minor = ?,
+         maintenance_fee_minor = ?,
+         override_reason = ?,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+       WHERE id = ?`,
+      newEndsOn,
+      nextTotal,
+      nextMaintenance,
+      reason,
+      id
+    );
+
+    if (shouldExtendAllocation && activeAllocation) {
+      // Re-validate against the updated agreement window.
+      try {
+        await this.validateAllocation({
+          bookingId: id,
+          residentId: Number(booking.resident_id),
+          academicSessionId: booking.academic_session_id == null ? null : Number(booking.academic_session_id),
+          bedId: Number(activeAllocation.bed_id),
+          startsOn: String(activeAllocation.starts_on).slice(0, 10),
+          endsOn: newEndsOn,
+          allowCrossRoom: false,
+          ignoreAllocationId: Number(activeAllocation.id),
+        });
+      } catch (error) {
+        // Roll back agreement extension to keep commercial + physical consistent.
+        await this.repo.run(
+          `UPDATE bookings SET
+             ends_on = ?,
+             total_amount_minor = ?,
+             maintenance_fee_minor = ?,
+             override_reason = ?,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+           WHERE id = ?`,
+          oldEndsOn,
+          oldTotal,
+          oldMaintenance,
+          booking.override_reason ?? null,
+          id
+        );
+        throw error;
+      }
+      await this.repo.run(
+        `UPDATE allocations SET ends_on = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = 'active'`,
+        newEndsOn,
+        Number(activeAllocation.id)
+      );
+      allocationExtended = true;
+      await this.repo.audit(actor.id, actor.staffId, "admin.allocation.extend", "allocation", Number(activeAllocation.id), {
+        bookingId: id,
+        oldEndsOn: activeAllocation.ends_on == null ? null : String(activeAllocation.ends_on),
+        newEndsOn,
+        bedId: Number(activeAllocation.bed_id),
+        reason
+      });
+    }
+
+    await this.repo.audit(actor.id, actor.staffId, "admin.booking.extension", "booking", id, {
+      oldEndsOn,
+      newEndsOn,
+      before: {
+        total_amount_minor: oldTotal,
+        maintenance_fee_minor: oldMaintenance
+      },
+      after: {
+        total_amount_minor: nextTotal,
+        maintenance_fee_minor: nextMaintenance
+      },
+      verifiedPaidMinor: verifiedPaid,
+      allocationExtended,
+      activeAllocationId: activeAllocation ? Number(activeAllocation.id) : null,
+      reason
+    });
+
+    return this.getBookingAgreement(id);
+  }
+
+  /**
+   * Stage 2L-K Path B cross-room transfer: update agreement room truth, then transfer allocation.
+   * Same-room bed transfer remains on transferAllocation. Commercial amount change is explicit.
+   * RBAC: callers must enforce admin:write.
+   */
+  async crossRoomTransferAllocation(actor: AuthUser, allocationId: number, data: {
+    destinationBedId: number;
+    startsOn: string;
+    endsOn?: string | null;
+    notes?: string | null;
+    reason: string;
+    agreedAmountMinor?: number;
+    maintenanceFeeMinor?: number | null;
+  }) {
+    const reason = data.reason?.trim();
+    if (!reason) throw new Error("Cross-room transfer reason is required");
+
+    const allocation = await this.get("allocations", allocationId) as Record<string, unknown> | null;
+    if (!allocation) throw new Error("Allocation not found");
+    if (allocation.status !== "active") throw new Error("Invalid workflow transition");
+    const bookingId = Number(allocation.booking_id);
+    const booking = await this.get("bookings", bookingId) as Record<string, unknown> | null;
+    if (!booking) throw new Error("Booking not found");
+    if (String(booking.status) !== "confirmed") throw new Error("Booking is not eligible for allocation");
+
+    const sourceBed = await this.repo.first<{ room_id: number }>("SELECT room_id FROM beds WHERE id = ?", allocation.bed_id);
+    const destBed = await this.repo.first<{ room_id: number; status: string }>("SELECT room_id, status FROM beds WHERE id = ?", data.destinationBedId);
+    if (!sourceBed || !destBed) throw new Error("Bed not found");
+    if (Number(sourceBed.room_id) === Number(destBed.room_id)) {
+      throw new Error("Destination bed is in the same room; use same-room transfer");
+    }
+
+    const transferStarts = data.startsOn.slice(0, 10);
+    const oldStarts = String(allocation.starts_on).slice(0, 10);
+    if (transferStarts <= oldStarts) throw new Error("Transfer date must be after the current allocation start");
+    const closedEndsOn = dayBeforeIsoDate(transferStarts);
+
+    let endsOn = data.endsOn === undefined ? null : data.endsOn;
+    if ((endsOn == null || endsOn === "") && booking.ends_on != null && String(booking.ends_on) !== "") {
+      endsOn = String(booking.ends_on);
+    }
+
+    const oldRoomId = booking.priced_room_id == null ? null : Number(booking.priced_room_id);
+    const newRoomId = Number(destBed.room_id);
+    const oldTotal = Number(booking.total_amount_minor);
+    const oldMaintenance = booking.maintenance_fee_minor == null ? null : Number(booking.maintenance_fee_minor);
+    const nextTotal = data.agreedAmountMinor !== undefined ? data.agreedAmountMinor : oldTotal;
+    if (!Number.isInteger(nextTotal) || nextTotal <= 0) {
+      throw new Error("Invalid accommodation amount: must be a positive integer");
+    }
+    const nextMaintenance = data.maintenanceFeeMinor === undefined ? oldMaintenance : data.maintenanceFeeMinor;
+    if (nextMaintenance != null && (!Number.isInteger(nextMaintenance) || nextMaintenance < 0)) {
+      throw new Error("Invalid maintenance fee: must be an integer >= 0");
+    }
+
+    const verifiedRow = await this.repo.first<{ verified_paid_minor: number }>(
+      "SELECT COALESCE(SUM(amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
+      bookingId
+    );
+    const verifiedPaid = Number(verifiedRow?.verified_paid_minor ?? 0);
+    const nextObligation = nextTotal + Number(nextMaintenance ?? 0);
+    if (nextObligation < verifiedPaid) {
+      throw new Error("Transfer would reduce obligation below verified payments");
+    }
+
+    const commercialChange = nextTotal !== oldTotal || Number(nextMaintenance ?? 0) !== Number(oldMaintenance ?? 0);
+
+    // Update agreement room truth first so validateAllocation accepts the destination bed.
+    await this.repo.run(
+      `UPDATE bookings SET
+         priced_room_id = ?,
+         total_amount_minor = ?,
+         maintenance_fee_minor = ?,
+         override_reason = CASE WHEN ? = 1 THEN ? ELSE override_reason END,
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+       WHERE id = ?`,
+      newRoomId,
+      nextTotal,
+      nextMaintenance,
+      commercialChange ? 1 : 0,
+      commercialChange ? reason : null,
+      bookingId
+    );
+
+    const sessionId = allocation.academic_session_id == null ? null : Number(allocation.academic_session_id);
+    try {
+      await this.validateAllocation({
+        bookingId,
+        residentId: Number(allocation.resident_id),
+        academicSessionId: sessionId,
+        bedId: data.destinationBedId,
+        startsOn: transferStarts,
+        endsOn,
+        allowCrossRoom: false,
+        ignoreAllocationId: allocationId,
+      });
+    } catch (error) {
+      // Roll back agreement room/amount to avoid DAISY booking + ROSE allocation contradiction.
+      await this.repo.run(
+        `UPDATE bookings SET
+           priced_room_id = ?,
+           total_amount_minor = ?,
+           maintenance_fee_minor = ?,
+           override_reason = ?,
+           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE id = ?`,
+        oldRoomId,
+        oldTotal,
+        oldMaintenance,
+        booking.override_reason ?? null,
+        bookingId
+      );
+      throw error;
+    }
+
+    await this.repo.run(
+      "UPDATE allocations SET status = 'transferred', ends_on = ?, released_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = 'active'",
+      closedEndsOn,
+      allocationId
+    );
+    const res = await this.repo.run(
+      "INSERT INTO allocations (booking_id, resident_id, academic_session_id, bed_id, status, starts_on, ends_on, assigned_by_staff_id, notes) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
+      bookingId,
+      allocation.resident_id,
+      sessionId,
+      data.destinationBedId,
+      transferStarts,
+      endsOn,
+      actor.staffId,
+      data.notes ?? null
+    );
+    const newAllocationId = Number(res.meta.last_row_id);
+    await this.repo.audit(actor.id, actor.staffId, "admin.allocation.cross_room_transfer", "allocation", newAllocationId, {
+      bookingId,
+      fromAllocationId: allocationId,
+      fromBedId: Number(allocation.bed_id),
+      toBedId: data.destinationBedId,
+      fromRoomId: oldRoomId,
+      toRoomId: newRoomId,
+      startsOn: transferStarts,
+      endsOn,
+      closedPriorEndsOn: closedEndsOn,
+      commercialChange,
+      before: { total_amount_minor: oldTotal, maintenance_fee_minor: oldMaintenance },
+      after: { total_amount_minor: nextTotal, maintenance_fee_minor: nextMaintenance },
+      verifiedPaidMinor: verifiedPaid,
+      reason
+    });
+    return {
+      allocation: await this.get("allocations", newAllocationId),
+      agreement: await this.getBookingAgreement(bookingId)
+    };
+  }
 
   async createResident(actor: AuthUser, data: {
     email?: string | null;
@@ -1586,7 +2074,7 @@ export class AdminService {
     const isFlexible = booking.lease_period_id != null || booking.academic_session_id == null
       || booking.lease_kind === "calendar_year" || booking.lease_kind === "short_term";
     if (crossRoom && isFlexible) {
-      throw new Error("Cross-room transfer for flexible agreements is not supported in this stage; update the agreement room first");
+      throw new Error("Cross-room transfer for flexible agreements requires management cross-room transfer (updates agreement room first)");
     }
 
     await this.validateAllocation({

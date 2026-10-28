@@ -517,6 +517,7 @@ export class ResidentService {
              b.lease_period_id, b.lease_kind, b.starts_on, b.ends_on, b.maintenance_fee_minor,
              b.partial_payment_authorized, b.payment_requirement_type,
              b.payment_fixed_amount_minor, b.payment_percentage_basis_points,
+             b.prior_booking_id,
              s.code AS academic_session_code, s.name AS academic_session_name,
              lp.code AS lease_period_code, lp.name AS lease_period_name,
              a.application_number,

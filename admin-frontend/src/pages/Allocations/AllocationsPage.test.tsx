@@ -152,10 +152,11 @@ describe("AllocationsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Transfer" }));
     await waitFor(() => expect(screen.getAllByText("ROOM-101 / ROOM-101-A").length).toBeGreaterThan(1));
     expect(screen.getAllByText(/ROOM-101 \/ ROOM-101-B/).length).toBeGreaterThan(0);
-    expect(screen.queryByText(/ROOM-201 \/ ROOM-201-A/)).not.toBeInTheDocument();
+    // Path B may list other rooms for managers; selecting a same-room bed still posts /transfer.
     await userEvent.selectOptions(screen.getByLabelText("Transfer destination bed"), "11");
     await userEvent.click(screen.getByRole("button", { name: "Transfer Allocation" }));
     await waitFor(() => expect(vi.mocked(globalThis.fetch).mock.calls.some(([url]) => String(url).endsWith("/admin/allocations/1/transfer"))).toBe(true));
+    expect(vi.mocked(globalThis.fetch).mock.calls.some(([url]) => String(url).includes("cross-room-transfer"))).toBe(false);
     expect(screen.getAllByText("Transferred").length).toBeGreaterThan(1);
   });
 

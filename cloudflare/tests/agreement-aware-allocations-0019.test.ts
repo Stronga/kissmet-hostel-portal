@@ -500,7 +500,7 @@ describe("agreement-aware allocations (live sql.js)", () => {
     // Cross-room flexible rejected
     await expect(svc.transferAllocation(manager, Number(moved.id), {
       destinationBedId: roseB1, startsOn: "2026-07-01",
-    })).rejects.toThrow(/Cross-room transfer for flexible agreements/);
+    })).rejects.toThrow(/cross-room transfer/);
   });
 
   it("availabilityForAgreement is date-based without room_rates for Path B", async () => {

@@ -93,6 +93,39 @@ function renderBookings(options: { role?: "manager" | "maintenance"; bookings?: 
       });
     }
     if (url.includes("/admin/availability")) return json({ ok: true, data: [{ room_id: 2, room_code: "A1", room_name: "Aster", capacity: 2, gender_policy: "female", bed_id: 9, bed_code: "A1-A", label: "A", amount_minor: 250000, currency: "GHS" }] });
+    if (url.endsWith("/admin/bookings/22/renew") && init?.method === "POST") {
+      return json({
+        ok: true,
+        data: {
+          booking: { ...flexibleBooking, id: 30, booking_number: "KSM-BKG-0030", prior_booking_id: 22, lease_period_id: 3, starts_on: "2027-04-01", ends_on: "2027-06-30", partial_payment_authorized: 0, payment_requirement_type: "full", application_id: null },
+          agreement: { prior_booking_id: 22, partial_payment_authorized: 0, payment_requirement_type: "full", agreed_accommodation_amount_minor: 360000, maintenance_fee_minor: 0 },
+          financial: { agreed_accommodation_amount_minor: 360000, maintenance_fee_minor: 0, total_obligation_minor: 360000, verified_paid_minor: 0, balance_minor: 360000, currency: "GHS" },
+          request: null
+        }
+      }, 201);
+    }
+    if (url.endsWith("/admin/bookings/22/extend") && init?.method === "POST") {
+      return json({
+        ok: true,
+        data: {
+          booking: { ...flexibleBooking, ends_on: "2027-04-30", total_amount_minor: 400000 },
+          agreement: { ends_on: "2027-04-30", agreed_accommodation_amount_minor: 400000, maintenance_fee_minor: 15000 },
+          financial: { agreed_accommodation_amount_minor: 400000, maintenance_fee_minor: 15000, total_obligation_minor: 415000, verified_paid_minor: 0, balance_minor: 415000, currency: "GHS" },
+          request: null
+        }
+      });
+    }
+    if (url.endsWith("/admin/bookings/30")) return json({ ok: true, data: { ...flexibleBooking, id: 30, booking_number: "KSM-BKG-0030", prior_booking_id: 22, application_id: null } });
+    if (url.endsWith("/admin/bookings/30/payment-summary")) return json({ ok: true, data: { ...eligibleSummary, bookingId: 30, bookingTotalMinor: 360000, verifiedPaidMinor: 0, balanceMinor: 360000, confirmationRequirementMet: false } });
+    if (url.endsWith("/admin/bookings/30/agreement")) return json({
+      ok: true,
+      data: {
+        booking: { ...flexibleBooking, id: 30, booking_number: "KSM-BKG-0030", prior_booking_id: 22, application_id: null },
+        agreement: { prior_booking_id: 22, partial_payment_authorized: 0, agreed_accommodation_amount_minor: 360000, maintenance_fee_minor: 0 },
+        financial: { agreed_accommodation_amount_minor: 360000, maintenance_fee_minor: 0, total_obligation_minor: 360000, verified_paid_minor: 0, balance_minor: 360000, currency: "GHS" },
+        request: null
+      }
+    });
     return new Response(null, { status: 404 });
   });
   render(<MemoryRouter><AuthProvider><BookingsPage /></AuthProvider></MemoryRouter>);
@@ -239,6 +272,51 @@ describe("BookingsPage", () => {
       expect(patch).toBeTruthy();
       expect(String(patch?.[1]?.body)).toContain('"partialPaymentAuthorized":false');
     });
+  });
+
+
+  it("shows renew and extend for manager and posts renew with full-payment default context", async () => {
+    renderBookings({ bookings: [flexibleBooking] });
+    await userEvent.click(await screen.findByRole("button", { name: "View" }));
+    expect(await screen.findByRole("button", { name: "Renew Agreement" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Extend Agreement" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Renew Agreement" }));
+    expect(await screen.findByText(/Creates a new agreement linked to this prior booking/i)).toBeInTheDocument();
+    expect(screen.getByText(/Full payment is the default/i)).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Renewal lease period"), "3");
+    await userEvent.selectOptions(screen.getByLabelText("Renewal room"), "2");
+    await userEvent.type(screen.getByLabelText("Renewal reason"), "Returning short-term resident");
+    await userEvent.click(screen.getByRole("button", { name: "Create Renewal" }));
+    await waitFor(() => {
+      const post = vi.mocked(globalThis.fetch).mock.calls.find(([url, init]) => String(url).endsWith("/renew") && init?.method === "POST");
+      expect(post).toBeTruthy();
+      expect(String(post?.[1]?.body)).toContain('"leasePeriodId":3');
+      expect(String(post?.[1]?.body)).toContain('"roomId":2');
+    });
+  });
+
+  it("extends agreement with reason and new end date", async () => {
+    renderBookings({ bookings: [flexibleBooking] });
+    await userEvent.click(await screen.findByRole("button", { name: "View" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Extend Agreement" }));
+    expect(await screen.findByText(/Extends this agreement/i)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Extension new end date"), "2027-04-30");
+    await userEvent.type(screen.getByLabelText("Extension reason"), "Approved one-month extension");
+    await userEvent.click(screen.getByRole("button", { name: "Save Extension" }));
+    await waitFor(() => {
+      const post = vi.mocked(globalThis.fetch).mock.calls.find(([url, init]) => String(url).endsWith("/extend") && init?.method === "POST");
+      expect(post).toBeTruthy();
+      expect(String(post?.[1]?.body)).toContain("2027-04-30");
+      expect(String(post?.[1]?.body)).toContain("Approved one-month extension");
+    });
+  });
+
+  it("hides renew/extend lifecycle controls for maintenance role", async () => {
+    renderBookings({ role: "maintenance", bookings: [flexibleBooking] });
+    await userEvent.click(await screen.findByRole("button", { name: "View" }));
+    expect(await screen.findByText(/Only Super Admin \/ Manager can renew or extend/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Renew Agreement" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Extend Agreement" })).not.toBeInTheDocument();
   });
 
   it("hides payment policy control for maintenance role", async () => {

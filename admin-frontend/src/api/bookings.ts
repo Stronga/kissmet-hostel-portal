@@ -97,3 +97,35 @@ export async function setBookingPaymentPolicy(id: number, input: {
   });
   return response.data;
 }
+
+export async function renewBooking(id: number, input: {
+  roomId: number;
+  leasePeriodId: number;
+  occupancyCapacity?: number;
+  maintenanceFeeMinor?: number;
+  agreedAmountMinor?: number;
+  overrideReason?: string;
+  startsOn?: string;
+  endsOn?: string;
+  reason?: string;
+}) {
+  const response = await apiRequest<DataEnvelope<BookingAgreementResponse>>(`/admin/bookings/${id}/renew`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+  return response.data;
+}
+
+export async function extendBooking(id: number, input: {
+  endsOn: string;
+  totalAmountMinor?: number;
+  maintenanceFeeMinor?: number | null;
+  reason: string;
+  extendAllocation?: boolean;
+}) {
+  const response = await apiRequest<DataEnvelope<BookingAgreementResponse>>(`/admin/bookings/${id}/extend`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+  return response.data;
+}

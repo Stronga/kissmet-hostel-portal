@@ -27,9 +27,12 @@ export function BookingDetail({
   canWrite,
   canConfirm,
   canManagePaymentPolicy,
+  canManageLifecycle,
   pending,
   onAction,
-  onEditPaymentPolicy
+  onEditPaymentPolicy,
+  onRenew,
+  onExtend
 }: {
   booking: Booking;
   application?: Application;
@@ -45,9 +48,12 @@ export function BookingDetail({
   canWrite: boolean;
   canConfirm: boolean;
   canManagePaymentPolicy?: boolean;
+  canManageLifecycle?: boolean;
   pending: boolean;
   onAction: (status: BookingStatus) => void;
   onEditPaymentPolicy?: () => void;
+  onRenew?: () => void;
+  onExtend?: () => void;
 }) {
   const leasePeriod = booking.lease_period_id
     ? leasePeriods?.find((period) => period.id === booking.lease_period_id)
@@ -90,6 +96,23 @@ export function BookingDetail({
         ["Readiness", booking.status === "confirmed" ? "Ready for allocation" : "Not ready for allocation"],
         ["Boundary", "Bookings never create allocations in this phase"]
       ]} />
+      <Section title="Agreement lifecycle" rows={[
+        ["Prior booking id", booking.prior_booking_id == null ? "None (original)" : String(booking.prior_booking_id)],
+        ["Lifecycle note", "Renewal creates a new agreement. Extension lengthens this agreement. Residents cannot self-renew or self-extend."]
+      ]}>
+        {canManageLifecycle ? (
+          <div className="flex flex-wrap gap-2">
+            {["pending", "confirmed", "completed"].includes(booking.status) ? (
+              <button type="button" disabled={pending} onClick={onRenew} className="rounded-md border border-border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-50">Renew Agreement</button>
+            ) : null}
+            {booking.ends_on && ["pending", "confirmed", "completed"].includes(booking.status) ? (
+              <button type="button" disabled={pending} onClick={onExtend} className="rounded-md border border-border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-50">Extend Agreement</button>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-sm text-text-secondary">Only Super Admin / Manager can renew or extend agreements.</p>
+        )}
+      </Section>
       <Section title="Actions"><BookingActions booking={booking} summary={summary} canWrite={canWrite} canConfirm={canConfirm} pending={pending} onAction={onAction} /></Section>
     </div>
   );

@@ -246,4 +246,49 @@ describe("resident booking", () => {
     expect(screen.queryByRole("button", { name: /create agreement/i })).not.toBeInTheDocument();
   });
 
+
+  it("shows prior agreement context and no resident lifecycle mutation controls", async () => {
+    seedResidentToken();
+    mockBooking({
+      bookings: [
+        {
+          ...pendingBooking,
+          id: 20,
+          booking_number: "KSM-BKG-0020",
+          status: "confirmed",
+          prior_booking_id: 10,
+          lease_kind: "short_term",
+          starts_on: "2027-01-01",
+          ends_on: "2027-03-31",
+          application_id: null,
+          application_number: null
+        },
+        { ...pendingBooking, status: "completed", ends_on: "2026-06-30" }
+      ],
+      applications: [approvedApplication],
+      allocation: allocation,
+      paymentSummary: {
+        bookingId: 20,
+        bookingNumber: "KSM-BKG-0020",
+        bookingStatus: "confirmed",
+        bookingTotalMinor: 250000,
+        maintenanceFeeMinor: 0,
+        agreementObligationMinor: 250000,
+        verifiedTotalMinor: 250000,
+        outstandingMinor: 0,
+        balanceMinor: 0,
+        currency: "GHS",
+        partialPaymentAuthorized: false
+      }
+    });
+    render(renderResidentApp(["/booking"]));
+    expect(await screen.findByText("KSM-BKG-0020")).toBeInTheDocument();
+    expect(screen.getByText(/Renewed from booking #10/i)).toBeInTheDocument();
+    expect(screen.getByText(/Management renewal \(no new application\)/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /renew/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /extend/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Renewed from booking #10/i)).toBeInTheDocument();
+  });
+
+
 });

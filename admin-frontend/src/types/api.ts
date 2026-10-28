@@ -138,6 +138,7 @@ export interface Booking {
   payment_fixed_amount_minor?: number | null;
   payment_percentage_basis_points?: number | null;
   override_reason?: string | null;
+  prior_booking_id?: number | null;
   payment_attention_required?: number | boolean | null;
   payment_attention_reason?: string | null;
   created_at?: string;
@@ -164,6 +165,7 @@ export interface BookingAgreementView {
   priced_room_rate_id: number | null;
   academic_session_id: number | null;
   override_reason?: string | null;
+  prior_booking_id?: number | null;
 }
 
 export interface BookingAgreementFinancial {

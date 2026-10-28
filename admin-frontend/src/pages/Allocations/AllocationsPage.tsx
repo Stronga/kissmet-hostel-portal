@@ -1,6 +1,6 @@
 import { Plus, Search } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { createAllocation, getAllocation, getBooking, listAllocations, listAgreementAvailability, listAvailability, listRoomBeds, transferAllocation, updateAllocationStatus } from "../../api/allocations";
+import { createAllocation, crossRoomTransferAllocation, getAllocation, getBooking, listAllocations, listAgreementAvailability, listAvailability, listRoomBeds, transferAllocation, updateAllocationStatus } from "../../api/allocations";
 import { listAcademicSessions } from "../../api/applications";
 import { listBookings, listRoomRates, listRooms } from "../../api/bookings";
 import { getResident, listInstitutions } from "../../api/residents";
@@ -26,6 +26,7 @@ const statuses = ["all", "active", "ended", "cancelled", "transferred", "archive
 export function AllocationsPage() {
   const { user } = useAuth();
   const canWrite = hasPermission(user?.role, "allocation:write");
+  const canManageCrossRoom = hasPermission(user?.role, "admin:write");
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [bookingsById, setBookingsById] = useState<Map<number, Booking>>(new Map());
@@ -184,7 +185,7 @@ export function AllocationsPage() {
         <div className="flex justify-end gap-2"><button type="button" disabled={saving} onClick={() => setDecisionStatus(null)} className="rounded-md border border-border px-3 py-2 text-sm font-semibold disabled:opacity-50">Cancel</button><button type="button" disabled={saving || !selected || !decisionStatus} onClick={() => selected && decisionStatus ? void mutate(() => updateAllocationStatus(selected.id, decisionStatus), (allocation) => { setSelected(allocation); setDecisionStatus(null); }) : undefined} className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Confirm</button></div>
       </ConfirmDialog>
       <CreateAllocationDialog open={createOpen} bookings={bookings} allocations={allocations} residentsById={residentsById} sessions={sessions} rooms={rooms} rates={rates} availability={availability} loadingAvailability={loadingAvailability} error={mutationError} saving={saving} onBookingChange={(booking) => void loadAvailabilityFor(booking)} onDatesChange={(booking, startsOn, endsOn) => void loadAvailabilityFor(booking, startsOn, endsOn)} onClose={() => { if (!saving) { setCreateOpen(false); setMutationError(null); setAvailability([]); } }} onCreate={(input) => void mutate(() => createAllocation(input), (allocation) => { setCreateOpen(false); setAvailability([]); void openDetail(allocation); })} />
-      <TransferAllocationDialog open={transferOpen} allocation={selected} booking={selectedBooking} rooms={rooms} bedsByRoom={bedsByRoom} sessions={sessions} availability={availability} loadingAvailability={loadingAvailability} error={mutationError} saving={saving} onClose={() => { if (!saving) { setTransferOpen(false); setMutationError(null); setAvailability([]); } }} onTransfer={(input) => selected ? void mutate(() => transferAllocation(selected.id, input), (allocation) => { setTransferOpen(false); setAvailability([]); void openDetail(allocation); }) : undefined} />
+      <TransferAllocationDialog open={transferOpen} allocation={selected} booking={selectedBooking} rooms={rooms} bedsByRoom={bedsByRoom} sessions={sessions} availability={availability} loadingAvailability={loadingAvailability} canManageCrossRoom={canManageCrossRoom} error={mutationError} saving={saving} onClose={() => { if (!saving) { setTransferOpen(false); setMutationError(null); setAvailability([]); } }} onTransfer={(input) => selected ? void mutate(() => transferAllocation(selected.id, input), (allocation) => { setTransferOpen(false); setAvailability([]); void openDetail(allocation); }) : undefined} onCrossRoomTransfer={(input) => selected ? void mutate(async () => { const result = await crossRoomTransferAllocation(selected.id, input); if (result.agreement?.booking) { setBookingsById((current) => { const next = new Map(current); next.set(result.agreement.booking.id, result.agreement.booking); return next; }); } return result.allocation; }, (allocation) => { setTransferOpen(false); setAvailability([]); void openDetail(allocation); }) : undefined} />
     </div>
   );
 }

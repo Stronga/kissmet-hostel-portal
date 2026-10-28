@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-import type { Allocation, AvailabilityBed, Bed, Booking, DataEnvelope, ListEnvelope, Pagination } from "../types/api";
+import type { Allocation, AvailabilityBed, Bed, Booking, BookingAgreementResponse, DataEnvelope, ListEnvelope, Pagination } from "../types/api";
 
 export async function listAllocations(params: { limit?: number; offset?: number; search?: string } = {}): Promise<{ allocations: Allocation[]; pagination: Pagination }> {
   const query = new URLSearchParams({ limit: String(params.limit ?? 25), offset: String(params.offset ?? 0) });
@@ -44,4 +44,20 @@ export async function listRoomBeds(roomId: number) {
 
 export async function getBooking(id: number) {
   return (await apiRequest<DataEnvelope<Booking>>(`/admin/bookings/${id}`)).data;
+}
+
+export async function crossRoomTransferAllocation(id: number, input: {
+  destinationBedId: number;
+  startsOn: string;
+  endsOn?: string | null;
+  notes?: string | null;
+  reason: string;
+  agreedAmountMinor?: number;
+  maintenanceFeeMinor?: number | null;
+}) {
+  const response = await apiRequest<DataEnvelope<{ allocation: Allocation; agreement: BookingAgreementResponse }>>(`/admin/allocations/${id}/cross-room-transfer`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+  return response.data;
 }

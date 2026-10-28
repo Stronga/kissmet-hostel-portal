@@ -501,6 +501,41 @@ routes.patch("/bookings/:id/payment-policy", requirePermission("admin:write"), a
     })));
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
+
+routes.post("/bookings/:id/renew", requirePermission("admin:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).renewBooking(c.get("authUser"), Number(c.req.param("id")), {
+      roomId: intField(input, "roomId")!,
+      leasePeriodId: intField(input, "leasePeriodId")!,
+      occupancyCapacity: intField(input, "occupancyCapacity", false) ?? undefined,
+      maintenanceFeeMinor: intField(input, "maintenanceFeeMinor", false),
+      agreedAmountMinor: intField(input, "agreedAmountMinor", false),
+      overrideReason: stringField(input, "overrideReason", false, 2000),
+      startsOn: stringField(input, "startsOn", false, 32),
+      endsOn: stringField(input, "endsOn", false, 32),
+      expiresAt: stringField(input, "expiresAt", false, 64),
+      reason: stringField(input, "reason", false, 2000)
+    })), 201);
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.post("/bookings/:id/extend", requirePermission("admin:write"), async (c) => {
+  try {
+    const input = await body(c);
+    const extendAllocation = Object.prototype.hasOwnProperty.call(input, "extendAllocation")
+      ? Boolean(input.extendAllocation)
+      : undefined;
+    return c.json(ok(await service(c).extendBookingAgreement(c.get("authUser"), Number(c.req.param("id")), {
+      endsOn: stringField(input, "endsOn", true, 32)!,
+      totalAmountMinor: intField(input, "totalAmountMinor", false) ?? undefined,
+      maintenanceFeeMinor: Object.prototype.hasOwnProperty.call(input, "maintenanceFeeMinor")
+        ? intField(input, "maintenanceFeeMinor", false)
+        : undefined,
+      reason: stringField(input, "reason", true, 2000)!,
+      extendAllocation
+    })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
 routes.patch("/bookings/:id/status", async (c) => {
   try {
     const input = await body(c);
@@ -561,6 +596,23 @@ routes.post("/allocations/:id/transfer", requirePermission("allocation:write"), 
       startsOn: stringField(input, "startsOn", true, 32)!,
       endsOn: stringField(input, "endsOn", false, 32),
       notes: stringField(input, "notes", false, 2000)
+    })), 201);
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+
+routes.post("/allocations/:id/cross-room-transfer", requirePermission("admin:write"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await service(c).crossRoomTransferAllocation(c.get("authUser"), Number(c.req.param("id")), {
+      destinationBedId: intField(input, "destinationBedId")!,
+      startsOn: stringField(input, "startsOn", true, 32)!,
+      endsOn: stringField(input, "endsOn", false, 32),
+      notes: stringField(input, "notes", false, 2000),
+      reason: stringField(input, "reason", true, 2000)!,
+      agreedAmountMinor: intField(input, "agreedAmountMinor", false) ?? undefined,
+      maintenanceFeeMinor: Object.prototype.hasOwnProperty.call(input, "maintenanceFeeMinor")
+        ? intField(input, "maintenanceFeeMinor", false)
+        : undefined
     })), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });

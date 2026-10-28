@@ -98,6 +98,7 @@ export interface ResidentBooking {
   payment_requirement_type?: "full" | "fixed" | "percentage" | string | null;
   payment_fixed_amount_minor?: number | null;
   payment_percentage_basis_points?: number | null;
+  prior_booking_id?: number | null;
   lease_period_code?: string | null;
   lease_period_name?: string | null;
   academic_session_code?: string | null;
