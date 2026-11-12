@@ -18,6 +18,11 @@ export function createApp(config: ConnectorConfig, client: RouterOsClient) {
   const app = new Hono<{ Variables: Variables }>();
   const hotspot = new HotspotService(client);
   const startedAt = Date.now();
+  // In mock mode, never advertise the configured router address: nothing is contacted.
+  const routerTarget =
+    config.routerosDriver === "mock"
+      ? { routerosDriver: "mock" as const, mikrotikHost: "mock (in-memory)" }
+      : { mikrotikHost: config.mikrotikHost, mikrotikApiPort: config.mikrotikApiPort };
 
   app.use("*", async (c, next) => {
     const correlationId = c.req.header("x-correlation-id")?.trim() || randomUUID();
@@ -71,8 +76,7 @@ export function createApp(config: ConnectorConfig, client: RouterOsClient) {
         correlationId,
         board: health.board,
         version: health.version,
-        mikrotikHost: config.mikrotikHost,
-        mikrotikApiPort: config.mikrotikApiPort
+        ...routerTarget
       });
       return c.json({
         ok: true,
@@ -81,8 +85,7 @@ export function createApp(config: ConnectorConfig, client: RouterOsClient) {
           routeros: "reachable",
           board: health.board,
           version: health.version,
-          mikrotikHost: config.mikrotikHost,
-          mikrotikApiPort: config.mikrotikApiPort
+          ...routerTarget
           // deliberately omit credentials, secrets, private keys
         }
       });
@@ -90,8 +93,7 @@ export function createApp(config: ConnectorConfig, client: RouterOsClient) {
       log.error("deep_health_failed", {
         correlationId,
         error: e instanceof Error ? e.message : "unknown",
-        mikrotikHost: config.mikrotikHost,
-        mikrotikApiPort: config.mikrotikApiPort
+        ...routerTarget
       });
       return c.json(
         {

@@ -2,10 +2,16 @@ import { serve } from "@hono/node-server";
 import { loadConfig } from "./config.js";
 import { createApp } from "./app.js";
 import { log } from "./logger.js";
-import { NodeRouterOsClient } from "./routeros/node-client.js";
+import { createRouterOsClient } from "./routeros/client-factory.js";
 
 const config = loadConfig();
-const client = new NodeRouterOsClient(config);
+if (config.routerosDriver === "mock") {
+  log.warn("routeros_mock_driver_active", {
+    mode: config.mode,
+    note: "ROUTEROS_DRIVER=mock: in-memory RouterOS only. No MikroTik connection is made. Development/test use only; refused in production."
+  });
+}
+const client = await createRouterOsClient(config);
 const app = createApp(config, client);
 
 const server = serve({ fetch: app.fetch, port: config.port, hostname: config.bindHost }, (info) => {
@@ -13,8 +19,9 @@ const server = serve({ fetch: app.fetch, port: config.port, hostname: config.bin
     host: config.bindHost,
     port: info.port,
     mode: config.mode,
-    mikrotikHost: config.mikrotikHost,
-    mikrotikApiPort: config.mikrotikApiPort,
+    routerosDriver: config.routerosDriver,
+    mikrotikHost: config.routerosDriver === "mock" ? "mock (in-memory)" : config.mikrotikHost,
+    mikrotikApiPort: config.routerosDriver === "mock" ? null : config.mikrotikApiPort,
     note: "Production: Pi LAN → RouterOS; Cloudflare Workers cannot reach RouterOS directly. WG .5 is DEV/remote-test only"
   });
 });
@@ -22,7 +29,7 @@ const server = serve({ fetch: app.fetch, port: config.port, hostname: config.bin
 async function shutdown(signal: string) {
   log.info("connector_stopping", { signal });
   try {
-    await client.close();
+    await client.close?.();
   } catch {
     // ignore
   }
