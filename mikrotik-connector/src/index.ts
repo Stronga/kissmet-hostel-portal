@@ -20,6 +20,7 @@ const server = serve({ fetch: app.fetch, port: config.port, hostname: config.bin
     port: info.port,
     mode: config.mode,
     routerosDriver: config.routerosDriver,
+    trustProxy: config.trustProxy ?? false,
     mikrotikHost: config.routerosDriver === "mock" ? "mock (in-memory)" : config.mikrotikHost,
     mikrotikApiPort: config.routerosDriver === "mock" ? null : config.mikrotikApiPort,
     note: "Production: Pi LAN → RouterOS; Cloudflare Workers cannot reach RouterOS directly. WG .5 is DEV/remote-test only"

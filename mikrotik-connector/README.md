@@ -41,6 +41,10 @@ Copy `.env.example` and set secrets outside git:
 | `MIKROTIK_API_PORT` | RouterOS API (`8728` over private path only) |
 | `MIKROTIK_API_USER` | Dedicated API user (`portal-api`) |
 | `MIKROTIK_API_PASSWORD` | RouterOS API password |
+| `TRUST_PROXY` | `false` (default): rate-limit key = socket address; forwarding headers ignored. `true`: key = `CF-Connecting-IP`, else right-most `X-Forwarded-For` hop (behind cloudflared only) |
+| `RATE_LIMIT_WINDOW_MS` | Window for both limits (default `60000`) |
+| `RATE_LIMIT_MAX` | Authenticated requests per client key per window (default `120`) |
+| `AUTH_FAIL_RATE_LIMIT_MAX` | Failed-auth attempts per client key per window before 429 lockout (default `20`) |
 
 Do not commit real values. Do not put these in React/Vite env.
 
@@ -59,6 +63,40 @@ Do not commit real values. Do not put these in React/Vite env.
 | DELETE | `/v1/users/:username` | Bearer | Remove user |
 | GET | `/v1/users/:username/sessions` | Bearer | List active sessions |
 | POST | `/v1/users/:username/disconnect` | Bearer | Disconnect sessions |
+
+### Input validation and error responses
+
+All `/v1` errors use `{ ok: false, error: { code, message } }` with **fixed** messages; request
+values (usernames, passwords, comments, JSON fragments) are never echoed.
+
+| Rule | Applies to | Error |
+|---|---|---|
+| Username must match the Worker's `^KSM-RES-[A-Z0-9]+$` exactly (uppercase, no whitespace), ≤ 32 chars, string; reserved names (`admin`, `default`, `portal-api`, …) always refused | `POST /v1/users` body and every `:username` path | 400 `invalid_username` |
+| Password: string, 8–128 printable ASCII chars (no control chars / NUL / newlines) | `POST /v1/users`, `reset-password` | 400 `invalid_password` |
+| Comment (optional): string, ≤ 128 printable ASCII, no `=`, no leading `?`/`!` | `POST /v1/users` | 400 `invalid_comment` |
+| Body not valid JSON | JSON routes | 400 `invalid_json` (`Malformed JSON body`) |
+| Body is JSON but not an object (`null`, array, number, string) | JSON routes | 400 `invalid_body` |
+| Missing username/password (unchanged) | as before | 400 `bad_request` |
+| Unknown user (typed `UserNotFoundError`) | disable / enable / reset-password | 404 `not_found` (`HotSpot user not found`) |
+| Any unexpected error | all | 500 `internal_error` (`Internal error`) + `correlationId`; details only in the redacting server log |
+
+Validation runs at the route, before `HotspotService` or RouterOS is called.
+`POST /v1/ensureResidentProfile` takes no input (any body is ignored).
+
+### Rate limiting
+
+`/v1` is guarded by one middleware (`createAuthRateGuard`):
+
+1. A client key that has used up `AUTH_FAIL_RATE_LIMIT_MAX` failed-auth attempts in the window
+   gets 429 for the rest of the window, even with the correct secret (no guessing feedback).
+2. Otherwise auth is checked; failures are 401 and count toward step 1.
+3. Authenticated requests count toward `RATE_LIMIT_MAX`; over the limit is 429 (`Retry-After` set).
+
+Unauthenticated traffic never consumes the authenticated budget. The client key is the socket
+address unless `TRUST_PROXY=true` (see `.env.example`). **Behind cloudflared, set
+`TRUST_PROXY=true`**; otherwise everyone shares the `127.0.0.1` bucket and an unauthenticated
+flood on the Tunnel hostname can lock the Worker out for one window. Cloudflare Access in front
+of the Tunnel hostname is still recommended.
 
 ## Production packaging (Raspberry Pi + systemd)
 

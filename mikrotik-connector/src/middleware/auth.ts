@@ -13,23 +13,28 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
+ * True when the request carries `Authorization: Bearer <CONNECTOR_SECRET>` and does not
+ * try to pass a secret in the query string.
+ */
+export function isConnectorAuthorized(c: Context, secret: string): boolean {
+  // Reject accidental query-string secret leakage attempts.
+  const url = new URL(c.req.url);
+  if (url.searchParams.has("secret") || url.searchParams.has("token") || url.searchParams.has("Authorization")) {
+    return false;
+  }
+  const header = c.req.header("Authorization");
+  if (!header?.startsWith("Bearer ")) return false;
+  const token = header.slice("Bearer ".length).trim();
+  return !!token && safeEqual(token, secret);
+}
+
+/**
  * Require Authorization: Bearer <CONNECTOR_SECRET>.
  * Secret must never appear in query strings, browser bundles, or logs.
  */
 export function requireConnectorAuth(secret: string) {
   return async (c: Context, next: Next) => {
-    // Reject accidental query-string secret leakage attempts.
-    const url = new URL(c.req.url);
-    if (url.searchParams.has("secret") || url.searchParams.has("token") || url.searchParams.has("Authorization")) {
-      return c.json({ ok: false, error: { code: "unauthorized", message: "Unauthorized" } }, 401);
-    }
-
-    const header = c.req.header("Authorization");
-    if (!header?.startsWith("Bearer ")) {
-      return c.json({ ok: false, error: { code: "unauthorized", message: "Unauthorized" } }, 401);
-    }
-    const token = header.slice("Bearer ".length).trim();
-    if (!token || !safeEqual(token, secret)) {
+    if (!isConnectorAuthorized(c, secret)) {
       return c.json({ ok: false, error: { code: "unauthorized", message: "Unauthorized" } }, 401);
     }
     return next();

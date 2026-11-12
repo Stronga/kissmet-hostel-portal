@@ -8,7 +8,7 @@ import type {
   HotspotUser,
   RouterOsClient
 } from "./types.js";
-import { RouterOsUnavailableError } from "./types.js";
+import { RouterOsUnavailableError, UserNotFoundError } from "./types.js";
 
 type RosRow = Record<string, string>;
 
@@ -141,7 +141,7 @@ export class NodeRouterOsClient implements RouterOsClient {
 
   async setUserDisabled(username: string, disabled: boolean): Promise<HotspotUser> {
     const user = await this.getUser(username);
-    if (!user) throw new Error(`HotSpot user not found: ${username}`);
+    if (!user) throw new UserNotFoundError();
     await this.write("/ip/hotspot/user/set", [
       `=.id=${user.id}`,
       `=disabled=${disabled ? "yes" : "no"}`
@@ -153,7 +153,7 @@ export class NodeRouterOsClient implements RouterOsClient {
 
   async setUserPassword(username: string, password: string): Promise<HotspotUser> {
     const user = await this.getUser(username);
-    if (!user) throw new Error(`HotSpot user not found: ${username}`);
+    if (!user) throw new UserNotFoundError();
     await this.write("/ip/hotspot/user/set", [
       `=.id=${user.id}`,
       `=password=${password}`

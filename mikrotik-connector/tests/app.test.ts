@@ -153,7 +153,7 @@ describe("connector HTTP API", () => {
   });
 
   it("maps missing user to 404", async () => {
-    const res = await app.request("/v1/users/KSM-RES-missing/disable", {
+    const res = await app.request("/v1/users/KSM-RES-MISSING/disable", {
       method: "POST",
       headers: authHeaders()
     });
