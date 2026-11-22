@@ -1,6 +1,7 @@
 import type { ApiErrorBody } from "../types/api";
+import { resolveApiBaseUrl } from "../config/apiBaseUrl";
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
+export const API_BASE_URL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, import.meta.env.MODE);
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly payload?: unknown) {

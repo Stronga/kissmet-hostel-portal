@@ -82,8 +82,9 @@ Dependency: 0020 applied in the target DB; Pi heartbeat service running (hardwar
 **Plan:** route-level `React.lazy` + `Suspense` per page in Admin (expect initial chunk < 250 kB), `manualChunks` for
 react/react-dom/router; convert images to AVIF/WebP at display size (target < 200 kB each, logos as SVG or < 30 kB PNG),
 `loading="lazy"`/`fetchpriority` on the hero, explicit width/height; long-cache headers for hashed assets on Pages;
-build-time guard that fails a production build when `VITE_API_BASE_URL` is unset (clients currently fall back to
-`http://localhost:8787`). Add a bundle-size check to CI.
+add a bundle-size check to CI. The production `VITE_API_BASE_URL` build/runtime guard is implemented (admin and resident
+refuse missing, empty, non-https, or loopback URLs in production mode; dev/test still fall back to
+`http://localhost:8787`).
 
 ## Other open items noted
 
