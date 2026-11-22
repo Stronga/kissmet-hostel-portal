@@ -1,0 +1,36 @@
+{
+  "$schema": "./bootstrap.schema.json",
+  "version": 1,
+  "notes": "TEMPLATE. Copy to production.config.json (gitignored), replace every <REPLACE ...> value with real hostel data supplied by the owner. Amounts are integers in pesewas (GHS 1.00 = 100). No passwords in this file.",
+  "organization": {
+    "name": "<REPLACE: legal/trading name shown in portals>",
+    "supportEmail": "<REPLACE: support@your-domain>",
+    "supportPhone": "<REPLACE: +233XXXXXXXXX>",
+    "addressText": "<REPLACE: hostel address>"
+  },
+  "superAdmin": {
+    "displayName": "<REPLACE: full name>",
+    "username": "<REPLACE: login username, lowercase>",
+    "email": "<REPLACE: work email>",
+    "phone": "<REPLACE: +233XXXXXXXXX>",
+    "staffCode": "<REPLACE: e.g. KSM-STF-001>",
+    "jobTitle": "<REPLACE: e.g. Hostel Director>"
+  },
+  "institutions": [
+    { "code": "<REPLACE: short lowercase code>", "name": "<REPLACE: institution full name>" }
+  ],
+  "academicSessions": [
+    { "code": "<REPLACE: e.g. 2026-2027>", "name": "<REPLACE>", "startsOn": "<REPLACE: YYYY-MM-DD>", "endsOn": "<REPLACE: YYYY-MM-DD>", "status": "active" }
+  ],
+  "leasePeriods": [
+    { "code": "<REPLACE: e.g. AY-2026-2027>", "name": "<REPLACE>", "kind": "academic_calendar", "academicSessionCode": "<REPLACE: academic session code>", "startsOn": "<REPLACE: YYYY-MM-DD>", "endsOn": "<REPLACE: YYYY-MM-DD>", "status": "active" },
+    { "code": "<REPLACE: e.g. CY-2027>", "name": "<REPLACE>", "kind": "calendar_year", "startsOn": "<REPLACE: YYYY-MM-DD>", "endsOn": "<REPLACE: YYYY-MM-DD>", "status": "draft" }
+  ],
+  "rooms": [
+    { "roomCode": "<REPLACE: e.g. A-101>", "roomName": "<REPLACE>", "floor": "<REPLACE>", "capacity": 0, "genderPolicy": "<REPLACE: female|male|any>", "bedLabels": ["<REPLACE: A>", "<REPLACE: B>"] }
+  ],
+  "rateCards": [
+    { "rateCode": "<REPLACE: e.g. AY2627-OCC2>", "leasePeriodCode": "<REPLACE: lease period code>", "occupancyCapacity": 0, "amountMinor": 0, "currency": "GHS", "packageMonths": null, "status": "active" }
+  ],
+  "roomRates": []
+}

@@ -2,3 +2,9 @@ node_modules/
 .wrangler/
 .dev.vars
 dist/
+
+# Production bootstrap: real hostel config and generated SQL (may contain an admin password hash)
+bootstrap/*.config.json
+!bootstrap/*.template.json
+bootstrap/*.sql
+*.bootstrap.sql
