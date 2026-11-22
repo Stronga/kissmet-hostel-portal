@@ -47,12 +47,12 @@ beforeEach(() => {
 
 describe("ROUTEROS_DRIVER config", () => {
   it("defaults to the real driver when unset", () => {
-    const cfg = loadConfig({ CONNECTOR_SECRET: SECRET } as NodeJS.ProcessEnv);
+    const cfg = loadConfig({ CONNECTOR_SECRET: SECRET, CONNECTOR_MODE: "local" } as NodeJS.ProcessEnv);
     expect(cfg.routerosDriver).toBe("real");
   });
 
   it("treats an empty ROUTEROS_DRIVER as the real driver", () => {
-    const cfg = loadConfig({ CONNECTOR_SECRET: SECRET, ROUTEROS_DRIVER: "  " } as NodeJS.ProcessEnv);
+    const cfg = loadConfig({ CONNECTOR_SECRET: SECRET, CONNECTOR_MODE: "local", ROUTEROS_DRIVER: "  " } as NodeJS.ProcessEnv);
     expect(cfg.routerosDriver).toBe("real");
   });
 
@@ -61,9 +61,13 @@ describe("ROUTEROS_DRIVER config", () => {
       CONNECTOR_SECRET: "p".repeat(40),
       CONNECTOR_MODE: "production",
       MIKROTIK_API_PASSWORD: "router-pass",
-      ROUTEROS_DRIVER: "real"
+      ROUTEROS_DRIVER: "real",
+      MIKROTIK_API_TLS: "true",
+      MIKROTIK_API_TLS_CA_FILE: "/etc/kissmet/routeros-ca.pem"
     } as NodeJS.ProcessEnv);
     expect(cfg.mode).toBe("production");
+    expect(cfg.mikrotikApiTls).toBe(true);
+    expect(cfg.mikrotikApiPort).toBe(8729);
     expect(cfg.routerosDriver).toBe("real");
   });
 
@@ -147,7 +151,10 @@ describe("ROUTEROS_DRIVER config", () => {
         CONNECTOR_SECRET: SECRET,
         NODE_ENV: "production",
         CONNECTOR_MODE: "local",
-        ROUTEROS_DRIVER: "real"
+        ROUTEROS_DRIVER: "real",
+        // NODE_ENV=production is a production indicator, so TLS is mandatory here too.
+        MIKROTIK_API_TLS: "true",
+        MIKROTIK_API_TLS_CA_FILE: "/etc/kissmet/routeros-ca.pem"
       } as NodeJS.ProcessEnv);
       expect(cfg.mode).toBe("local");
       expect(cfg.routerosDriver).toBe("real");
@@ -192,7 +199,7 @@ describe("RouterOS client factory", () => {
   });
 
   it("real driver (default) constructs NodeRouterOsClient (spied; no connection)", async () => {
-    const cfg = loadConfig({ CONNECTOR_SECRET: SECRET } as NodeJS.ProcessEnv);
+    const cfg = loadConfig({ CONNECTOR_SECRET: SECRET, CONNECTOR_MODE: "local" } as NodeJS.ProcessEnv);
     const client = await createRouterOsClient(cfg);
     expect(client).not.toBeInstanceOf(MockRouterOsClient);
     expect(realClient.constructed).toBe(1);

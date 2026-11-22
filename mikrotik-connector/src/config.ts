@@ -107,6 +107,26 @@ function isProductionValue(value: string | undefined): boolean {
   return v === "production" || v === "prod";
 }
 
+/**
+ * Either-indicator production rule: production if CONNECTOR_MODE **or** NODE_ENV says
+ * production/prod (case-insensitive, trimmed). Used for every production-only guard so that
+ * NODE_ENV=production cannot be silently overridden by CONNECTOR_MODE=local.
+ */
+export function isProductionEnv(env: NodeJS.ProcessEnv): boolean {
+  return isProductionValue(env.CONNECTOR_MODE) || isProductionValue(env.NODE_ENV);
+}
+
+/**
+ * True only when the environment is *explicitly* non-production: at least one of
+ * CONNECTOR_MODE / NODE_ENV is set to a non-empty value and neither says production.
+ * An unset environment is not "explicitly non-production" (it would default to local mode,
+ * but plaintext RouterOS API is not allowed on that default).
+ */
+export function isExplicitNonProductionEnv(env: NodeJS.ProcessEnv): boolean {
+  if (isProductionEnv(env)) return false;
+  return Boolean(env.CONNECTOR_MODE?.trim() || env.NODE_ENV?.trim());
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConnectorConfig {
   const connectorSecret = env.CONNECTOR_SECRET?.trim() || env.MIKROTIK_CONNECTOR_SECRET?.trim();
   if (!connectorSecret) {
@@ -126,7 +146,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConnectorConfi
 
   // Mock guard uses an either-indicator rule: CONNECTOR_MODE takes precedence for `mode`
   // above, so NODE_ENV=production + CONNECTOR_MODE=local would otherwise allow mock.
-  if (routerosDriver === "mock" && (mode === "production" || isProductionValue(env.CONNECTOR_MODE) || isProductionValue(env.NODE_ENV))) {
+  const production = mode === "production" || isProductionEnv(env);
+  if (routerosDriver === "mock" && production) {
     throw new Error(
       "ROUTEROS_DRIVER=mock is not allowed when CONNECTOR_MODE=production or NODE_ENV=production; refuse to start (mock is development/test only)"
     );
@@ -173,11 +194,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConnectorConfi
     throw new Error("MIKROTIK_API_TLS_* settings require MIKROTIK_API_TLS=true");
   }
   let mikrotikApiTlsFingerprint256: string | undefined;
+  // Encrypted RouterOS API is mandatory in production (either indicator). Plaintext 8728 is only
+  // permitted for the real driver when the environment is explicitly non-production.
+  if (routerosDriver === "real" && !mikrotikApiTls) {
+    if (production) {
+      throw new Error(
+        "MIKROTIK_API_TLS=true is required in production (RouterOS api-ssl on 8729 with MIKROTIK_API_TLS_CA_FILE); plaintext RouterOS API is refused"
+      );
+    }
+    if (!isExplicitNonProductionEnv(env)) {
+      throw new Error(
+        "Plaintext RouterOS API requires an explicitly non-production environment (set CONNECTOR_MODE=local or NODE_ENV=development/test), or set MIKROTIK_API_TLS=true"
+      );
+    }
+  }
   if (mikrotikApiTls) {
     if (mikrotikApiPort === 8728) {
       throw new Error("MIKROTIK_API_PORT=8728 is the plaintext RouterOS API; api-ssl listens on 8729");
     }
-    if (mikrotikApiTlsInsecure && (mode === "production" || isProductionValue(env.NODE_ENV))) {
+    if (mikrotikApiTlsInsecure && production) {
       throw new Error("MIKROTIK_API_TLS_INSECURE_SKIP_VERIFY is not allowed in production; configure MIKROTIK_API_TLS_CA_FILE");
     }
     if (!mikrotikApiTlsInsecure && !caFileRaw) {
@@ -185,7 +220,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConnectorConfi
         "MIKROTIK_API_TLS=true requires MIKROTIK_API_TLS_CA_FILE (RouterOS CA certificate); self-signed certificates are rejected without it"
       );
     }
-    if (caFileRaw && !caFileRaw.startsWith("/") && mode === "production") {
+    if (production && !caFileRaw) {
+      throw new Error("MIKROTIK_API_TLS_CA_FILE is required in production (certificate verification cannot be disabled)");
+    }
+    if (caFileRaw && !caFileRaw.startsWith("/") && production) {
       throw new Error("MIKROTIK_API_TLS_CA_FILE must be an absolute path in production");
     }
     if (fingerprintRaw) mikrotikApiTlsFingerprint256 = normaliseFingerprint256(fingerprintRaw);

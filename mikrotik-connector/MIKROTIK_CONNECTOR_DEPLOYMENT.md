@@ -170,7 +170,7 @@ Production intent: the Worker reaches the connector through **secure Cloudflare 
 | Path | Transport |
 |---|---|
 | Worker → connector | Authenticated HTTPS via Cloudflare (Tunnel or equivalent) + `Authorization: Bearer <CONNECTOR_SECRET>` |
-| Connector → RouterOS | **api-ssl 8729 (TLS, CA-verified)** on direct hostel LAN from the Pi (`MIKROTIK_API_TLS=true`); plain 8728 only until 8729 is validated |
+| Connector → RouterOS | **api-ssl 8729 (TLS, CA-verified)** on direct hostel LAN from the Pi (`MIKROTIK_API_TLS=true`, **mandatory in production** — the connector refuses to start in production without TLS + absolute CA file + verification); plain 8728 only in an explicitly non-production env (`CONNECTOR_MODE=local` / `NODE_ENV=development`) |
 | api-ssl `8729` | Connector support implemented; router-side steps in `deploy/ROUTEROS_API_SSL.md` (needs approval) |
 
 Rules:

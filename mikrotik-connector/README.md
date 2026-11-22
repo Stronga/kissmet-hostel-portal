@@ -38,7 +38,8 @@ Copy `.env.example` and set secrets outside git:
 | `PORT` | HTTP listen port (default `8788`) |
 | `CONNECTOR_SECRET` | Shared Bearer secret for Worker → connector |
 | `MIKROTIK_HOST` | Router LAN address (`192.168.88.1`) — same host; path is Pi LAN in production, WG `.5` in remote lab |
-| `MIKROTIK_API_PORT` | RouterOS API (`8728` over private path only) |
+| `MIKROTIK_API_PORT` | RouterOS API port. Default `8729` with `MIKROTIK_API_TLS=true` (mandatory in production), `8728` plaintext only in an explicitly non-production env |
+| `MIKROTIK_API_TLS` / `MIKROTIK_API_TLS_CA_FILE` | api-ssl + absolute CA path; both required in production (either `CONNECTOR_MODE` or `NODE_ENV` = production) |
 | `MIKROTIK_API_USER` | Dedicated API user (`portal-api`) |
 | `MIKROTIK_API_PASSWORD` | RouterOS API password |
 | `TRUST_PROXY` | `false` (default): rate-limit key = socket address; forwarding headers ignored. `true`: key = `CF-Connecting-IP`, else right-most `X-Forwarded-For` hop (behind cloudflared only) |
@@ -192,4 +193,10 @@ Phase 0–3 used TCP **8728** on a private path only (production = Pi LAN; lab =
 The connector now supports **api-ssl 8729**: `MIKROTIK_API_TLS=true` + `MIKROTIK_API_TLS_CA_FILE`
 (chain always verified, TLS >= 1.2, optional `MIKROTIK_API_TLS_FINGERPRINT256` pin,
 optional `MIKROTIK_API_TLS_SERVERNAME`). Skip-verify is lab-only and refused in production.
+
+**Production requires TLS.** With `CONNECTOR_MODE` *or* `NODE_ENV` set to `production`/`prod` and the real
+driver, the connector refuses to start unless `MIKROTIK_API_TLS=true`, `MIKROTIK_API_TLS_CA_FILE` is an
+absolute path, and certificate verification is on (`MIKROTIK_API_TLS_INSECURE_SKIP_VERIFY` refused).
+Plaintext 8728 is only accepted when the environment is *explicitly* non-production (`CONNECTOR_MODE=local`
+or `NODE_ENV=development`/`test`); with neither variable set, plaintext is also refused.
 Router-side steps: `deploy/ROUTEROS_API_SSL.md`. Node.js 22.x is required (`engines`, `.nvmrc`).

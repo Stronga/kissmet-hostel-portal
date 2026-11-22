@@ -15,7 +15,7 @@ if (config.routerosDriver === "real" && !config.mikrotikApiTls) {
   log.warn("routeros_plaintext_api", {
     mode: config.mode,
     port: config.mikrotikApiPort,
-    note: "RouterOS API credentials travel unencrypted on the LAN. Set MIKROTIK_API_TLS=true (api-ssl 8729) with MIKROTIK_API_TLS_CA_FILE."
+    note: "Explicitly non-production env: RouterOS API credentials travel unencrypted on the LAN. Production refuses this; set MIKROTIK_API_TLS=true (api-ssl 8729) with MIKROTIK_API_TLS_CA_FILE."
   });
 }
 const client = await createRouterOsClient(config);

@@ -45,11 +45,14 @@ import { log } from "../src/logger.js";
 
 const SECRET = "local-dev-connector-secret-at-least-32-chars";
 const PROD_SECRET = "Zq8".repeat(15);
-const base = { CONNECTOR_SECRET: SECRET } as NodeJS.ProcessEnv;
+const base = { CONNECTOR_SECRET: SECRET, CONNECTOR_MODE: "local" } as NodeJS.ProcessEnv;
+/** Minimal valid production env: TLS (api-ssl 8729) + CA file are mandatory in production. */
 const prod = {
   CONNECTOR_SECRET: PROD_SECRET,
   CONNECTOR_MODE: "production",
-  MIKROTIK_API_PASSWORD: "router-pass-not-real"
+  MIKROTIK_API_PASSWORD: "router-pass-not-real",
+  MIKROTIK_API_TLS: "true",
+  MIKROTIK_API_TLS_CA_FILE: "/etc/kissmet/routeros-ca.pem"
 } as NodeJS.ProcessEnv;
 const FP_HEX = "ab".repeat(32);
 const FP = normaliseFingerprint256(FP_HEX);
@@ -168,7 +171,7 @@ describe("RouterOS api-ssl (MIKROTIK_API_TLS) configuration", () => {
 
   it("requires a CA file (self-signed certs are rejected without it)", () => {
     expect(() => loadConfig({ ...base, MIKROTIK_API_TLS: "true" })).toThrow(/requires MIKROTIK_API_TLS_CA_FILE/);
-    expect(() => loadConfig({ ...prod, MIKROTIK_API_TLS: "true" })).toThrow(/requires MIKROTIK_API_TLS_CA_FILE/);
+    expect(() => loadConfig({ ...prod, MIKROTIK_API_TLS_CA_FILE: "" })).toThrow(/requires MIKROTIK_API_TLS_CA_FILE/);
   });
 
   it("refuses insecure skip-verify in production (CONNECTOR_MODE or NODE_ENV)", () => {
@@ -209,6 +212,133 @@ describe("RouterOS api-ssl (MIKROTIK_API_TLS) configuration", () => {
     const cfg = loadConfig({ ...base, MIKROTIK_API_TLS: "true", MIKROTIK_API_TLS_CA_FILE: pemFile, MIKROTIK_API_TLS_FINGERPRINT256: FP.toLowerCase() });
     expect(cfg.mikrotikApiTlsFingerprint256).toBe(FP);
     expect(() => loadConfig({ ...base, MIKROTIK_API_TLS: "true", MIKROTIK_API_TLS_CA_FILE: pemFile, MIKROTIK_API_TLS_FINGERPRINT256: "abcd" })).toThrow(/64 hex digits/);
+  });
+});
+
+describe("encrypted RouterOS API is mandatory in production (either indicator)", () => {
+  const realProd = (env: Record<string, string | undefined>) =>
+    ({ CONNECTOR_SECRET: PROD_SECRET, MIKROTIK_API_PASSWORD: "router-pass-not-real", ...env }) as NodeJS.ProcessEnv;
+  const indicators: Array<Record<string, string>> = [
+    { CONNECTOR_MODE: "production" },
+    { CONNECTOR_MODE: "prod" },
+    { CONNECTOR_MODE: "  PRODUCTION " },
+    { NODE_ENV: "production" },
+    { NODE_ENV: "Prod" },
+    { NODE_ENV: "production", CONNECTOR_MODE: "local" },
+    { NODE_ENV: "development", CONNECTOR_MODE: "production" }
+  ];
+
+  for (const ind of indicators) {
+    const label = JSON.stringify(ind);
+    it(`refuses plaintext (TLS unset) for ${label}`, () => {
+      expect(() => loadConfig(realProd({ ...ind }))).toThrow(/MIKROTIK_API_TLS=true is required in production/);
+    });
+    it(`refuses MIKROTIK_API_TLS=false explicitly for ${label}`, () => {
+      expect(() => loadConfig(realProd({ ...ind, MIKROTIK_API_TLS: "false", MIKROTIK_API_PORT: "8728" }))).toThrow(
+        /MIKROTIK_API_TLS=true is required in production/
+      );
+    });
+    it(`refuses TLS without a CA file for ${label}`, () => {
+      expect(() => loadConfig(realProd({ ...ind, MIKROTIK_API_TLS: "true" }))).toThrow(/MIKROTIK_API_TLS_CA_FILE/);
+    });
+    it(`refuses disabled certificate verification for ${label}`, () => {
+      expect(() =>
+        loadConfig(
+          realProd({
+            ...ind,
+            MIKROTIK_API_TLS: "true",
+            MIKROTIK_API_TLS_CA_FILE: "/etc/kissmet/routeros-ca.pem",
+            MIKROTIK_API_TLS_INSECURE_SKIP_VERIFY: "true"
+          })
+        )
+      ).toThrow(/not allowed in production/);
+    });
+    it(`refuses a relative CA path for ${label}`, () => {
+      expect(() =>
+        loadConfig(realProd({ ...ind, MIKROTIK_API_TLS: "true", MIKROTIK_API_TLS_CA_FILE: "routeros-ca.pem" }))
+      ).toThrow(/absolute path in production/);
+    });
+    it(`refuses TLS on the plaintext port 8728 for ${label}`, () => {
+      expect(() =>
+        loadConfig(
+          realProd({ ...ind, MIKROTIK_API_TLS: "true", MIKROTIK_API_TLS_CA_FILE: "/etc/kissmet/routeros-ca.pem", MIKROTIK_API_PORT: "8728" })
+        )
+      ).toThrow(/8728 is the plaintext RouterOS API/);
+    });
+    it(`accepts TLS on 8729 with an absolute CA file for ${label}`, () => {
+      const cfg = loadConfig(realProd({ ...ind, MIKROTIK_API_TLS: "true", MIKROTIK_API_TLS_CA_FILE: "/etc/kissmet/routeros-ca.pem" }));
+      expect(cfg.mikrotikApiTls).toBe(true);
+      expect(cfg.mikrotikApiPort).toBe(8729);
+      expect(cfg.mikrotikApiTlsInsecure).toBe(false);
+      const opts = buildRouterOsTlsOptions(cfg, () => "-----BEGIN CERTIFICATE-----\nTUlJQg==\n-----END CERTIFICATE-----\n");
+      expect(opts?.rejectUnauthorized).toBe(true);
+      expect(opts?.minVersion).toBe("TLSv1.2");
+    });
+  }
+
+  it("error messages never echo the RouterOS password, connector secret or CA path", () => {
+    for (const env of [
+      realProd({ CONNECTOR_MODE: "production" }),
+      realProd({ NODE_ENV: "production", MIKROTIK_API_TLS: "true", MIKROTIK_API_TLS_CA_FILE: "secret-dir/ca.pem" })
+    ]) {
+      try {
+        loadConfig(env);
+        throw new Error("expected loadConfig to throw");
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).not.toContain("router-pass-not-real");
+        expect(msg).not.toContain(PROD_SECRET);
+        expect(msg).not.toContain("secret-dir");
+      }
+    }
+  });
+
+  it("allows plaintext only when explicitly non-production", () => {
+    for (const env of [{ CONNECTOR_MODE: "local" }, { NODE_ENV: "development" }, { NODE_ENV: "test" }, { CONNECTOR_MODE: "local", NODE_ENV: "test" }]) {
+      const cfg = loadConfig({ CONNECTOR_SECRET: SECRET, ...env } as NodeJS.ProcessEnv);
+      expect(cfg.mikrotikApiTls, JSON.stringify(env)).toBe(false);
+      expect(cfg.mikrotikApiPort).toBe(8728);
+      expect(buildRouterOsTlsOptions(cfg)).toBeUndefined();
+    }
+  });
+
+  it("refuses plaintext when neither CONNECTOR_MODE nor NODE_ENV is set (not explicitly non-production)", () => {
+    expect(() => loadConfig({ CONNECTOR_SECRET: SECRET } as NodeJS.ProcessEnv)).toThrow(/explicitly non-production/);
+    expect(() => loadConfig({ CONNECTOR_SECRET: SECRET, CONNECTOR_MODE: "  ", NODE_ENV: "" } as NodeJS.ProcessEnv)).toThrow(
+      /explicitly non-production/
+    );
+    // TLS satisfies it without an explicit mode.
+    const cfg = loadConfig({ CONNECTOR_SECRET: SECRET, MIKROTIK_API_TLS: "true", MIKROTIK_API_TLS_CA_FILE: "/etc/kissmet/routeros-ca.pem" } as NodeJS.ProcessEnv);
+    expect(cfg.mikrotikApiTls).toBe(true);
+  });
+
+  it("mock driver needs no TLS in non-production and is still refused in production", () => {
+    expect(loadConfig({ CONNECTOR_SECRET: SECRET, CONNECTOR_MODE: "local", ROUTEROS_DRIVER: "mock" } as NodeJS.ProcessEnv).mikrotikApiTls).toBe(false);
+    expect(() =>
+      loadConfig(realProd({ CONNECTOR_MODE: "production", ROUTEROS_DRIVER: "mock", MIKROTIK_API_TLS: "true", MIKROTIK_API_TLS_CA_FILE: "/etc/kissmet/routeros-ca.pem" }))
+    ).toThrow(/ROUTEROS_DRIVER=mock is not allowed/);
+  });
+
+  it("buildRouterOsTlsOptions refuses a plaintext production config as defence in depth", () => {
+    const cfg = { ...loadConfig(base), mode: "production" as const, routerosDriver: "real" as const, mikrotikApiTls: false };
+    expect(() => buildRouterOsTlsOptions(cfg)).toThrow(/not allowed in production/);
+  });
+
+  it("the shipped production env template satisfies the mandatory-TLS rule", () => {
+    const tpl = fs.readFileSync(new URL("../deploy/connector.env.production.example", import.meta.url), "utf8");
+    const env: Record<string, string> = {};
+    for (const line of tpl.split("\n")) {
+      const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+      if (m) env[m[1]] = m[2];
+    }
+    expect(env.CONNECTOR_MODE).toBe("production");
+    expect(env.MIKROTIK_API_TLS).toBe("true");
+    expect(env.MIKROTIK_API_TLS_CA_FILE?.startsWith("/")).toBe(true);
+    expect(env.MIKROTIK_API_TLS_INSECURE_SKIP_VERIFY).toBeUndefined();
+    expect(env.BIND_HOST).toBe("127.0.0.1");
+    const cfg = loadConfig({ ...env, CONNECTOR_SECRET: PROD_SECRET, MIKROTIK_API_PASSWORD: "router-pass-not-real" } as NodeJS.ProcessEnv);
+    expect(cfg.mikrotikApiTls).toBe(true);
+    expect(cfg.mikrotikApiPort).toBe(8729);
   });
 });
 

@@ -210,7 +210,8 @@ describe("loadConfig production gates", () => {
 
   it("loads local mode with defaults", () => {
     const cfg = loadConfig({
-      CONNECTOR_SECRET: "local-dev-secret-value"
+      CONNECTOR_SECRET: "local-dev-secret-value",
+      CONNECTOR_MODE: "local"
     } as NodeJS.ProcessEnv);
     expect(cfg.mode).toBe("local");
     expect(cfg.bindHost).toBe("127.0.0.1");

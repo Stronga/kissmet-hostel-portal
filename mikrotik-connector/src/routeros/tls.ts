@@ -16,14 +16,20 @@ import type { ConnectorConfig } from "../config.js";
  *   in production and this function refuses it again as defence in depth.
  * - TLS 1.2 minimum.
  *
- * Returns `undefined` when TLS is disabled (plain API on 8728).
+ * Returns `undefined` when TLS is disabled (plain API on 8728, explicitly non-production only).
  * Never logs or returns certificate contents or secrets.
  */
 export function buildRouterOsTlsOptions(
   config: ConnectorConfig,
   readFile: (path: string) => Buffer | string = (p) => readFileSync(p)
 ): ConnectionOptions | undefined {
-  if (!config.mikrotikApiTls) return undefined;
+  if (!config.mikrotikApiTls) {
+    // Defence in depth: loadConfig already refuses plaintext in production.
+    if (config.mode === "production" && config.routerosDriver === "real") {
+      throw new Error("Plaintext RouterOS API is not allowed in production; set MIKROTIK_API_TLS=true");
+    }
+    return undefined;
+  }
 
   if (config.mikrotikApiTlsInsecure) {
     if (config.mode === "production") {
