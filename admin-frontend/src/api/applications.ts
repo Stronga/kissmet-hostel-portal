@@ -1,6 +1,6 @@
-import { apiRequest } from "./client";
+import { apiDownload, apiRequest } from "./client";
 import { getResident } from "./residents";
-import type { AcademicSession, Application, ApplicationStatus, DataEnvelope, IdentityDocument, ListEnvelope, Resident } from "../types/api";
+import type { AcademicSession, Application, ApplicationStatus, DataEnvelope, IdentityDocumentList, ListEnvelope, Resident } from "../types/api";
 
 export async function listApplications(params: { limit: number; offset: number; search?: string }) {
   const query = new URLSearchParams({
@@ -31,8 +31,12 @@ export async function listAcademicSessions() {
 }
 
 export async function listIdentityDocuments() {
-  const response = await apiRequest<DataEnvelope<IdentityDocument[]>>("/admin/documents");
+  const response = await apiRequest<DataEnvelope<IdentityDocumentList>>("/admin/documents");
   return response.data;
+}
+
+export async function downloadIdentityDocument(id: number) {
+  return apiDownload(`/admin/documents/${id}/content`);
 }
 
 export { getResident };

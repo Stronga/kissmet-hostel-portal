@@ -23,7 +23,11 @@ export function documentActionLabel(type: IdentityDocumentType, document?: Resid
   const label = documentTypeLabel(type);
   if (!document) return `Upload ${label}`;
   if (document.status === "rejected") return `Re-upload ${label}`;
-  return `Replace ${label}`;
+  return `Upload ${label}`;
+}
+
+export function canReplaceIdentityDocument(document?: ResidentDocument | null) {
+  return !document || document.status === "rejected";
 }
 
 export function formatFileSize(bytes?: number | null) {

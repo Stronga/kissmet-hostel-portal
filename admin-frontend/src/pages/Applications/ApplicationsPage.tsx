@@ -31,6 +31,7 @@ export function ApplicationsPage() {
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [sessions, setSessions] = useState<AcademicSession[]>([]);
   const [documents, setDocuments] = useState<IdentityDocument[]>([]);
+  const [restrictedResidentIds, setRestrictedResidentIds] = useState<number[]>([]);
   const [search, setSearch] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
@@ -58,7 +59,7 @@ export function ApplicationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [{ applications: rows }, institutionRows, sessionRows, documentRows, leasePeriodRows, roomRows] = await Promise.all([
+      const [{ applications: rows }, institutionRows, sessionRows, documentList, leasePeriodRows, roomRows] = await Promise.all([
         listApplications({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined }),
         listInstitutions(),
         listAcademicSessions(),
@@ -73,7 +74,8 @@ export function ApplicationsPage() {
       setResidentsById(new Map(residentEntries));
       setInstitutions(institutionRows);
       setSessions(sessionRows);
-      setDocuments(documentRows);
+      setDocuments(documentList.documents);
+      setRestrictedResidentIds(documentList.restrictedResidentIds);
       setLeasePeriods(leasePeriodRows);
       setRooms(roomRows);
     } catch (err) {
@@ -205,6 +207,7 @@ export function ApplicationsPage() {
             session={selectedSession}
             leasePeriods={leasePeriods}
             documents={selectedDocuments}
+            hasRestrictedDocuments={selected ? restrictedResidentIds.includes(selected.resident_id) : false}
             canManage={canManage}
             canCreateAgreement={canCreateAgreement}
             pending={pendingStatus || agreementSaving}

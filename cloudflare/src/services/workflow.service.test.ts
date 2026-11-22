@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { AdminService } from "./admin.service";
 import { requirePermission } from "../middleware/auth.middleware";
 import type { AuthUser } from "../auth/context";
+import { samplePdfFile } from "../../tests/upload-samples";
 
 const manager: AuthUser = { id: 1, userType: "staff", displayName: "Manager", email: "m@test", role: "manager", staffId: 1, residentId: null, sessionId: 1 };
 const reception: AuthUser = { ...manager, role: "reception" };
@@ -521,9 +522,10 @@ describe("phase 5 workflows", () => {
     const bookingId = await approvedBooking(svcWithR2, repo);
     await svcWithR2.createPayment(manager, { bookingId, residentId: 1, amountMinor: 250000, method: "cash" });
     await expect(svcWithR2.issueReceipt(manager, 1)).rejects.toThrow("Receipt requires verified payment");
-    const file = new File(["slip"], "slip.pdf", { type: "application/pdf" });
+    const file = samplePdfFile("slip.pdf");
     const doc = await svcWithR2.uploadPaymentSlip(manager, 1, file) as Record<string, unknown>;
-    expect(puts[0]).toContain("payment-slips/KSM-PAY-0001/");
+    expect(puts[0]).toMatch(/^objects\/[0-9a-f-]{36}$/i);
+    expect(puts[0]).not.toContain("KSM-PAY-0001");
     expect(doc.document_type).toBe("payment_slip");
     await svcWithR2.updatePaymentStatus(manager, 1, "submitted");
     await svcWithR2.verifyPayment(manager, 1);

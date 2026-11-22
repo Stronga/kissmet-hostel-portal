@@ -1,5 +1,5 @@
 import { hashPassword, randomToken } from "../auth/crypto";
-import { validateUploadFile } from "../http/uploads";
+import { assertUploadMagicBytes, opaqueObjectKey, validateUploadFile } from "../http/uploads";
 import type { AuthUser } from "../auth/context";
 import { AdminRepository } from "../repositories/admin.repository";
 import { MockAnnouncementDeliveryProvider, type AnnouncementDeliveryProvider, type ExternalAnnouncementChannel } from "./announcement-delivery.service";
@@ -2283,7 +2283,8 @@ export class AdminService {
     const booking = await this.get("bookings", Number(payment.booking_id)) as Record<string, unknown> | null;
     if (!booking || Number(booking.resident_id) !== Number(payment.resident_id)) throw new Error("Payment resident/booking mismatch");
     const validated = validateUploadFile(file, "Payment slip");
-    const key = `payment-slips/${payment.payment_reference}/${crypto.randomUUID()}-${validated.safeFilename}`;
+    await assertUploadMagicBytes(file, "Payment slip");
+    const key = opaqueObjectKey();
     await this.documents.put(key, file.stream(), { httpMetadata: { contentType: validated.contentType } });
     const res = await this.repo.run(
       "INSERT INTO documents (owner_user_id, resident_id, booking_id, payment_id, document_type, status, r2_bucket, r2_key, original_filename, content_type, size_bytes, uploaded_by_user_id) SELECT u.id, ?, ?, ?, 'payment_slip', 'uploaded', 'DOCUMENTS', ?, ?, ?, ?, ? FROM residents r JOIN users u ON u.id = r.user_id WHERE r.id = ?",
@@ -2342,26 +2343,134 @@ export class AdminService {
     return this.receipt(id);
   }
 
-  identityDocuments() {
-    return this.repo.all("SELECT id, resident_id, document_type, status, original_filename, content_type, size_bytes, created_at FROM documents WHERE document_type IN ('student_card', 'ghana_card') ORDER BY id DESC");
+  async listIdentityDocuments(actor: AuthUser, includeGhanaCard: boolean) {
+    const typeClause = includeGhanaCard
+      ? "document_type IN ('student_card', 'ghana_card')"
+      : "document_type = 'student_card'";
+    const rows = await this.repo.all<Record<string, unknown>>(
+      `SELECT id, resident_id, document_type, status, original_filename, content_type, size_bytes, created_at
+         FROM documents
+        WHERE ${typeClause}
+          AND status NOT IN ('deleted', 'archived')
+        ORDER BY id DESC`
+    );
+    const documents = await this.attachLastAccessed((rows.results ?? []) as Record<string, unknown>[]);
+    let restrictedResidentIds: number[] = [];
+    if (!includeGhanaCard) {
+      const restricted = await this.repo.all<{ resident_id: number }>(
+        `SELECT DISTINCT resident_id FROM documents
+          WHERE document_type = 'ghana_card'
+            AND status NOT IN ('deleted', 'archived')
+            AND resident_id IS NOT NULL`
+      );
+      restrictedResidentIds = (restricted.results ?? [])
+        .map((row) => Number(row.resident_id))
+        .filter((id) => Number.isInteger(id) && id > 0);
+    }
+    await this.repo.audit(actor.id, actor.staffId, "admin.identity_document.listed", "document", null, {
+      resultCount: documents.length,
+      includedGhanaCard: includeGhanaCard
+    });
+    return { documents, restrictedResidentIds };
   }
 
   async identityDocument(actor: AuthUser, id: number, includeSensitive = false) {
-    const doc = await this.repo.first<Record<string, unknown>>("SELECT id, resident_id, document_type, status, original_filename, content_type, size_bytes, created_at FROM documents WHERE id = ? AND document_type IN ('student_card', 'ghana_card')", id);
-    if (!doc) throw new Error("Document not found");
-    if (doc.document_type === "ghana_card" && !includeSensitive) throw new Error("Forbidden");
-    await this.repo.audit(actor.id, actor.staffId, "admin.identity_document.accessed", "document", id, { documentType: doc.document_type });
-    return doc;
+    const doc = await this.loadIdentityDocumentMeta(id, includeSensitive);
+    await this.repo.audit(actor.id, actor.staffId, "admin.identity_document.metadata_accessed", "document", id, { documentType: doc.document_type });
+    const [withAccess] = await this.attachLastAccessed([doc]);
+    return withAccess;
   }
 
   async identityDocumentContent(actor: AuthUser, id: number, allowGhanaCard: boolean) {
+    const doc = await this.loadIdentityDocumentMeta(id, allowGhanaCard);
+    const stored = await this.loadStoredObject(id);
+    await this.repo.audit(actor.id, actor.staffId, "admin.identity_document.content_accessed", "document", id, { documentType: doc.document_type });
+    return { object: stored.object, document: doc };
+  }
+
+  async paymentSlipContent(actor: AuthUser, paymentId: number) {
+    const payment = await this.get("payments", paymentId) as Record<string, unknown> | null;
+    if (!payment) throw new Error("Payment not found");
+    const doc = await this.repo.first<{ id: number; original_filename: string | null; content_type: string | null }>(
+      `SELECT id, original_filename, content_type FROM documents
+        WHERE payment_id = ? AND document_type = 'payment_slip' AND status NOT IN ('deleted', 'archived')
+        ORDER BY id DESC`,
+      paymentId
+    );
+    if (!doc) throw new Error("Payment slip not found");
+    const stored = await this.loadStoredObject(Number(doc.id));
+    await this.repo.audit(actor.id, actor.staffId, "admin.payment.slip_accessed", "document", Number(doc.id), { paymentId });
+    return { object: stored.object, document: doc };
+  }
+
+  async receiptPdfContent(actor: AuthUser, receiptId: number) {
+    const receipt = await this.get("receipts", receiptId) as Record<string, unknown> | null;
+    if (!receipt) throw new Error("Receipt not found");
+    const doc = await this.repo.first<{ id: number; original_filename: string | null; content_type: string | null }>(
+      `SELECT id, original_filename, content_type FROM documents
+        WHERE receipt_id = ? AND document_type = 'receipt_pdf' AND status NOT IN ('deleted', 'archived')
+        ORDER BY id DESC`,
+      receiptId
+    );
+    if (!doc) throw new Error("Receipt PDF not found");
+    const stored = await this.loadStoredObject(Number(doc.id));
+    await this.repo.audit(actor.id, actor.staffId, "admin.receipt.pdf_accessed", "document", Number(doc.id), { receiptId });
+    return { object: stored.object, document: doc };
+  }
+
+  private async loadIdentityDocumentMeta(id: number, includeSensitive: boolean) {
+    const doc = await this.repo.first<Record<string, unknown>>(
+      `SELECT id, resident_id, document_type, status, original_filename, content_type, size_bytes, created_at
+         FROM documents
+        WHERE id = ? AND document_type IN ('student_card', 'ghana_card') AND status NOT IN ('deleted')`,
+      id
+    );
+    if (!doc) throw new Error("Document not found");
+    if (doc.document_type === "ghana_card" && !includeSensitive) throw new Error("Forbidden");
+    return doc;
+  }
+
+  private async loadStoredObject(id: number) {
     if (!this.documents) throw new Error("Document storage is not configured");
-    const doc = await this.identityDocument(actor, id, allowGhanaCard);
     const stored = await this.repo.first<{ r2_key: string }>("SELECT r2_key FROM documents WHERE id = ?", id);
     if (!stored?.r2_key) throw new Error("Document content not found");
     const object = await this.documents.get(stored.r2_key);
     if (!object) throw new Error("Document content not found");
-    return { object, document: doc };
+    return { object };
+  }
+
+  private async attachLastAccessed(documents: Record<string, unknown>[]) {
+    const ids = documents
+      .map((doc) => Number(doc.id))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (!ids.length) return documents;
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = await this.repo.all<{ entity_id: number; last_accessed_at: string; last_accessed_by: string | null }>(
+      `SELECT al.entity_id, al.created_at AS last_accessed_at, u.display_name AS last_accessed_by
+         FROM audit_logs al
+         LEFT JOIN users u ON u.id = al.actor_user_id
+        WHERE al.entity_type = 'document'
+          AND al.action IN (
+            'admin.identity_document.content_accessed',
+            'admin.identity_document.accessed',
+            'admin.payment.slip_accessed',
+            'admin.receipt.pdf_accessed'
+          )
+          AND al.entity_id IN (${placeholders})
+        ORDER BY al.id DESC`,
+      ...ids
+    );
+    const latest = new Map<number, { last_accessed_at: string; last_accessed_by: string | null }>();
+    for (const row of rows.results ?? []) {
+      const id = Number(row.entity_id);
+      if (!latest.has(id)) {
+        latest.set(id, { last_accessed_at: String(row.last_accessed_at), last_accessed_by: row.last_accessed_by ?? null });
+      }
+    }
+    return documents.map((doc) => {
+      const access = latest.get(Number(doc.id));
+      return access ? { ...doc, ...access } : { ...doc, last_accessed_at: null, last_accessed_by: null };
+    });
   }
 
   async updateIdentityDocumentStatus(actor: AuthUser, id: number, status: "verified" | "rejected", reason?: string | null) {

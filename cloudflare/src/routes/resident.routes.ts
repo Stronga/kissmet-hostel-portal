@@ -5,6 +5,7 @@ import type { AuthUser } from "../auth/context";
 import { requireAuth, requireResident } from "../middleware/auth.middleware";
 import { asObject, intField, stringField } from "../http/input";
 import { ok } from "../http/responses";
+import { documentDownloadHeaders } from "../http/uploads";
 import { routeError } from "../http/safe-error";
 import { createSmsProvider } from "../services/sms.service";
 import { ResidentService } from "../services/resident.service";
@@ -102,6 +103,13 @@ residentRoutes.get("/me/internet-access/sessions", async (c) => {
 residentRoutes.get("/me/documents", async (c) => c.json(ok((await service(c).documentsFor(c.get("authUser"))).results ?? [])));
 residentRoutes.post("/me/documents/student-card", async (c) => upload(c, "student_card"));
 residentRoutes.post("/me/documents/ghana-card", async (c) => upload(c, "ghana_card"));
+residentRoutes.get("/me/documents/:id/content", async (c) => {
+  try {
+    const result = await service(c).ownDocumentContent(c.get("authUser"), Number(c.req.param("id")));
+    const filename = String(result.document.original_filename ?? "document");
+    return new Response(result.object.body, { headers: documentDownloadHeaders(filename, result.document.content_type as string | null) });
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
 residentRoutes.get("/me/documents/:id", async (c) => {
   try { return c.json(ok(await service(c).ownDocument(c.get("authUser"), Number(c.req.param("id"))))); }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }

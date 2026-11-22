@@ -9,7 +9,7 @@ import { AdminService } from "../services/admin.service";
 import { asObject, intField, pagination, stringField } from "../http/input";
 import { error, listOk, ok } from "../http/responses";
 import { routeError } from "../http/safe-error";
-import { contentDispositionAttachment } from "../http/uploads";
+import { documentDownloadHeaders } from "../http/uploads";
 import { adminWriteAbuseMiddleware } from "../middleware/admin-abuse.middleware";
 import { internetAccessRoutes } from "./internet-access.routes";
 
@@ -666,9 +666,23 @@ routes.post("/payments/:id/slip", requirePermission("payment:write"), async (c) 
     return c.json(ok(await service(c).uploadPaymentSlip(c.get("authUser"), Number(c.req.param("id")), file)), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
+routes.get("/payments/:id/slip/content", requirePermission("payment:read"), async (c) => {
+  try {
+    const result = await service(c).paymentSlipContent(c.get("authUser"), Number(c.req.param("id")));
+    const filename = String(result.document.original_filename ?? "payment-slip");
+    return new Response(result.object.body, { headers: documentDownloadHeaders(filename, result.document.content_type) });
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
 routes.post("/payments/:id/receipt", requirePermission("receipt:write"), async (c) => {
   try { return c.json(ok(await service(c).issueReceipt(c.get("authUser"), Number(c.req.param("id")))), 201); }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/receipts/:id/pdf", requirePermission("receipt:read"), async (c) => {
+  try {
+    const result = await service(c).receiptPdfContent(c.get("authUser"), Number(c.req.param("id")));
+    const filename = String(result.document.original_filename ?? "receipt.pdf");
+    return new Response(result.object.body, { headers: documentDownloadHeaders(filename, result.document.content_type) });
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.get("/receipts/:id", requirePermission("receipt:read"), async (c) => c.json(ok(await service(c).receipt(Number(c.req.param("id"))))));
 routes.post("/receipts/:id/void", requirePermission("receipt:write"), async (c) => {
@@ -676,7 +690,12 @@ routes.post("/receipts/:id/void", requirePermission("receipt:write"), async (c) 
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 
-routes.get("/documents", requirePermission("document:read"), async (c) => c.json(ok((await service(c).identityDocuments()).results ?? [])));
+routes.get("/documents", requirePermission("document:read"), async (c) => {
+  try {
+    const allowGhana = hasPermission(c.get("authUser").role, "document:ghana_card");
+    return c.json(ok(await service(c).listIdentityDocuments(c.get("authUser"), allowGhana)));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
 routes.get("/documents/:id", requirePermission("document:read"), async (c) => {
   try {
     const allowGhana = hasPermission(c.get("authUser").role, "document:ghana_card");
@@ -688,14 +707,7 @@ routes.get("/documents/:id/content", requirePermission("document:read"), async (
     const allowGhana = hasPermission(c.get("authUser").role, "document:ghana_card");
     const result = await service(c).identityDocumentContent(c.get("authUser"), Number(c.req.param("id")), allowGhana);
     const filename = String(result.document.original_filename ?? "document");
-    return new Response(result.object.body, {
-      headers: {
-        "Content-Type": String(result.document.content_type ?? "application/octet-stream"),
-        "Content-Disposition": contentDispositionAttachment(filename),
-        "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "private, no-store"
-      }
-    });
+    return new Response(result.object.body, { headers: documentDownloadHeaders(filename, result.document.content_type as string | null) });
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/documents/:id/verify", requirePermission("document:write"), async (c) => {

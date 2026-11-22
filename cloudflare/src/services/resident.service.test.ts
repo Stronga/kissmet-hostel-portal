@@ -4,6 +4,7 @@ import { ResidentService } from "./resident.service";
 import { hashPassword } from "../auth/crypto";
 import type { AuthUser } from "../auth/context";
 import { requirePermission } from "../middleware/auth.middleware";
+import { samplePdfFile, samplePngFile } from "../../tests/upload-samples";
 
 const resident: AuthUser = { id: 1, userType: "resident", displayName: "Ama", email: "ama@test", role: "resident", staffId: null, residentId: 1, sessionId: 1 };
 const otherResident: AuthUser = { ...resident, id: 2, residentId: 2 };
@@ -63,7 +64,8 @@ class Repo {
       if (sql.includes("document_type IN")) {
         return { results: rows.filter((d) => ["student_card", "ghana_card"].includes(String(d.document_type)) && ["uploaded", "verified"].includes(String(d.status))).map((d) => ({ document_type: d.document_type, status: d.status })) as T[] };
       }
-      return { results: rows as T[] };
+      const visible = sql.includes("NOT IN ('deleted', 'archived')") ? rows.filter((d) => !["deleted", "archived"].includes(String(d.status))) : rows;
+      return { results: visible as T[] };
     }
     if (sql.includes("FROM applications")) return { results: this.rows.applications.filter((a) => a.resident_id === binds[0]) as T[] };
     if (sql.includes("FROM bookings")) return {
@@ -106,8 +108,13 @@ class Repo {
       return (this.rows.applications.find((a) => a.resident_id === binds[0] && a.academic_session_id === binds[1] && (a.lease_period_id == null || sql.includes("lease_period_id IS NULL")) && !["cancelled", "archived", "rejected"].includes(String(a.status))) ?? null) as T;
     }
     if (sql.includes("FROM applications WHERE id")) return (this.rows.applications.find((a) => a.id === binds[0] && a.resident_id === binds[1]) ?? null) as T;
+    if (sql.includes("AND document_type = ?") && sql.includes("status IN ('uploaded', 'verified', 'rejected')")) {
+      return (this.rows.documents
+        .filter((d) => d.resident_id === binds[0] && d.document_type === binds[1] && ["uploaded", "verified", "rejected"].includes(String(d.status)))
+        .sort((a, b) => Number(b.id) - Number(a.id))[0] ?? null) as T;
+    }
     if (sql.includes("FROM documents WHERE id")) {
-      const doc = this.rows.documents.find((d) => d.id === binds[0] && d.resident_id === binds[1]);
+      const doc = this.rows.documents.find((d) => d.id === binds[0] && d.resident_id === binds[1] && d.status !== "deleted");
       if (!doc) return null;
       if (sql.includes("original_filename") && !sql.includes("r2_key")) {
         return { id: doc.id, document_type: doc.document_type, status: doc.status, original_filename: doc.original_filename, content_type: doc.content_type, size_bytes: doc.size_bytes, created_at: doc.created_at } as T;
@@ -227,6 +234,11 @@ class Repo {
       this.rows.maintenance_requests.push({ id, request_number: binds[0], resident_id: binds[1], room_id: bed?.room_id ?? null, bed_id: binds[3], category: binds[4], priority: binds[5], status: "open", title: binds[6], description: binds[7], opened_at: "2026-09-02T00:00:00.000Z" });
       return { meta: { last_row_id: id, changes: 1 } };
     }
+    if (sql.startsWith("UPDATE documents")) {
+      const doc = this.rows.documents.find((d) => d.id === binds[0] && d.resident_id === binds[1]);
+      if (doc && sql.includes("archived")) doc.status = "archived";
+      return { meta: { changes: doc ? 1 : 0 } };
+    }
     if (sql.startsWith("UPDATE applications")) {
       const id = sql.includes("decision_notes") ? binds[1] : binds[0];
       const row = this.rows.applications.find((a) => a.id === id);
@@ -319,13 +331,26 @@ describe("resident onboarding", () => {
 
   it("uploads private Student Card and Ghana Card documents", async () => {
     const { svc, puts } = make();
-    const student = await svc.uploadIdentityDocument(resident, "student_card", new File(["x"], "student.pdf", { type: "application/pdf" })) as Record<string, unknown>;
-    const ghana = await svc.uploadIdentityDocument(resident, "ghana_card", new File(["x"], "ghana.png", { type: "image/png" })) as Record<string, unknown>;
-    expect(puts.every((key) => key.startsWith("identity/1/"))).toBe(true);
+    const student = await svc.uploadIdentityDocument(resident, "student_card", samplePdfFile("student.pdf")) as Record<string, unknown>;
+    const ghana = await svc.uploadIdentityDocument(resident, "ghana_card", samplePngFile("ghana.png")) as Record<string, unknown>;
+    expect(puts.every((key) => /^objects\/[0-9a-f-]{36}$/i.test(key))).toBe(true);
     expect(student).not.toHaveProperty("r2_key");
     expect(student).not.toHaveProperty("r2_bucket");
     expect(ghana).not.toHaveProperty("r2_key");
     await expect(svc.uploadIdentityDocument(resident, "student_card", new File(["x"], "bad.txt", { type: "text/plain" }))).rejects.toThrow("Unsupported document type");
+    await expect(svc.uploadIdentityDocument(resident, "student_card", samplePdfFile("again.pdf"))).rejects.toThrow(/already on file/i);
+  });
+
+  it("allows a resident to replace only a rejected identity document", async () => {
+    const { svc, repo, puts } = make();
+    const first = await svc.uploadIdentityDocument(resident, "student_card", samplePdfFile("student.pdf")) as Record<string, unknown>;
+    const row = repo.rows.documents.find((d) => d.id === first.id)!;
+    row.status = "rejected";
+    const second = await svc.uploadIdentityDocument(resident, "student_card", samplePdfFile("student-2.pdf")) as Record<string, unknown>;
+    expect(second.id).not.toBe(first.id);
+    expect(repo.rows.documents.find((d) => d.id === first.id)?.status).toBe("archived");
+    expect(puts.every((key) => /^objects\/[0-9a-f-]{36}$/i.test(key))).toBe(true);
+    expect(second).not.toHaveProperty("r2_key");
   });
 
   it("creates, updates, and submits own draft application after required uploads", async () => {
@@ -467,10 +492,11 @@ describe("resident onboarding", () => {
     const { svc, repo, puts } = make();
     const payment = await svc.createPayment(resident, { bookingId: 1, amountMinor: 250000, currency: "GHS", method: "bank_transfer" }) as Record<string, unknown>;
     await expect(svc.submitPayment(resident, Number(payment.id))).resolves.toMatchObject({ status: "submitted" });
-    await svc.uploadPaymentSlip(resident, Number(payment.id), new File(["x"], "slip.pdf", { type: "application/pdf" }));
-    expect(puts[0]).toContain("payment-slips/KSM-PAY-0001/");
+    await svc.uploadPaymentSlip(resident, Number(payment.id), samplePdfFile("slip.pdf"));
+    expect(puts[0]).toMatch(/^objects\/[0-9a-f-]{36}$/i);
+    expect(puts[0]).not.toContain("KSM-PAY-0001");
     expect(repo.rows.documents.at(-1)).toMatchObject({ document_type: "payment_slip", resident_id: 1, payment_id: payment.id });
-    await expect(svc.uploadPaymentSlip(otherResident, Number(payment.id), new File(["x"], "slip.pdf", { type: "application/pdf" }))).rejects.toThrow("Payment not found");
+    await expect(svc.uploadPaymentSlip(otherResident, Number(payment.id), samplePdfFile("slip.pdf"))).rejects.toThrow("Payment not found");
     await expect(svc.uploadPaymentSlip(resident, Number(payment.id), new File(["x"], "bad.txt", { type: "text/plain" }))).rejects.toThrow("Unsupported payment slip type");
     expect(repo.audits).toContain("resident.payment.submitted");
     expect(repo.audits).toContain("resident.payment.slip_uploaded");

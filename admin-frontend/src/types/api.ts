@@ -112,6 +112,13 @@ export interface IdentityDocument {
   content_type?: string | null;
   size_bytes?: number | null;
   created_at?: string;
+  last_accessed_at?: string | null;
+  last_accessed_by?: string | null;
+}
+
+export interface IdentityDocumentList {
+  documents: IdentityDocument[];
+  restrictedResidentIds: number[];
 }
 
 export type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "archived";
