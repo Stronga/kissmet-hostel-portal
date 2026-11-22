@@ -152,8 +152,9 @@ class WorkflowRepo {
       }
       return { meta: { changes: 0 } };
     } else if (sql.startsWith("UPDATE payments SET status = 'refunded'")) {
-      const row = this.rows.payments.find((p) => p.id === binds[1]);
+      const row = this.rows.payments.find((p) => p.id === binds[1] && (!sql.includes("AND status = 'verified'") || p.status === "verified"));
       if (row) Object.assign(row, { status: "refunded", notes: binds[0] });
+      return { meta: { changes: row ? 1 : 0 } };
     } else if (sql.startsWith("UPDATE payments")) {
       const row = this.rows.payments.find((p) => p.id === binds[3]);
       if (row) Object.assign(row, { status: binds[0], notes: binds[1] });
@@ -170,8 +171,9 @@ class WorkflowRepo {
       return { meta: { last_row_id: id, changes: 1 } };
     }
     if (sql.startsWith("UPDATE receipts")) {
-      const row = this.rows.receipts.find((r) => r.id === binds[1]);
+      const row = this.rows.receipts.find((r) => r.id === binds[1] && (!sql.includes("AND status = 'issued'") || r.status === "issued"));
       if (row) Object.assign(row, { status: "voided", void_reason: binds[0] });
+      return { meta: { changes: row ? 1 : 0 } };
     }
     if (sql.startsWith("INSERT INTO allocations")) {
       const id = this.rows.allocations.length + 1;
@@ -539,7 +541,7 @@ describe("phase 5 workflows", () => {
     await svc.updatePaymentStatus(manager, 1, "submitted");
     await svc.verifyPayment(manager, 1);
     await svc.updateBookingStatus(manager, bookingId, "confirmed");
-    await svc.refundPayment(manager, 1);
+    await svc.refundPayment(manager, 1, "Resident withdrew");
     expect(await svc.bookingPaymentSummary(bookingId)).toMatchObject({ verifiedPaidMinor: 0, confirmationRequirementMet: false });
     expect(repo.rows.bookings[0].status).toBe("confirmed");
     expect(repo.audits).toContain("admin.booking.payment_deficiency_after_refund");
