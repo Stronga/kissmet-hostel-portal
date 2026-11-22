@@ -5,6 +5,7 @@ import type {
   HotspotUser,
   RouterOsClient
 } from "./types.js";
+import { UserNotFoundError } from "./types.js";
 
 export class MockRouterOsClient implements RouterOsClient {
   profiles = new Map<string, HotspotProfile>();
@@ -59,7 +60,7 @@ export class MockRouterOsClient implements RouterOsClient {
   async setUserDisabled(username: string, disabled: boolean) {
     this.maybeFail();
     const user = this.users.get(username);
-    if (!user) throw new Error(`HotSpot user not found: ${username}`);
+    if (!user) throw new UserNotFoundError();
     const updated = { ...user, disabled };
     this.users.set(username, updated);
     return updated;
@@ -68,7 +69,7 @@ export class MockRouterOsClient implements RouterOsClient {
   async setUserPassword(username: string, password: string) {
     this.maybeFail();
     const user = this.users.get(username);
-    if (!user) throw new Error(`HotSpot user not found: ${username}`);
+    if (!user) throw new UserNotFoundError();
     this.passwords.set(username, password);
     return user;
   }

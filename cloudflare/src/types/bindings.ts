@@ -16,6 +16,20 @@ export interface Env {
   MIKROTIK_CONNECTOR_URL?: string;
   /** Shared Bearer secret for Worker → connector (optional locally). */
   MIKROTIK_CONNECTOR_SECRET?: string;
+  /**
+   * Cloudflare Access service token (Worker secrets) for the connector Tunnel hostname.
+   * When both are set the Worker sends CF-Access-Client-Id / CF-Access-Client-Secret.
+   */
+  MIKROTIK_CONNECTOR_ACCESS_CLIENT_ID?: string;
+  MIKROTIK_CONNECTOR_ACCESS_CLIENT_SECRET?: string;
+  /** HMAC secret (>=32 chars) for Pi → Worker POST /connector/heartbeat. Worker secret only. */
+  CONNECTOR_HEARTBEAT_SECRET?: string;
+  /** Previous heartbeat secret, accepted during rotation overlap only. Worker secret only. */
+  CONNECTOR_HEARTBEAT_SECRET_PREVIOUS?: string;
+  /** Comma-separated lowercase connector UUIDs allowed to send heartbeats (non-secret var). */
+  CONNECTOR_HEARTBEAT_ALLOWED_IDS?: string;
+  /** Seconds without a heartbeat before Admin shows the connector as stale (default 180). */
+  CONNECTOR_HEARTBEAT_STALE_SECONDS?: string;
 
   /**
    * OTP SMS delivery provider selection.

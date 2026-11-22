@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node --import tsx src/index.ts",
@@ -11,14 +14,14 @@
     "postinstall": "node scripts/patch-node-routeros.cjs"
   },
   "dependencies": {
-    "@hono/node-server": "^1.14.1",
-    "hono": "^4.6.20",
+    "@hono/node-server": "^2.1.11",
+    "hono": "^4.13.19",
     "node-routeros": "^1.6.9"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }

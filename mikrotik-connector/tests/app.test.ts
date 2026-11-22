@@ -15,6 +15,7 @@ const config: ConnectorConfig = {
   mikrotikApiUser: "portal-api",
   mikrotikApiPassword: "unused",
   mode: "local",
+  routerosDriver: "real", // client is injected directly; keeps default (real) response shape under test
   maxBodyBytes: 16 * 1024,
   rateLimitWindowMs: 60_000,
   rateLimitMax: 120,
@@ -82,6 +83,8 @@ describe("connector HTTP API", () => {
     };
     expect(body.ok).toBe(true);
     expect(body.data.routeros).toBe("reachable");
+    expect(body.data.mikrotikHost).toBe("192.168.88.1");
+    expect(body.data.mikrotikApiPort).toBe(8728);
     expect(JSON.stringify(body)).not.toMatch(/password|CONNECTOR_SECRET|Bearer /i);
   });
 
@@ -150,7 +153,7 @@ describe("connector HTTP API", () => {
   });
 
   it("maps missing user to 404", async () => {
-    const res = await app.request("/v1/users/KSM-RES-missing/disable", {
+    const res = await app.request("/v1/users/KSM-RES-MISSING/disable", {
       method: "POST",
       headers: authHeaders()
     });
@@ -207,7 +210,8 @@ describe("loadConfig production gates", () => {
 
   it("loads local mode with defaults", () => {
     const cfg = loadConfig({
-      CONNECTOR_SECRET: "local-dev-secret-value"
+      CONNECTOR_SECRET: "local-dev-secret-value",
+      CONNECTOR_MODE: "local"
     } as NodeJS.ProcessEnv);
     expect(cfg.mode).toBe("local");
     expect(cfg.bindHost).toBe("127.0.0.1");

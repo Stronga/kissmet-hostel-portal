@@ -54,3 +54,11 @@ export class RouterOsUnavailableError extends Error {
     this.name = "RouterOsUnavailableError";
   }
 }
+
+/** Typed "user does not exist" so the HTTP layer maps it to 404 without inspecting messages. */
+export class UserNotFoundError extends Error {
+  constructor() {
+    super("HotSpot user not found");
+    this.name = "UserNotFoundError";
+  }
+}

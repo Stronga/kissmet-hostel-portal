@@ -103,17 +103,35 @@ Private WG keys stay out of git (mode `0600` on the machine that holds them). Pr
 | Path | Purpose |
 |---|---|
 | `mikrotik-connector/` | Node/Hono service |
-| `.env.example` | Placeholders only |
-| `deploy/mikrotik-connector.service` | systemd unit template (production = Pi LAN; WG optional for lab) |
+| `.env.example` | Dev placeholders only (`TRUST_PROXY=false`) |
+| `deploy/connector.env.production.example` | Pi production env template (trusted-proxy: `TRUST_PROXY=true`, `BIND_HOST=127.0.0.1`, api-ssl 8729) |
+| `deploy/mikrotik-connector.service` | systemd unit **template** (`@SERVICE_USER@` etc., rendered by install/upgrade) |
+| `deploy/cloudflared/config.yml.example` | Tunnel ingress template (no secrets) |
+| `deploy/CLOUDFLARE_TUNNEL_ACCESS.md` | Tunnel + Access + Worker secrets plan |
+| `deploy/ROUTEROS_API_SSL.md` | Router-side api-ssl steps (docs only) |
+| `scripts/lib/common.sh` | Shared validation + unit rendering (tested statically) |
 | `scripts/install.sh` | First install to `/opt/kissmet/mikrotik-connector` |
 | `scripts/upgrade.sh` | Redeploy without wiping secrets env |
 | `MIKROTIK_CONNECTOR_DEPLOYMENT.md` | This guide |
 
 ## Install (once Pi exists on site)
 
+Requirements: **Node.js 22.x LTS (arm64, system install e.g. NodeSource `/usr/bin/node`)** — pinned in
+`package.json` `engines`, `.nvmrc`, `.node-version`; install.sh/upgrade.sh refuse any other major and
+refuse Node under `/home` (nvm), which `ProtectHome=true` would hide.
+
+Service account: default **`kissmet-connector`** (created as a no-login system user with no home).
+The existing `kissmet-svc` account (Python heartbeat) is supported with `SERVICE_USER=kissmet-svc`,
+but a dedicated user is recommended so neither service can read the other's files/process.
+`root`, `kissmet` (admin login), `pi`, and members of `sudo`/`adm`/`docker`/… are refused.
+The code tree is `root:<service-group>` `u=rwX,g=rX,o=` (read-only to the service, plus
+`ReadOnlyPaths=`), the env file is `root:root 0600` (systemd reads it before dropping privileges),
+and `npm ci` runs with `--ignore-scripts` (then our own `patch-node-routeros.cjs`).
+The unit sets `NODE_ENV=production`, so the systemd service can never run the mock driver.
+
 ```bash
 # On the Raspberry Pi, from a checked-out repo copy:
-sudo ./scripts/install.sh
+sudo ./scripts/install.sh                          # or: sudo SERVICE_USER=kissmet-svc ./scripts/install.sh
 sudoedit /etc/kissmet/mikrotik-connector.env   # real secrets
 # confirm Ethernet / reserved LAN IP; test LAN reachability (below)
 sudo systemctl enable --now kissmet-mikrotik-connector
@@ -123,7 +141,7 @@ curl -fsS http://127.0.0.1:8788/health
 Upgrade later:
 
 ```bash
-sudo ./scripts/upgrade.sh
+sudo ./scripts/upgrade.sh                          # same SERVICE_USER as install; keeps ${INSTALL_ROOT}.prev for rollback
 ```
 
 ### systemd expectations
@@ -152,8 +170,8 @@ Production intent: the Worker reaches the connector through **secure Cloudflare 
 | Path | Transport |
 |---|---|
 | Worker → connector | Authenticated HTTPS via Cloudflare (Tunnel or equivalent) + `Authorization: Bearer <CONNECTOR_SECRET>` |
-| Connector → RouterOS | TCP **8728** on **direct hostel LAN** from the Pi |
-| api-ssl `8729` | **Deferred** (certificate migration later) |
+| Connector → RouterOS | **api-ssl 8729 (TLS, CA-verified)** on direct hostel LAN from the Pi (`MIKROTIK_API_TLS=true`, **mandatory in production** — the connector refuses to start in production without TLS + absolute CA file + verification); plain 8728 only in an explicitly non-production env (`CONNECTOR_MODE=local` / `NODE_ENV=development`) |
+| api-ssl `8729` | Connector support implemented; router-side steps in `deploy/ROUTEROS_API_SSL.md` (needs approval) |
 
 Rules:
 

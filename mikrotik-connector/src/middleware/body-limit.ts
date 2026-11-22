@@ -36,11 +36,28 @@ export function limitJsonBody(maxBytes: number) {
   };
 }
 
-export async function readJsonBody<T>(c: Context): Promise<T> {
-  const cached = c.get("rawBodyText") as string | undefined;
-  if (cached !== undefined) {
-    if (!cached.trim()) return {} as T;
-    return JSON.parse(cached) as T;
+/** JSON parse failure. Carries no detail: the parser message would quote the body (F3). */
+export class InvalidJsonError extends Error {
+  constructor() {
+    super("Malformed JSON body");
+    this.name = "InvalidJsonError";
   }
-  return c.req.json<T>();
+}
+
+/**
+ * Parse the (size-limited) request body as JSON. Empty body → `{}`.
+ * Throws InvalidJsonError — never the underlying SyntaxError — on bad JSON.
+ * Returns `unknown`: callers must shape-check (see validation.ts isPlainObject).
+ */
+export async function readJsonBody(c: Context): Promise<unknown> {
+  const cached = c.get("rawBodyText") as string | undefined;
+  const text = cached !== undefined ? cached : await c.req.text().catch(() => {
+    throw new InvalidJsonError();
+  });
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new InvalidJsonError();
+  }
 }

@@ -5,7 +5,7 @@ import {
 } from "../config.js";
 import { log } from "../logger.js";
 import type { RouterOsClient } from "../routeros/types.js";
-import { ProfileConflictError } from "../routeros/types.js";
+import { ProfileConflictError, UserNotFoundError } from "../routeros/types.js";
 
 export class HotspotService {
   constructor(private readonly client: RouterOsClient) {}
@@ -64,7 +64,7 @@ export class HotspotService {
 
   async disableUser(username: string) {
     const existing = await this.client.getUser(username);
-    if (!existing) throw new Error(`HotSpot user not found: ${username}`);
+    if (!existing) throw new UserNotFoundError();
     if (existing.disabled) {
       log.info("user_disable_idempotent", { username });
       return existing;
@@ -76,7 +76,7 @@ export class HotspotService {
 
   async enableUser(username: string) {
     const existing = await this.client.getUser(username);
-    if (!existing) throw new Error(`HotSpot user not found: ${username}`);
+    if (!existing) throw new UserNotFoundError();
     if (!existing.disabled) {
       log.info("user_enable_idempotent", { username });
       return existing;
@@ -88,7 +88,7 @@ export class HotspotService {
 
   async resetUserPassword(username: string, password: string) {
     const existing = await this.client.getUser(username);
-    if (!existing) throw new Error(`HotSpot user not found: ${username}`);
+    if (!existing) throw new UserNotFoundError();
     const updated = await this.client.setUserPassword(username, password);
     log.info("user_password_reset", { username });
     return updated;

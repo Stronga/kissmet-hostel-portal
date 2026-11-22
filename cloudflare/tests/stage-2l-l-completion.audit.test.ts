@@ -45,6 +45,8 @@ const EXPECTED_MIGRATIONS = [
   "0017_ghana_card_number_and_identity_realignment.sql",
   "0018_session_optional_booking_agreements.sql",
   "0019_agreement_aware_allocations.sql",
+  // Pre-Pi commissioning: additive connector heartbeat table (local only until approved).
+  "0020_connector_heartbeats.sql",
 ];
 
 const BOOKING_REQUIRED_COLS = [
@@ -180,10 +182,11 @@ function seedCore(db: Database) {
 }
 
 describe("Stage 2L-L migration chain & schema consistency", () => {
-  it("applies exactly 0001→0019 with no 0020 and preserves critical columns", async () => {
+  it("applies exactly 0001→0020 (0020 = additive connector heartbeat only) and preserves critical columns", async () => {
     const files = listMigrationFiles();
     expect(files).toEqual(EXPECTED_MIGRATIONS);
-    expect(files.some((f) => f.startsWith("0020"))).toBe(false);
+    // The only migration after the 2L-L chain is the pre-Pi additive heartbeat table.
+    expect(files.filter((f) => f > "0019_agreement_aware_allocations.sql")).toEqual(["0020_connector_heartbeats.sql"]);
 
     const db = await openMigratedDatabase();
     const bookingCols = all<{ name: string }>(db, `PRAGMA table_info(bookings)`).map((c) => String(c.name));
