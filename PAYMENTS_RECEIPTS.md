@@ -130,7 +130,28 @@ Receipts are voided rather than deleted. The schema keeps `payment_id` unique, s
 
 Only verified payments may be refunded. Refunded payments stop counting toward `verified_paid_minor`.
 
-If a refund causes an already confirmed booking to fall below the active confirmation threshold, the booking status is not silently changed. The booking is flagged with `payment_attention_required = 1` and an audit event is recorded.
+`POST /admin/payments/:id/refund` (`AdminService.refundPayment`) is the **only** way to mark a payment `refunded`
+(refund redesign milestone 1, PR `fix/refund-integrity`):
+
+- `PATCH /admin/payments/:id/status` with `status: "refunded"` is refused with
+  `Invalid workflow transition: refunds must use POST /admin/payments/:id/refund` (400) and changes nothing. Callers
+  without `payment:verify` still get 403 first.
+- A non-empty refund reason is required (`reason`; legacy `notes` is accepted). It is stored on `payments.notes` only,
+  never in audit metadata.
+- The refund is claimed with a conditional `verified → refunded` update, so a second or concurrent refund of the same
+  payment changes zero rows and fails without repeating side effects.
+- The payment's active receipt is voided (`receipts.status = 'voided'`, `voided_at`, fixed `void_reason = 'Payment refunded'`)
+  and `admin.receipt.voided` is audited with `{ paymentId, cause: "payment_refunded" }`. A refunded payment cannot be issued a
+  new receipt (receipts require `verified`).
+- If the refund causes an already confirmed booking to fall below the active confirmation threshold, the booking status is
+  not silently changed. The booking is flagged with `payment_attention_required = 1` and
+  `payment_attention_reason = 'Refund reduced verified payments below confirmation threshold'`, and
+  `admin.booking.payment_deficiency_after_refund` is audited. The response summary reflects the flag.
+- `admin.payment.refunded` metadata is `{ bookingId, amountMinor, receiptVoidedId }` — ids and amounts only.
+- Finance reports are unchanged: `refunded_totals` sums `refunded` payments and `verified_payments` excludes them.
+
+Not yet supported (milestone 2, migration 0021): partial refunds, separate requester/approver, refund payout method and
+reference, credit notes, refund-status reporting and a resident refund view.
 
 ## Permissions
 
