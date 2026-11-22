@@ -87,7 +87,8 @@ build-time guard that fails a production build when `VITE_API_BASE_URL` is unset
 
 ## Other open items noted
 
-- Hono/@hono/node-server upgraded (this PR); remaining Worker advisories are all in `wrangler@3` dev tooling → plan a
-  `wrangler@4` upgrade (major; re-test `wrangler dev`, D1 local, `migrations` commands).
+- Hono/@hono/node-server upgraded; Wrangler upgraded to v4 (`wrangler@4.166.0`, `@cloudflare/workers-types@5`) on
+  `chore/wrangler-4`. Re-tested typecheck, 430 Worker tests, `wrangler deploy --dry-run` (local and production envs, no
+  upload), and `d1 migrations list --local`. No `--remote` commands were run.
 - Self-service staff password change + forced change after a reset/bootstrap temp password.
 - Mobile-money payments and email delivery remain unbuilt (from the pre-Pi report).
