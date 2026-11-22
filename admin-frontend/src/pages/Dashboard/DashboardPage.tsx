@@ -6,6 +6,7 @@ import { OccupancyPanel } from "../../components/dashboard/OccupancyPanel";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { useDashboard } from "../../hooks/useDashboard";
 import { formatStatus } from "../../utils/format";
+import { ConnectorStatusCard } from "../../components/internet/ConnectorStatusCard";
 
 export function DashboardPage() {
   const { data, loading, error } = useDashboard();
@@ -18,6 +19,7 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Dashboard" eyebrow="Overview" description={`Active session: ${overview.active_academic_session ?? "Not set"}`} />
+      <ConnectorStatusCard />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total Residents" value={overview.total_residents ?? 0} />
         <StatCard label="Active Residents" value={overview.active_residents ?? 0} tone="success" />

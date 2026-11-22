@@ -1,6 +1,7 @@
 import { apiRequest } from "./client";
 import type {
   ConnectorHealth,
+  ConnectorStatus,
   DataEnvelope,
   EligibleResident,
   InternetAccount,
@@ -34,6 +35,10 @@ export async function getInternetSummary() {
 
 export async function getConnectorHealth() {
   return (await apiRequest<DataEnvelope<ConnectorHealth>>("/admin/internet-access/connector-health")).data;
+}
+
+export async function getConnectorStatus() {
+  return (await apiRequest<DataEnvelope<ConnectorStatus>>("/admin/internet-access/connector-status")).data;
 }
 
 export async function searchEligibleResidents(params: { limit?: number; offset?: number; search?: string } = {}) {

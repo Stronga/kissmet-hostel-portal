@@ -80,3 +80,15 @@ def send(status: dict) -> int:
 # connectorStatus/routerosStatus: probe http://127.0.0.1:8788/health (no auth) and, if the
 # heartbeat service is given the connector Bearer secret, /v1/health.
 ```
+
+
+## Admin UI
+
+The admin dashboard and Internet Access page show a connector-status card backed by
+`GET /admin/internet-access/connector-status` (`internet:read` only). Colour is derived from
+heartbeat age: green under 2 minutes, amber until the configured stale threshold (default 180s),
+and red when stale or when no heartbeat has been seen. The card shows configured yes/no, last
+seen time, connector version, and RouterOS reachability from the last heartbeat. Connector URLs,
+secrets, nonces, and source IPs are never rendered. The Internet Access page also has an on-demand
+live probe button (`GET /admin/internet-access/connector-health`) limited to once every 15 seconds
+in the browser.

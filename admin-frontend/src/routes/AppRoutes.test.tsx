@@ -18,6 +18,7 @@ function mockDashboardFetch() {
     if (url.endsWith("/admin/dashboard/finance")) return envelope({ expected_booking_revenue: 250000, verified_payments: 100000, outstanding_booking_balances: 150000, pending_submitted_payment_totals: 0, refunded_totals: 0, fully_paid_bookings: 0, partially_paid_bookings: 1, unpaid_bookings: 0, bookings_requiring_payment_attention: 0 });
     if (url.endsWith("/admin/dashboard/applications")) return envelope({ submitted_applications: 2, under_review_applications: 1, approved_applications: 1, rejected_applications: 0, pending_bookings: 1, confirmed_bookings: 1 });
     if (url.endsWith("/admin/dashboard/maintenance")) return envelope({ open: 1, assigned: 0, in_progress: 0, resolved: 0, urgent: 0 });
+    if (url.includes("/admin/internet-access/connector-status")) return envelope({ configured: true, staleAfterSeconds: 180, connectors: [{ connectorId: "3f1c2b9e-8a7d-4c6b-9e5f-0a1b2c3d4e5f", lastSeenAt: "2026-11-22T12:00:00.000Z", ageSeconds: 15, stale: false, version: "0.1.0", hostname: null, connectorStatus: "ok", routerosStatus: "ok", uptimeSeconds: 42, heartbeatCount: 4, firstSeenAt: "2026-11-22T10:00:00.000Z" }] });
     return new Response(null, { status: 404 });
   });
 }
