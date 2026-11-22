@@ -14,8 +14,8 @@
     "postinstall": "node scripts/patch-node-routeros.cjs"
   },
   "dependencies": {
-    "@hono/node-server": "^1.14.1",
-    "hono": "^4.6.20",
+    "@hono/node-server": "^2.1.11",
+    "hono": "^4.13.19",
     "node-routeros": "^1.6.9"
   },
   "devDependencies": {
