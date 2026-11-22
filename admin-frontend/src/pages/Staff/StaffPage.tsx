@@ -202,7 +202,7 @@ export function StaffPage() {
             onRole={(roleId) => setConfirm({ title: "Change staff role?", description: "Active sessions for this staff member will be revoked after the role change.", action: () => withSave(async () => { await changeStaffRole(selected.id, roleId); await refreshSelected(); setConfirm(null); }) })}
             onStaffStatus={(status) => setConfirm({ title: `Change staff status to ${formatStatus(status)}?`, description: status === "active" ? undefined : "Active sessions for this staff member will be revoked.", action: () => withSave(async () => { await changeStaffStatus(selected.id, status); await refreshSelected(); setConfirm(null); }) })}
             onAccountStatus={(status) => setConfirm({ title: `Change account status to ${formatStatus(status)}?`, description: status === "active" ? undefined : "Active sessions for this user account will be revoked.", action: () => withSave(async () => { await changeStaffAccountStatus(selected.id, status); await refreshSelected(); setConfirm(null); }) })}
-            onResetPassword={() => setConfirm({ title: "Reset staff password?", description: "A temporary password will be shown once and active sessions will be revoked.", action: () => withSave(async () => { const result = await resetStaffPassword(selected.id); setOneTimePassword(result.temporaryPassword); await refreshSelected(); setConfirm(null); }) })}
+            onResetPassword={() => setConfirm({ title: "Reset staff password?", description: "A temporary password will be shown once, active sessions will be revoked, and the staff member must choose a new password at next sign-in.", action: () => withSave(async () => { const result = await resetStaffPassword(selected.id); setOneTimePassword(result.temporaryPassword); await refreshSelected(); setConfirm(null); }) })}
           />
         )}
       </ConfirmDialog>
@@ -211,7 +211,7 @@ export function StaffPage() {
         <StaffCreateForm form={form} roles={roles} saving={saving} error={formError} onChange={updateForm} onSubmit={submitCreate} onCancel={() => setCreateOpen(false)} />
       </ConfirmDialog>
 
-      <ConfirmDialog open={Boolean(oneTimePassword)} title="Temporary Password" description="Show this password to the staff member now. It is not stored or shown again by the portal." onClose={() => setOneTimePassword(null)}>
+      <ConfirmDialog open={Boolean(oneTimePassword)} title="Temporary Password" description="Show this password to the staff member now. It is not stored or shown again by the portal. They must choose a new password at their next sign-in." onClose={() => setOneTimePassword(null)}>
         <div className="space-y-4">
           <div className="rounded-md border border-border bg-muted px-4 py-3 font-mono text-sm">{oneTimePassword}</div>
           <div className="flex justify-end"><button type="button" onClick={() => setOneTimePassword(null)} className="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white">Done</button></div>

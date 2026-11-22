@@ -39,7 +39,7 @@ function env(overrides: Partial<Env> = {}): Env {
 
 type Route = { method: string; path: string };
 
-const PROTECTED_PREFIXES = ["/admin", "/resident/me", "/auth/me", "/auth/logout"];
+const PROTECTED_PREFIXES = ["/admin", "/resident/me", "/auth/me", "/auth/logout", "/auth/staff/change-password"];
 const isProtected = (p: string) => PROTECTED_PREFIXES.some((x) => p === x || p.startsWith(`${x}/`));
 
 function concrete(path: string): string {

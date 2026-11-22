@@ -7,6 +7,13 @@ import { hasPermission, hasRole, type RoleCode } from "../auth/permissions";
 
 type Variables = { authUser: AuthUser };
 
+/**
+ * The only routes a staff session flagged must_change_password may call (exact paths).
+ * Everything else — every /admin route, connector admin routes, etc. — is blocked until the
+ * password is changed. Fail closed: path variants are not in this set and are therefore blocked.
+ */
+export const PASSWORD_CHANGE_ALLOWED_PATHS = new Set(["/auth/me", "/auth/logout", "/auth/staff/change-password"]);
+
 function bearerToken(c: Context): string | null {
   const header = c.req.header("Authorization");
   if (!header?.startsWith("Bearer ")) return null;
@@ -55,8 +62,13 @@ export function makeRequireAuth(repoFactory?: (db: Env["DB"]) => AuthRepository)
     role: (session.user_type === "resident" ? "resident" : session.role_code) as RoleCode,
     staffId: session.user_type === "staff" ? session.staff_id : null,
     residentId: session.user_type === "resident" ? session.resident_id : null,
-    sessionId: session.session_id
+    sessionId: session.session_id,
+    ...(session.user_type === "staff" ? { mustChangePassword: Number(session.must_change_password ?? 0) === 1 } : {})
   });
+
+  if (session.user_type === "staff" && Number(session.must_change_password ?? 0) === 1 && !PASSWORD_CHANGE_ALLOWED_PATHS.has(c.req.path)) {
+    return c.json({ ok: false, error: { code: "PASSWORD_CHANGE_REQUIRED", message: "Password change required before continuing" } }, 403);
+  }
 
   return next();
   };

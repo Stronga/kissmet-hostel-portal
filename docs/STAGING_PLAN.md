@@ -42,7 +42,7 @@ to read mock OTPs — decide before the smoke test (see decisions). Never enable
 
 ```bash
 npx wrangler d1 migrations list DB --env staging --remote     # NOTE: creates d1_migrations if missing (a write) — fine on staging
-npx wrangler d1 migrations apply DB --env staging --remote    # 0001 … 0020
+npx wrangler d1 migrations apply DB --env staging --remote    # 0001 … 0021
 node scripts/bootstrap-production.mjs --env staging --config bootstrap/staging.config.json --out bootstrap/staging.bootstrap.sql
 # review, then
 node scripts/bootstrap-production.mjs --env staging --config bootstrap/staging.config.json --out bootstrap/staging.bootstrap.sql \
@@ -50,7 +50,7 @@ node scripts/bootstrap-production.mjs --env staging --config bootstrap/staging.c
 ```
 Smoke test (staging only):
 1. `GET https://kissmet-hostel-api-staging.<account>.workers.dev/health` and `/health/db` → 200.
-2. Staff login with the temporary password; Staff → reset password flow works; audit log shows `admin.staff.password_reset`.
+2. Staff login with the temporary password lands on the forced "Set a new password" screen (all other staff routes 403 `PASSWORD_CHANGE_REQUIRED`); after changing, other sessions are revoked and audit shows `auth.staff.password_changed`. Staff → reset password sets the flag again; audit shows `admin.staff.password_reset`.
 3. Admin: rooms/beds/rate cards visible; create a synthetic resident (OTP via mock or staging SMS), application → booking →
    payment → verify → confirm → allocation; receipt generated.
 4. Resident portal: OTP login, view booking, payments, receipts, upload a test document (R2), admin views it (audit row).

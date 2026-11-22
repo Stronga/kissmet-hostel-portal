@@ -9,8 +9,10 @@ interface AuthState {
   token: string | null;
   user: AuthUser | null;
   isLoading: boolean;
-  login: (identifier: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
+  /** Re-reads /auth/me (e.g. after a password change cleared mustChangePassword). */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -58,6 +60,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(result.token);
     const current = await fetchMe();
     setUser(current.user);
+    return current.user;
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    const current = await fetchMe();
+    setUser(current.user);
   }, []);
 
   const logout = useCallback(async () => {
@@ -68,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [clearSession]);
 
-  const value = useMemo(() => ({ token, user, isLoading, login, logout }), [token, user, isLoading, login, logout]);
+  const value = useMemo(() => ({ token, user, isLoading, login, logout, refreshUser }), [token, user, isLoading, login, logout, refreshUser]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

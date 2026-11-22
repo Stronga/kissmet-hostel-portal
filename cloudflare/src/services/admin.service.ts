@@ -3170,7 +3170,8 @@ export class AdminService {
     if (!role || !staffRoleCodes.has(role.code)) throw new Error("Invalid staff role");
     this.assertStaffRoleManageAllowed(actor, role.code);
     const password = data.password ?? randomToken(12);
-    const user = await this.repo.run("INSERT INTO users (email, username, phone, display_name, user_type, status, password_hash) VALUES (?, ?, ?, ?, 'staff', 'active', ?)", data.email, data.username, data.phone ?? null, data.displayName, await hashPassword(password));
+    // The initial password is known to the creating admin: force rotation at first login.
+    const user = await this.repo.run("INSERT INTO users (email, username, phone, display_name, user_type, status, password_hash, must_change_password) VALUES (?, ?, ?, ?, 'staff', 'active', ?, 1)", data.email, data.username, data.phone ?? null, data.displayName, await hashPassword(password));
     let res: { meta: { last_row_id?: number | string | null } };
     try {
       res = await this.repo.run("INSERT INTO staff (user_id, role_id, staff_code, job_title, status) VALUES (?, ?, ?, ?, 'active')", user.meta.last_row_id, data.roleId, data.staffCode, data.jobTitle ?? null);
@@ -3223,9 +3224,10 @@ export class AdminService {
     const staff = await this.staffMember(id);
     this.assertStaffRoleManageAllowed(actor, String(staff.role_code));
     const password = randomToken(12);
-    await this.repo.run("UPDATE users SET password_hash = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", await hashPassword(password), staff.user_id);
+    // Temporary password is known to the resetting admin: mandatory rotation at next login.
+    await this.repo.run("UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", await hashPassword(password), staff.user_id);
     await this.revokeStaffSessions(Number(staff.user_id), "password_reset");
-    await this.repo.audit(actor.id, actor.staffId, "admin.staff.password_reset", "staff", id);
+    await this.repo.audit(actor.id, actor.staffId, "admin.staff.password_reset", "staff", id, { mustChangePassword: true });
     return { staff: await this.staffMember(id), temporaryPassword: password };
   }
 

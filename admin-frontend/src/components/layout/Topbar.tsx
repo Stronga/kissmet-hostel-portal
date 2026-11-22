@@ -1,4 +1,5 @@
-import { Bell, LogOut, Menu } from "lucide-react";
+import { Bell, KeyRound, LogOut, Menu } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { formatStatus } from "../../utils/format";
 
@@ -26,6 +27,9 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-sm font-semibold text-text-primary" aria-hidden>
           {(user?.displayName ?? "S").slice(0, 1).toUpperCase()}
         </div>
+        <Link to="/change-password" className="rounded-md p-2 text-text-secondary hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label="Change password" title="Change password">
+          <KeyRound className="h-5 w-5" />
+        </Link>
         <button type="button" onClick={() => void logout()} className="rounded-md p-2 text-text-secondary hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label="Log out">
           <LogOut className="h-5 w-5" />
         </button>

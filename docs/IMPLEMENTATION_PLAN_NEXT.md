@@ -89,5 +89,5 @@ build-time guard that fails a production build when `VITE_API_BASE_URL` is unset
 
 - Hono/@hono/node-server upgraded (this PR); remaining Worker advisories are all in `wrangler@3` dev tooling → plan a
   `wrangler@4` upgrade (major; re-test `wrangler dev`, D1 local, `migrations` commands).
-- Self-service staff password change + forced change after a reset/bootstrap temp password.
+- Self-service staff password change + forced change after a reset/bootstrap temp password. **Implemented on branch `feat/staff-password-change` (migration 0021).**
 - Mobile-money payments and email delivery remain unbuilt (from the pre-Pi report).

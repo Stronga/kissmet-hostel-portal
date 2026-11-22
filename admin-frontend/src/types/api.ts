@@ -9,6 +9,8 @@ export interface AuthUser {
   staffId: number | null;
   residentId: number | null;
   sessionId: number;
+  /** Staff must set a new password before using the portal (bootstrap / admin reset / new account). */
+  mustChangePassword?: boolean;
 }
 
 export interface DashboardOverview {

@@ -12,7 +12,7 @@ export function LoginPage() {
   const { login, user } = useAuth();
   const navigate = useNavigate();
 
-  if (user) return <Navigate to="/dashboard" replace />;
+  if (user) return <Navigate to={user.mustChangePassword ? "/change-password" : "/dashboard"} replace />;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -23,8 +23,8 @@ export function LoginPage() {
     }
     setLoading(true);
     try {
-      await login(identifier.trim(), password);
-      navigate("/dashboard", { replace: true });
+      const signedIn = await login(identifier.trim(), password);
+      navigate(signedIn.mustChangePassword ? "/change-password" : "/dashboard", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid credentials");
     } finally {
