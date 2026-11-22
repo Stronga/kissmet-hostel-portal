@@ -33,12 +33,12 @@ class WorkflowRepo {
   async get(table: string, id: number) { return (this.rows[table] ?? []).find((r) => r.id === id) ?? null; }
   async all<T>(sql: string, ...binds: unknown[]) {
     if (sql.includes("FROM beds")) {
-      const [sessionId, gender] = binds;
+      const [sessionId, residentScoped, gender] = binds;
       const results = this.rows.beds.filter((bed) => {
         const room = this.rows.rooms.find((r) => r.id === bed.room_id)!;
         const rate = this.rows.room_rates.find((r) => r.room_id === room.id && r.academic_session_id === sessionId && r.status === "active");
         const occupied = this.rows.allocations.some((a) => a.bed_id === bed.id && a.status === "active");
-        return room.status === "available" && bed.status === "available" && rate && !occupied && (room.gender_policy === "any" || !gender || room.gender_policy === gender);
+        return room.status === "available" && bed.status === "available" && rate && !occupied && (residentScoped === 0 || room.gender_policy === "any" || room.gender_policy === gender);
       });
       return { results: results as T[] };
     }
@@ -261,7 +261,10 @@ describe("phase 5 workflows", () => {
     await svc.updateApplicationStatus(manager, 2, "submitted");
     await svc.updateApplicationStatus(manager, 2, "under_review");
     await svc.updateApplicationStatus(manager, 2, "approved");
-    const second = await svc.createBooking(manager, { applicationId: 2, roomId: 1 }) as Record<string, unknown>;
+    // Resident 2 is male and room 1 is female-only: booking is now rejected (gender rule).
+    await expect(svc.createBooking(manager, { applicationId: 2, roomId: 1 })).rejects.toMatchObject({ code: "GENDER_POLICY_MISMATCH" });
+    repo.rows.room_rates.push({ id: 2, room_id: 2, academic_session_id: 1, amount_minor: 250000, currency: "GHS", status: "active" });
+    const second = await svc.createBooking(manager, { applicationId: 2, roomId: 2 }) as Record<string, unknown>;
     expect(second.booking_number).toBe("KSM-BKG-0002");
     expect(new Set(repo.rows.bookings.map((row) => row.booking_number)).size).toBe(repo.rows.bookings.length);
   });

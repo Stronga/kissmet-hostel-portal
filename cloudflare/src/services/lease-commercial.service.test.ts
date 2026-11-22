@@ -22,7 +22,7 @@ class LeaseCommercialRepo {
     academic_sessions: [{ id: 1, code: "2026-2027", name: "2026/27", status: "active" }],
     lease_periods: [],
     rate_cards: [],
-    rooms: [{ id: 1, room_code: "R1", capacity: 2, status: "available" }],
+    rooms: [{ id: 1, room_code: "R1", capacity: 2, status: "available", gender_policy: "any" }],
     applications: [{ id: 1, resident_id: 1, academic_session_id: 1, lease_period_id: null, lease_kind: "academic_calendar", status: "approved", application_number: "KSM-APP-0001" }],
     bookings: [],
     payments: [],
@@ -767,7 +767,7 @@ describe("Stage 2L-G management-controlled agreements", () => {
       status: "approved",
       application_number: "KSM-APP-0003"
     });
-    repo.rows.rooms.push({ id: 2, room_code: "R2", capacity: 2, status: "available" });
+    repo.rows.rooms.push({ id: 2, room_code: "R2", capacity: 2, status: "available", gender_policy: "any" });
 
     const st = await svc.createBookingFromRateCard(manager, {
       applicationId: 2,
@@ -820,9 +820,9 @@ describe("Stage 2L-G management-controlled agreements", () => {
     const svc = new AdminService(repo as never);
     await seedPeriods(svc, repo);
     repo.rows.rooms = [
-      { id: 1, room_code: "R1", capacity: 1, status: "available" },
-      { id: 2, room_code: "R2", capacity: 2, status: "available" },
-      { id: 4, room_code: "R4", capacity: 4, status: "available" }
+      { id: 1, room_code: "R1", capacity: 1, status: "available", gender_policy: "any" },
+      { id: 2, room_code: "R2", capacity: 2, status: "available", gender_policy: "any" },
+      { id: 4, room_code: "R4", capacity: 4, status: "available", gender_policy: "any" }
     ];
     repo.rows.applications = [
       { id: 1, resident_id: 1, academic_session_id: null, lease_kind: "short_term", status: "approved", application_number: "A1" },
@@ -836,7 +836,7 @@ describe("Stage 2L-G management-controlled agreements", () => {
     expect((await svc.createBookingFromRateCard(manager, { applicationId: 3, roomId: 4, leasePeriodId: 3 })).agreement.agreed_accommodation_amount_minor).toBe(250000);
 
     // No rate for AC occupancy 1
-    repo.rows.rooms.push({ id: 5, room_code: "R5", capacity: 1, status: "available" });
+    repo.rows.rooms.push({ id: 5, room_code: "R5", capacity: 1, status: "available", gender_policy: "any" });
     await expect(
       svc.createBookingFromRateCard(manager, { applicationId: 4, roomId: 5, leasePeriodId: 1 })
     ).rejects.toThrow(/No active rate configured/);

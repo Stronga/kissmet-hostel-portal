@@ -41,6 +41,8 @@ Risks: booking payment-summary math used across confirmation/renewal (2L-J/2L-K)
 
 ## 2. Gender-restricted allocation
 
+**Status:** implemented on branch `fix/gender-restricted-allocation` (see BOOKING_ALLOCATION.md, *Gender-restricted rooms*).
+
 **Today:** rooms have `gender_policy female|male|any`; residents have `gender female|male|other|not_specified|NULL`.
 Available-bed queries use `(r.gender_policy = 'any' OR ? IS NULL OR r.gender_policy = ?)` and the bed check at
 `admin.service.ts` ~L3069 skips the check when gender is NULL — so a resident with **no gender recorded can be placed in a

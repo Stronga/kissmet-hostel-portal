@@ -1,7 +1,12 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 
+import { GENDER_ERROR_MESSAGES } from "../utils/genderEligibility";
+
+/** Friendly UI messages for stable backend domain error codes. */
+const DOMAIN_ERROR_MESSAGES: Record<string, string> = { ...GENDER_ERROR_MESSAGES };
+
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(message: string, readonly status: number, readonly code: string | null = null) {
     super(message);
   }
 }
@@ -29,12 +34,15 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
 
   if (!response.ok) {
     if (response.status === 401) unauthorizedHandler?.();
-    const message = typeof payload === "object" && payload && "error" in payload
-      ? typeof (payload as { error: unknown }).error === "string"
-        ? (payload as { error: string }).error
-        : ((payload as { error: { message?: string } }).error.message ?? "Request failed")
-      : "Request failed";
-    throw new ApiError(message, response.status);
+    const errorBody = typeof payload === "object" && payload && "error" in payload ? (payload as { error: unknown }).error : null;
+    const code = errorBody && typeof errorBody === "object" && typeof (errorBody as { code?: unknown }).code === "string" ? (errorBody as { code: string }).code : null;
+    const serverMessage = typeof errorBody === "string"
+      ? errorBody
+      : errorBody && typeof errorBody === "object"
+        ? ((errorBody as { message?: string }).message ?? "Request failed")
+        : "Request failed";
+    const message = (code && DOMAIN_ERROR_MESSAGES[code]) || serverMessage;
+    throw new ApiError(message, response.status, code);
   }
 
   return payload as T;

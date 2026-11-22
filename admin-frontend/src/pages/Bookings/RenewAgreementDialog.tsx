@@ -3,6 +3,7 @@ import { ConfirmDialog } from "../../components/common/ConfirmDialog";
 import type { Booking, LeasePeriod, Room } from "../../types/api";
 import { formatCurrencyMinor, formatStatus } from "../../utils/format";
 import { parseMoneyToMinorUnits } from "../../utils/money";
+import { hasRestrictedRoomGender, isRoomGenderEligible, MIXED_ROOMS_ONLY_NOTICE } from "../../utils/genderEligibility";
 
 function leaseLabel(kind?: string | null) {
   if (kind === "calendar_year") return "Calendar Year";
@@ -15,6 +16,7 @@ export function RenewAgreementDialog({
   open,
   prior,
   rooms,
+  residentGender,
   leasePeriods,
   balanceMinor,
   verifiedPaidMinor,
@@ -26,6 +28,8 @@ export function RenewAgreementDialog({
   open: boolean;
   prior: Booking;
   rooms: Room[];
+  /** Resident gender when known; ineligible single-gender rooms are hidden. */
+  residentGender?: string | null;
   leasePeriods: LeasePeriod[];
   balanceMinor?: number | null;
   verifiedPaidMinor?: number | null;
@@ -142,8 +146,9 @@ export function RenewAgreementDialog({
         <label className="block text-sm font-medium">Room
           <select aria-label="Renewal room" value={roomId} onChange={(e) => setRoomId(e.target.value)} className="mt-1 w-full rounded-md border border-border px-3 py-2">
             <option value="">Select room</option>
-            {rooms.filter((r) => r.status === "available").map((r) => <option key={r.id} value={r.id}>{r.room_code}{r.room_name ? ` — ${r.room_name}` : ""} (cap {r.capacity})</option>)}
+            {rooms.filter((r) => r.status === "available" && (residentGender === undefined || isRoomGenderEligible(r.gender_policy, residentGender))).map((r) => <option key={r.id} value={r.id}>{r.room_code}{r.room_name ? ` — ${r.room_name}` : ""} (cap {r.capacity})</option>)}
           </select>
+          {residentGender !== undefined && !hasRestrictedRoomGender(residentGender) ? <span className="mt-1 block text-xs font-normal text-text-secondary">{MIXED_ROOMS_ONLY_NOTICE}</span> : null}
         </label>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block text-sm font-medium">Starts on<input aria-label="Renewal starts on" type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} className="mt-1 w-full rounded-md border border-border px-3 py-2" /></label>

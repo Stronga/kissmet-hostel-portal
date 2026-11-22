@@ -2,6 +2,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { ConfirmDialog } from "../../components/common/ConfirmDialog";
 import type { AcademicSession, Application, AvailabilityBed, Institution, Resident } from "../../types/api";
 import { formatCurrencyMinor } from "../../utils/format";
+import { hasRestrictedRoomGender, MIXED_ROOMS_ONLY_NOTICE } from "../../utils/genderEligibility";
 
 function residentName(resident?: Resident) {
   return resident ? [resident.first_name, resident.middle_name, resident.last_name].filter(Boolean).join(" ") : "Resident unavailable";
@@ -56,6 +57,7 @@ export function CreateBookingDialog({ open, applications, residentsById, institu
               <option value="">{loadingAvailability ? "Loading availability..." : "Select room"}</option>
               {rooms.map((room) => <option key={room.room_id} value={room.room_id}>{room.room_code} - {formatCurrencyMinor(room.amount_minor, room.currency)}</option>)}
             </select>
+            {resident && !hasRestrictedRoomGender(resident.gender) ? <p className="mt-2 text-xs text-text-secondary">{MIXED_ROOMS_ONLY_NOTICE}</p> : null}
             {!loadingAvailability && !rooms.length ? <p className="mt-2 text-sm text-danger">No eligible rooms with active rates are available for this application.</p> : null}
           </div>
         ) : null}
