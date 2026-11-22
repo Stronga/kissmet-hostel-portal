@@ -5,6 +5,7 @@ import { authRoutes } from "./routes/auth.routes";
 import { adminRoutes } from "./routes/admin.routes";
 import { publicRoutes } from "./routes/public.routes";
 import { residentRoutes } from "./routes/resident.routes";
+import { connectorRoutes } from "./routes/connector.routes";
 import { corsMiddleware } from "./middleware/cors.middleware";
 import { securityHeadersMiddleware } from "./middleware/security-headers.middleware";
 
@@ -27,5 +28,6 @@ app.route("/public", publicRoutes);
 app.route("/auth", authRoutes);
 app.route("/admin", adminRoutes);
 app.route("/resident", residentRoutes);
+app.route("/connector", connectorRoutes);
 
 export default app;

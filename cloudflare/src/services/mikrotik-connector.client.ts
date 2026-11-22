@@ -51,14 +51,30 @@ export class MikroTikConnectorClient {
     private readonly options: {
       appEnv?: string;
       timeoutMs?: number;
+      /** Cloudflare Access service token for the connector Tunnel hostname (both or neither). */
+      accessClientId?: string;
+      accessClientSecret?: string;
     } = {}
   ) {}
 
   static fromEnv(env: Env, fetchImpl: typeof fetch = fetch) {
     return new MikroTikConnectorClient(env.MIKROTIK_CONNECTOR_URL, env.MIKROTIK_CONNECTOR_SECRET, fetchImpl, {
       appEnv: env.APP_ENV,
-      timeoutMs: CONNECTOR_REQUEST_TIMEOUT_MS
+      timeoutMs: CONNECTOR_REQUEST_TIMEOUT_MS,
+      accessClientId: env.MIKROTIK_CONNECTOR_ACCESS_CLIENT_ID,
+      accessClientSecret: env.MIKROTIK_CONNECTOR_ACCESS_CLIENT_SECRET
     });
+  }
+
+  /**
+   * CF-Access-Client-Id / CF-Access-Client-Secret headers, only when BOTH are configured.
+   * A half-configured token is reported by validateProductionConfig and sends nothing.
+   */
+  private accessHeaders(): Record<string, string> {
+    const id = this.options.accessClientId?.trim();
+    const secret = this.options.accessClientSecret?.trim();
+    if (!id || !secret) return {};
+    return { "CF-Access-Client-Id": id, "CF-Access-Client-Secret": secret };
   }
 
   get configured(): boolean {
@@ -87,12 +103,15 @@ export class MikroTikConnectorClient {
       response = await this.fetchImpl(this.url(path), {
         method,
         headers: {
+          ...this.accessHeaders(),
           Authorization: `Bearer ${this.secret}`,
           "x-correlation-id": crypto.randomUUID(),
           ...(body !== undefined ? { "Content-Type": "application/json" } : {})
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: controller.signal
+        signal: controller.signal,
+        // Access answers unauthenticated requests with a 302 to its login page; never follow it.
+        redirect: "manual"
       });
     } catch (e) {
       const aborted = e instanceof Error && (e.name === "AbortError" || /aborted/i.test(e.message));
@@ -113,6 +132,10 @@ export class MikroTikConnectorClient {
 
     if (!response.ok || !payload?.ok) {
       const code = payload?.error?.code;
+      // Cloudflare Access denial: 302 to login (redirect: "manual") or 403. Never a domain error.
+      if ((response.status >= 300 && response.status < 400) || response.status === 403) {
+        throw new ConnectorUnavailableError("Internet connector access denied");
+      }
       if (response.status === 404 || code === "not_found") {
         throw new Error(payload?.error?.message ?? "HotSpot user not found");
       }

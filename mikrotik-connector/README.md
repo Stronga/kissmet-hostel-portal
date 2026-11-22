@@ -188,4 +188,8 @@ deliberately from the remote-lab path (WG `.5`) or the Pi LAN.
 
 ## Transport note
 
-Phase 0–3 use TCP **8728** on a private path only (production = Pi LAN; lab = WG `.5`). Port **8729** (api-ssl) deferred until certificate migration.
+Phase 0–3 used TCP **8728** on a private path only (production = Pi LAN; lab = WG `.5`).
+The connector now supports **api-ssl 8729**: `MIKROTIK_API_TLS=true` + `MIKROTIK_API_TLS_CA_FILE`
+(chain always verified, TLS >= 1.2, optional `MIKROTIK_API_TLS_FINGERPRINT256` pin,
+optional `MIKROTIK_API_TLS_SERVERNAME`). Skip-verify is lab-only and refused in production.
+Router-side steps: `deploy/ROUTEROS_API_SSL.md`. Node.js 22.x is required (`engines`, `.nvmrc`).

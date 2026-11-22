@@ -5,6 +5,7 @@ import { requirePermission } from "../middleware/auth.middleware";
 import { AdminRepository } from "../repositories/admin.repository";
 import { InternetAccessService } from "../services/internet-access.service";
 import { MikroTikConnectorClient } from "../services/mikrotik-connector.client";
+import { ConnectorHeartbeatService } from "../services/connector-heartbeat.service";
 import { pagination } from "../http/input";
 import { listOk, ok } from "../http/responses";
 import { routeError } from "../http/safe-error";
@@ -29,6 +30,16 @@ routes.get("/internet-access/summary", requirePermission("internet:read"), async
 
 routes.get("/internet-access/connector-health", requirePermission("internet:read"), async (c) => {
   return c.json(ok(await service(c).connectorHealth()));
+});
+
+/** Pi heartbeat last-seen (migration 0020). Read-only; no secrets, nonces, or source IPs. */
+routes.get("/internet-access/connector-status", requirePermission("internet:read"), async (c) => {
+  try {
+    return c.json(ok(await new ConnectorHeartbeatService(c.env.DB, c.env).status()));
+  } catch (e) {
+    const h = handle(e);
+    return c.json(h.body, h.status);
+  }
 });
 
 routes.get("/internet-access/eligible-residents", requirePermission("internet:read"), async (c) => {

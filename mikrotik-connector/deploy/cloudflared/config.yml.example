@@ -1,0 +1,29 @@
+# cloudflared (Cloudflare Tunnel) config TEMPLATE for the on-site Raspberry Pi.
+# Locally-managed tunnel. NO SECRETS in this file: the tunnel credentials JSON lives at
+# /etc/cloudflared/<TUNNEL_UUID>.json (root:cloudflared 0640) and is created by
+# `cloudflared tunnel create kissmet-connector` on the Pi (approved commissioning step only).
+#
+# Copy to /etc/cloudflared/config.yml and replace the <PLACEHOLDERS>.
+# Validate on the Pi:   cloudflared tunnel ingress validate
+#                       cloudflared tunnel ingress rule https://<CONNECTOR_HOSTNAME>/v1/health
+
+tunnel: <TUNNEL_UUID>
+credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
+
+# Outbound-only (QUIC/443 then HTTP2/443 fallback); nothing listens on the Pi's LAN for this.
+protocol: auto
+no-autoupdate: true
+metrics: 127.0.0.1:20241
+
+ingress:
+  # Only the connector's own routes are published. Cloudflare Access (service-token policy)
+  # must protect <CONNECTOR_HOSTNAME> BEFORE this tunnel route is added to DNS.
+  - hostname: <CONNECTOR_HOSTNAME>          # e.g. connector.kissmetgroup.org
+    path: ^/(health|v1/.*)$
+    service: http://127.0.0.1:8788          # connector BIND_HOST=127.0.0.1, PORT=8788
+    originRequest:
+      connectTimeout: 10s
+      noHappyEyeballs: true
+      # http2Origin / TLS options are not needed: origin is loopback HTTP.
+  # Everything else on that hostname, and any other hostname, is refused at the edge.
+  - service: http_status:404

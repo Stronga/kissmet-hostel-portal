@@ -39,6 +39,19 @@ export interface ConnectorConfig {
   trustProxy?: boolean;
   /** RouterOS connect/write timeout (ms). */
   routerosTimeoutMs: number;
+  /**
+   * RouterOS API over TLS (api-ssl, default port 8729). Default false for backward
+   * compatibility; the production env template sets true. Optional for older test configs.
+   */
+  mikrotikApiTls?: boolean;
+  /** PEM CA bundle (e.g. the RouterOS local CA) used to verify the api-ssl certificate. */
+  mikrotikApiTlsCaFile?: string;
+  /** Optional SHA-256 certificate pin, normalised to Node's `AA:BB:..` fingerprint256 form. */
+  mikrotikApiTlsFingerprint256?: string;
+  /** Optional hostname to verify the certificate against (default: MIKROTIK_HOST). */
+  mikrotikApiTlsServername?: string;
+  /** Lab-only: skip certificate verification. Refused in production. */
+  mikrotikApiTlsInsecure?: boolean;
 }
 
 const MIN_PRODUCTION_SECRET_LENGTH = 32;
@@ -55,6 +68,30 @@ function parsePositiveInteger(name: string, value: string | undefined, fallback:
     throw new Error(`${name} must be a positive integer`);
   }
   return n;
+}
+
+/** Parse a TCP port (1-65535). Unset uses `fallback`. Never echoes the raw value. */
+function parsePort(name: string, value: string | undefined, fallback: number): number {
+  const n = parsePositiveInteger(name, value, fallback);
+  if (n > 65_535) {
+    throw new Error(`${name} must be a TCP port between 1 and 65535`);
+  }
+  return n;
+}
+
+/** True for loopback listen addresses (127.0.0.0/8, ::1, localhost). */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  return h === "localhost" || h === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
+}
+
+/** Normalise a SHA-256 fingerprint (hex, optional colons/spaces) to `AA:BB:...`; throws if malformed. */
+export function normaliseFingerprint256(raw: string): string {
+  const hex = raw.replace(/[\s:]/g, "").toUpperCase();
+  if (!/^[0-9A-F]{64}$/.test(hex)) {
+    throw new Error("MIKROTIK_API_TLS_FINGERPRINT256 must be a SHA-256 fingerprint (64 hex digits, colons optional)");
+  }
+  return hex.match(/.{2}/g)!.join(":");
 }
 
 function parseBool(name: string, value: string | undefined, fallback: boolean): boolean {
@@ -111,23 +148,70 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ConnectorConfi
   }
 
   const trustProxy = parseBool("TRUST_PROXY", env.TRUST_PROXY, false);
+  const bindHost = (env.BIND_HOST ?? "127.0.0.1").trim() || "127.0.0.1";
+
+  // TRUST_PROXY makes CF-Connecting-IP / X-Forwarded-For authoritative for rate-limit keys.
+  // That is only safe when the socket is reachable solely through the local proxy (cloudflared).
+  if (trustProxy && !isLoopbackHost(bindHost)) {
+    throw new Error(
+      "TRUST_PROXY=true requires a loopback BIND_HOST (127.0.0.1); forwarded headers are spoofable on a reachable port"
+    );
+  }
+  if (mode === "production" && !isLoopbackHost(bindHost)) {
+    throw new Error("BIND_HOST must be a loopback address (127.0.0.1) in production; expose the connector via cloudflared");
+  }
+
+  // --- RouterOS API transport -------------------------------------------------------------
+  const mikrotikApiTls = parseBool("MIKROTIK_API_TLS", env.MIKROTIK_API_TLS, false);
+  const mikrotikApiTlsInsecure = parseBool("MIKROTIK_API_TLS_INSECURE_SKIP_VERIFY", env.MIKROTIK_API_TLS_INSECURE_SKIP_VERIFY, false);
+  const caFileRaw = env.MIKROTIK_API_TLS_CA_FILE?.trim() || undefined;
+  const fingerprintRaw = env.MIKROTIK_API_TLS_FINGERPRINT256?.trim() || undefined;
+  const servernameRaw = env.MIKROTIK_API_TLS_SERVERNAME?.trim() || undefined;
+  const mikrotikApiPort = parsePort("MIKROTIK_API_PORT", env.MIKROTIK_API_PORT, mikrotikApiTls ? 8729 : 8728);
+
+  if (!mikrotikApiTls && (caFileRaw || fingerprintRaw || servernameRaw || mikrotikApiTlsInsecure)) {
+    throw new Error("MIKROTIK_API_TLS_* settings require MIKROTIK_API_TLS=true");
+  }
+  let mikrotikApiTlsFingerprint256: string | undefined;
+  if (mikrotikApiTls) {
+    if (mikrotikApiPort === 8728) {
+      throw new Error("MIKROTIK_API_PORT=8728 is the plaintext RouterOS API; api-ssl listens on 8729");
+    }
+    if (mikrotikApiTlsInsecure && (mode === "production" || isProductionValue(env.NODE_ENV))) {
+      throw new Error("MIKROTIK_API_TLS_INSECURE_SKIP_VERIFY is not allowed in production; configure MIKROTIK_API_TLS_CA_FILE");
+    }
+    if (!mikrotikApiTlsInsecure && !caFileRaw) {
+      throw new Error(
+        "MIKROTIK_API_TLS=true requires MIKROTIK_API_TLS_CA_FILE (RouterOS CA certificate); self-signed certificates are rejected without it"
+      );
+    }
+    if (caFileRaw && !caFileRaw.startsWith("/") && mode === "production") {
+      throw new Error("MIKROTIK_API_TLS_CA_FILE must be an absolute path in production");
+    }
+    if (fingerprintRaw) mikrotikApiTlsFingerprint256 = normaliseFingerprint256(fingerprintRaw);
+  }
 
   return {
-    port: Number(env.PORT ?? "8788"),
-    bindHost: (env.BIND_HOST ?? "127.0.0.1").trim() || "127.0.0.1",
+    port: parsePort("PORT", env.PORT, 8788),
+    bindHost,
     connectorSecret,
     mikrotikHost: env.MIKROTIK_HOST?.trim() || "192.168.88.1",
-    mikrotikApiPort: Number(env.MIKROTIK_API_PORT ?? "8728"),
+    mikrotikApiPort,
     mikrotikApiUser: env.MIKROTIK_API_USER?.trim() || "portal-api",
     mikrotikApiPassword,
     mode,
     routerosDriver,
-    maxBodyBytes: Number(env.MAX_BODY_BYTES ?? String(16 * 1024)),
+    maxBodyBytes: parsePositiveInteger("MAX_BODY_BYTES", env.MAX_BODY_BYTES, 16 * 1024),
     rateLimitWindowMs: parsePositiveInteger("RATE_LIMIT_WINDOW_MS", env.RATE_LIMIT_WINDOW_MS, 60_000),
     rateLimitMax: parsePositiveInteger("RATE_LIMIT_MAX", env.RATE_LIMIT_MAX, 120),
     authFailRateLimitMax: parsePositiveInteger("AUTH_FAIL_RATE_LIMIT_MAX", env.AUTH_FAIL_RATE_LIMIT_MAX, 20),
     trustProxy,
-    routerosTimeoutMs: Number(env.ROUTEROS_TIMEOUT_MS ?? "10000")
+    routerosTimeoutMs: parsePositiveInteger("ROUTEROS_TIMEOUT_MS", env.ROUTEROS_TIMEOUT_MS, 10_000),
+    mikrotikApiTls,
+    mikrotikApiTlsCaFile: mikrotikApiTls ? caFileRaw : undefined,
+    mikrotikApiTlsFingerprint256,
+    mikrotikApiTlsServername: mikrotikApiTls ? servernameRaw : undefined,
+    mikrotikApiTlsInsecure: mikrotikApiTls ? mikrotikApiTlsInsecure : false
   };
 }
 

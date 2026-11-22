@@ -9,6 +9,8 @@ import type {
   RouterOsClient
 } from "./types.js";
 import { RouterOsUnavailableError, UserNotFoundError } from "./types.js";
+import { buildRouterOsTlsOptions } from "./tls.js";
+import type { ConnectionOptions } from "node:tls";
 
 type RosRow = Record<string, string>;
 
@@ -46,8 +48,12 @@ function mapSession(row: RosRow): HotspotSession {
 
 export class NodeRouterOsClient implements RouterOsClient {
   private conn: RouterOSAPI | null = null;
+  /** Resolved once at construction so a missing/invalid CA file fails at startup, not first request. */
+  private readonly tls: ConnectionOptions | undefined;
 
-  constructor(private readonly config: ConnectorConfig) {}
+  constructor(private readonly config: ConnectorConfig) {
+    this.tls = buildRouterOsTlsOptions(config);
+  }
 
   private async resetConnection(): Promise<void> {
     if (this.conn) {
@@ -69,12 +75,17 @@ export class NodeRouterOsClient implements RouterOsClient {
       user: this.config.mikrotikApiUser,
       password: this.config.mikrotikApiPassword,
       port: this.config.mikrotikApiPort,
-      timeout
+      timeout,
+      ...(this.tls ? { tls: this.tls } : {})
     });
     try {
       await conn.connect();
     } catch (e) {
-      log.error("routeros_connect_failed", { host: this.config.mikrotikHost, port: this.config.mikrotikApiPort });
+      log.error("routeros_connect_failed", {
+        host: this.config.mikrotikHost,
+        port: this.config.mikrotikApiPort,
+        tls: Boolean(this.tls)
+      });
       throw new RouterOsUnavailableError("RouterOS unavailable");
     }
     this.conn = conn;

@@ -122,6 +122,40 @@ export function validateProductionConfig(env: Env): ProductionConfigIssue[] {
     });
   }
 
+  const accessId = (env.MIKROTIK_CONNECTOR_ACCESS_CLIENT_ID ?? "").trim();
+  const accessSecret = (env.MIKROTIK_CONNECTOR_ACCESS_CLIENT_SECRET ?? "").trim();
+  if (Boolean(accessId) !== Boolean(accessSecret)) {
+    issues.push({
+      code: "connector_access_partial",
+      severity: "high",
+      message: "Set both MIKROTIK_CONNECTOR_ACCESS_CLIENT_ID and MIKROTIK_CONNECTOR_ACCESS_CLIENT_SECRET, or neither"
+    });
+  }
+  if (connectorUrl && !(accessId && accessSecret)) {
+    issues.push({
+      code: "connector_access_missing",
+      severity: "medium",
+      message: "MIKROTIK_CONNECTOR_URL set without a Cloudflare Access service token (recommended for the Tunnel hostname)"
+    });
+  }
+
+  const hbSecret = (env.CONNECTOR_HEARTBEAT_SECRET ?? "").trim();
+  const hbPrev = (env.CONNECTOR_HEARTBEAT_SECRET_PREVIOUS ?? "").trim();
+  if ((hbSecret && hbSecret.length < 32) || (hbPrev && hbPrev.length < 32)) {
+    issues.push({
+      code: "heartbeat_secret_short",
+      severity: "high",
+      message: "CONNECTOR_HEARTBEAT_SECRET(_PREVIOUS) must be at least 32 characters"
+    });
+  }
+  if (hbSecret && !(env.CONNECTOR_HEARTBEAT_ALLOWED_IDS ?? "").trim()) {
+    issues.push({
+      code: "heartbeat_ids_missing",
+      severity: "medium",
+      message: "CONNECTOR_HEARTBEAT_SECRET set without CONNECTOR_HEARTBEAT_ALLOWED_IDS (heartbeats will be refused)"
+    });
+  }
+
   if ((env.DEV_OTP_LOG ?? "").toLowerCase() === "true") {
     issues.push({
       code: "dev_otp_log",

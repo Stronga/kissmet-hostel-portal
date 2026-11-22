@@ -1,39 +1,63 @@
+# TEMPLATE-ONLY: rendered by scripts/install.sh / scripts/upgrade.sh (scripts/lib/common.sh render_unit).
+# TEMPLATE-ONLY: do not copy to /etc/systemd/system directly; the placeholders below must be substituted.
+# TEMPLATE-ONLY:   SERVICE_USER/GROUP  default kissmet-connector (SERVICE_USER=kissmet-svc supported)
+# TEMPLATE-ONLY:   INSTALL_ROOT        default /opt/kissmet/mikrotik-connector (root-owned, read-only to the service)
+# TEMPLATE-ONLY:   ENV_FILE            default /etc/kissmet/mikrotik-connector.env (root:root 0600, read by systemd)
+# TEMPLATE-ONLY:   NODE_BIN            absolute path to a system Node 22 (not nvm under /home)
+# Rendered from mikrotik-connector/deploy/mikrotik-connector.service. Re-run install.sh/upgrade.sh to change.
 [Unit]
 Description=Kissmet MikroTik Connector
-Documentation=file:///opt/kissmet/mikrotik-connector/MIKROTIK_CONNECTOR_DEPLOYMENT.md
+Documentation=file://@INSTALL_ROOT@/MIKROTIK_CONNECTOR_DEPLOYMENT.md
 After=network-online.target
 Wants=network-online.target
 # Production host is the on-site Raspberry Pi: RouterOS is reached over direct hostel LAN/Ethernet.
 # Do NOT require WireGuard for production. WG peer .5 is DEV/remote-test only (remote PC).
-#
-# Lab-only optional: if you temporarily run this unit on a host that uses wg-quick for .5 testing,
-# uncomment the next two lines and set the correct interface name.
-# After=wg-quick@wg0.service
-# Wants=wg-quick@wg0.service
 
 [Service]
 Type=simple
-User=kissmet-connector
-Group=kissmet-connector
-WorkingDirectory=/opt/kissmet/mikrotik-connector
-EnvironmentFile=-/etc/kissmet/mikrotik-connector.env
-ExecStart=/usr/bin/node --import tsx /opt/kissmet/mikrotik-connector/src/index.ts
+User=@SERVICE_USER@
+Group=@SERVICE_GROUP@
+WorkingDirectory=@INSTALL_ROOT@
+EnvironmentFile=@ENV_FILE@
+Environment=NODE_ENV=production
+ExecStart=@NODE_BIN@ --import tsx @INSTALL_ROOT@/src/index.ts
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=30
 TimeoutStopSec=20
-# Hardening
+UMask=0077
+
+# --- Hardening (the service needs only outbound TCP to RouterOS + a loopback listener) ---
 NoNewPrivileges=true
-PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/kissmet/mikrotik-connector
+PrivateTmp=true
+PrivateDevices=true
+# Code tree is root-owned; this makes it read-only even if permissions drift.
+ReadOnlyPaths=@INSTALL_ROOT@
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+# V8 JIT needs W+X pages.
+MemoryDenyWriteExecute=false
 CapabilityBoundingSet=
 AmbientCapabilities=
-LockPersonality=true
-MemoryDenyWriteExecute=false
-RestrictSUIDSGID=true
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# Optional (site-specific): restrict egress to loopback + the router LAN, e.g.
+#   IPAddressDeny=any
+#   IPAddressAllow=localhost 192.168.88.1/32
+
 # Logging → journald (structured JSON lines on stdout/stderr)
 StandardOutput=journal
 StandardError=journal

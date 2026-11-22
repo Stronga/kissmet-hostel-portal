@@ -11,6 +11,13 @@ if (config.routerosDriver === "mock") {
     note: "ROUTEROS_DRIVER=mock: in-memory RouterOS only. No MikroTik connection is made. Development/test use only; refused in production."
   });
 }
+if (config.routerosDriver === "real" && !config.mikrotikApiTls) {
+  log.warn("routeros_plaintext_api", {
+    mode: config.mode,
+    port: config.mikrotikApiPort,
+    note: "RouterOS API credentials travel unencrypted on the LAN. Set MIKROTIK_API_TLS=true (api-ssl 8729) with MIKROTIK_API_TLS_CA_FILE."
+  });
+}
 const client = await createRouterOsClient(config);
 const app = createApp(config, client);
 
@@ -23,6 +30,7 @@ const server = serve({ fetch: app.fetch, port: config.port, hostname: config.bin
     trustProxy: config.trustProxy ?? false,
     mikrotikHost: config.routerosDriver === "mock" ? "mock (in-memory)" : config.mikrotikHost,
     mikrotikApiPort: config.routerosDriver === "mock" ? null : config.mikrotikApiPort,
+    mikrotikApiTls: config.routerosDriver === "mock" ? null : config.mikrotikApiTls ?? false,
     note: "Production: Pi LAN → RouterOS; Cloudflare Workers cannot reach RouterOS directly. WG .5 is DEV/remote-test only"
   });
 });
