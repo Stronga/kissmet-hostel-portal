@@ -16,13 +16,15 @@
  *   for staging/production). The tool never runs migrations and never reads seeds/.
  * - Every statement is INSERT ... ON CONFLICT DO NOTHING (or INSERT ... SELECT ... WHERE NOT EXISTS),
  *   so a second run is a no-op and existing production edits are never overwritten.
- * - A schema guard at the top references tables/columns from migrations 0013–0020; on an older
+ * - A schema guard at the top references tables/columns from migrations 0013–0021; on an older
  *   schema the batch fails before any insert.
  * - The config file never contains a password. With `--issue-admin-temp-password` a random
  *   temporary password is generated, PBKDF2-hashed exactly like the Worker (pbkdf2-sha256, 100000
  *   iterations), only the hash goes into the SQL, and the password is printed once to stderr.
  *   Without the flag the admin is created with password_hash NULL (cannot log in) and a
  *   super_admin must later use "reset password", or re-run with the flag on a fresh DB.
+ *   The super admin row is always created with must_change_password = 1 (migration 0021): the
+ *   temporary password only allows the forced change-password screen until it is replaced.
  * - Dev-seed fingerprints (example.com / .test emails, +233000000xxx phones, dev salts, template
  *   placeholders) are refused.
  */
@@ -284,11 +286,12 @@ export function generateSql(plan, { env, adminPasswordHash = null, generatedAt =
   L("-- if it contains an admin password hash; delete it after use.");
   L("PRAGMA foreign_keys = ON;");
   L();
-  L("-- Schema guard: fails the whole batch unless migrations 0001-0020 are applied.");
+  L("-- Schema guard: fails the whole batch unless migrations 0001-0021 are applied.");
   L("SELECT id, kind, academic_session_id FROM lease_periods LIMIT 0;");
   L("SELECT id, occupancy_capacity, package_months FROM rate_cards LIMIT 0;");
   L("SELECT id, username FROM users LIMIT 0;");
   L("SELECT * FROM connector_heartbeats LIMIT 0;");
+  L("SELECT must_change_password, password_changed_at FROM users LIMIT 0;");
   L("SELECT id FROM system_settings LIMIT 0;");
   L();
   L("-- Roles (codes must match cloudflare/src/auth/permissions.ts)");
@@ -300,7 +303,7 @@ export function generateSql(plan, { env, adminPasswordHash = null, generatedAt =
   L("-- First super admin: only when NO super_admin staff exists yet. Never overwrites an existing user.");
   const noSuperAdmin = "NOT EXISTS (SELECT 1 FROM staff s JOIN roles r ON r.id = s.role_id WHERE r.code = 'super_admin')";
   L(
-    `INSERT INTO users (email, username, phone, display_name, user_type, status, password_hash) SELECT ${q(sa.email.toLowerCase())}, ${q(sa.username)}, ${q(sa.phone)}, ${q(sa.displayName)}, 'staff', 'active', ${q(adminPasswordHash)} WHERE ${noSuperAdmin} ON CONFLICT DO NOTHING;`
+    `INSERT INTO users (email, username, phone, display_name, user_type, status, password_hash, must_change_password) SELECT ${q(sa.email.toLowerCase())}, ${q(sa.username)}, ${q(sa.phone)}, ${q(sa.displayName)}, 'staff', 'active', ${q(adminPasswordHash)}, 1 WHERE ${noSuperAdmin} ON CONFLICT DO NOTHING;`
   );
   L(
     `INSERT INTO staff (user_id, role_id, staff_code, job_title, status) SELECT u.id, r.id, ${q(sa.staffCode)}, ${q(sa.jobTitle ?? "System Administrator")}, 'active' FROM users u JOIN roles r ON r.code = 'super_admin' WHERE u.username = ${q(sa.username)} AND u.user_type = 'staff' AND ${noSuperAdmin} ON CONFLICT DO NOTHING;`
@@ -483,7 +486,7 @@ export async function main(argv, deps = {}) {
   if (tempPassword) {
     io.stderr(
       "\nTemporary super admin password (shown once; only takes effect if the admin user is created by this SQL):\n" +
-        `  ${tempPassword}\nStore it in a password manager now. It is not written to any file.\n`
+        `  ${tempPassword}\nStore it in a password manager now. It is not written to any file.\nThe admin must change it at first login (all other staff routes are blocked until then).\n`
     );
   }
 

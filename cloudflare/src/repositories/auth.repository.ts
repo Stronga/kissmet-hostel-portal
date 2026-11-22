@@ -10,6 +10,7 @@ export interface StaffLoginRecord {
   staff_id: number;
   staff_status: string;
   role_code: string;
+  must_change_password?: number | null;
 }
 
 export interface ResidentLoginRecord {
@@ -53,6 +54,15 @@ export interface SessionRecord {
   staff_status: string | null;
   resident_id: number | null;
   role_code: string | null;
+  must_change_password?: number | null;
+}
+
+export interface StaffPasswordRecord {
+  user_id: number;
+  username: string | null;
+  email: string | null;
+  password_hash: string | null;
+  must_change_password?: number | null;
 }
 
 const RESIDENT_LOGIN_SELECT = `
@@ -72,7 +82,8 @@ export class AuthRepository {
   findStaffByIdentifier(identifier: string) {
     return this.db.prepare(`
       SELECT u.id AS user_id, u.email, u.username, u.display_name, u.status AS user_status,
-        u.password_hash, st.id AS staff_id, st.status AS staff_status, r.code AS role_code
+        u.password_hash, st.id AS staff_id, st.status AS staff_status, r.code AS role_code,
+        u.must_change_password
       FROM users u
       JOIN staff st ON st.user_id = u.id
       JOIN roles r ON r.id = st.role_id
@@ -116,7 +127,8 @@ export class AuthRepository {
     return this.db.prepare(`
       SELECT s.id AS session_id, u.id AS user_id, u.display_name, u.email, u.user_type,
         u.status AS user_status, s.status AS session_status, s.expires_at,
-        st.id AS staff_id, st.status AS staff_status, res.id AS resident_id, roles.code AS role_code
+        st.id AS staff_id, st.status AS staff_status, res.id AS resident_id, roles.code AS role_code,
+        u.must_change_password
       FROM sessions s
       JOIN users u ON u.id = s.user_id
       LEFT JOIN staff st ON st.user_id = u.id
@@ -125,6 +137,37 @@ export class AuthRepository {
       WHERE s.session_token_hash = ?
       LIMIT 1
     `).bind(tokenHash).first<SessionRecord>();
+  }
+
+  findStaffPasswordRecord(userId: number) {
+    return this.db.prepare(`
+      SELECT u.id AS user_id, u.username, u.email, u.password_hash, u.must_change_password
+      FROM users u
+      JOIN staff st ON st.user_id = u.id
+      WHERE u.id = ? AND u.user_type = 'staff'
+      LIMIT 1
+    `).bind(userId).first<StaffPasswordRecord>();
+  }
+
+  /** Sets a new self-chosen password and clears the forced-rotation flag. */
+  async updateStaffPassword(userId: number, passwordHash: string) {
+    await this.db.prepare(`
+      UPDATE users
+      SET password_hash = ?, must_change_password = 0,
+        password_changed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE id = ?
+    `).bind(passwordHash, userId).run();
+  }
+
+  /** Revokes every active session of the user except `keepSessionId`. Returns the count revoked. */
+  async revokeOtherSessions(userId: number, keepSessionId: number, reason: string): Promise<number> {
+    const result = await this.db.prepare(`
+      UPDATE sessions
+      SET status = 'revoked', revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), revocation_reason = ?
+      WHERE user_id = ? AND status = 'active' AND id <> ?
+    `).bind(reason, userId, keepSessionId).run();
+    return Number(result.meta?.changes ?? 0);
   }
 
   async revokeSession(tokenHash: string, reason: string) {

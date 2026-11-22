@@ -102,5 +102,5 @@ refuse missing, empty, non-https, or loopback URLs in production mode; dev/test 
 - Hono/@hono/node-server upgraded; Wrangler upgraded to v4 (`wrangler@4.166.0`, `@cloudflare/workers-types@5`) on
   `chore/wrangler-4`. Re-tested typecheck, 430 Worker tests, `wrangler deploy --dry-run` (local and production envs, no
   upload), and `d1 migrations list --local`. No `--remote` commands were run.
-- Self-service staff password change + forced change after a reset/bootstrap temp password.
+- Self-service staff password change + forced change after a reset/bootstrap temp password. **Implemented on branch `feat/staff-password-change` (migration 0021).**
 - Mobile-money payments and email delivery remain unbuilt (from the pre-Pi report).

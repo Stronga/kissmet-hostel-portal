@@ -2,7 +2,7 @@
 
 Tool: `cloudflare/scripts/bootstrap-production.mjs` (Node 22, no extra dependencies).
 Config template: `cloudflare/bootstrap/production.config.template.json` (+ `bootstrap.schema.json` for editor validation).
-Tests: `cloudflare/tests/bootstrap-production.test.ts` (sql.js with migrations 0001–0020; run twice → no duplicates).
+Tests: `cloudflare/tests/bootstrap-production.test.ts` (sql.js with migrations 0001–0021; run twice → no duplicates).
 
 **Never run `seeds/development.sql` against staging or production.** The bootstrap never reads `seeds/` and refuses
 dev-seed fingerprints (example.com/.test emails, `+233000000xxx` phones, dev salts, template placeholders).
@@ -23,7 +23,7 @@ dev-seed fingerprints (example.com/.test emails, `+233000000xxx` phones, dev sal
 
 Every statement is `INSERT … ON CONFLICT DO NOTHING` or `INSERT … SELECT … WHERE NOT EXISTS`; nothing is updated or deleted,
 so re-running is a no-op and later admin edits are never overwritten. A schema guard at the top makes the batch fail on a
-database that is missing migrations up to 0020.
+database that is missing migrations up to 0021 (the guard also selects `users.must_change_password`).
 
 ## Super admin credential
 
@@ -35,9 +35,9 @@ The config never contains a password. Choose one:
    after use.
 2. No flag: the admin is created with `password_hash = NULL` (cannot log in) until a password is set.
 
-Gap: there is no self-service "change my password" endpoint yet; the temporary password stays valid until a super admin
-uses Staff → Reset password (which issues another temporary password). Add self-service change before go-live (see
-implementation plan).
+The super admin row is always created with `must_change_password = 1` (migration 0021). The temporary password only
+opens the forced "Set a new password" screen: every other staff route returns 403 `PASSWORD_CHANGE_REQUIRED` until the
+admin changes it via `POST /auth/staff/change-password` (see AUTHENTICATION.md, *Staff password change & rotation*).
 
 ## Usage
 
@@ -46,7 +46,7 @@ cd cloudflare
 cp bootstrap/production.config.template.json bootstrap/production.config.json   # gitignored
 # fill in real values, then DRY RUN (default; executes nothing):
 node scripts/bootstrap-production.mjs --env production --config bootstrap/production.config.json --out bootstrap/production.bootstrap.sql
-# review the SQL, then — only with owner approval, after migrations 0001-0020 are applied remotely:
+# review the SQL, then — only with owner approval, after migrations 0001-0021 are applied remotely:
 node scripts/bootstrap-production.mjs --env production --config bootstrap/production.config.json \
   --out bootstrap/production.bootstrap.sql --issue-admin-temp-password --apply --confirm kissmet-production
 ```
