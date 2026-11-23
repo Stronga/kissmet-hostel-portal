@@ -1,7 +1,7 @@
 /**
  * Integration E2E for PRs #19–#28 combined (integration/2026-11-22-prs-19-27).
  * Full Worker app (real middleware, RBAC, password-rotation gate) over the real migrated schema
- * 0001–0021 in sql.js, with an in-memory R2 stand-in. LOCAL/TEST ONLY, synthetic data only:
+ * 0001–0022 in sql.js, with an in-memory R2 stand-in. LOCAL/TEST ONLY, synthetic data only:
  * no remote D1/R2, no SMS, no MikroTik/connector contact.
  */
 import { beforeAll, describe, expect, it } from "vitest";
@@ -87,9 +87,9 @@ describe("integration E2E — auth, booking, payment, refund, allocation, gender
     S.inst = one("SELECT id FROM institutions").id;
   });
 
-  it("migration chain is exactly 0001–0021 and includes the shared rate-limit table", () => {
+  it("migration chain is exactly 0001–0022 and includes the shared rate-limit table", () => {
     const files = listMigrationFiles();
-    expect(files).toHaveLength(21);
+    expect(files).toHaveLength(22);
     expect(files[20]).toBe("0021_staff_password_rotation.sql");
     expect(one("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'auth_rate_limits'").n).toBe(1);
   });
@@ -194,13 +194,25 @@ describe("integration E2E — auth, booking, payment, refund, allocation, gender
     expect((await call("GET", "/admin/gender-placement-conflicts", S.manager)).json!.data).toEqual([]);
   });
 
-  it("REFUND — single path: status route refuses, reason required, receipt voided, booking flagged, no double refund", async () => {
+  it("REFUND — single path: status route refuses, reason required, maker/checker, payout voids receipt + credit note, booking flagged, no double refund", async () => {
     expect((await call("PATCH", `/admin/payments/${S.payment}/status`, S.manager, { status: "refunded" })).status).toBe(400);
     expect((await call("POST", `/admin/payments/${S.payment}/refund`, S.manager, {})).status).toBe(400);
-    const refund = await call("POST", `/admin/payments/${S.payment}/refund`, S.manager, { reason: "Synthetic withdrawal" });
-    expect(refund.status).toBe(200);
-    expect(refund.json!.data.voidedReceiptId).toBe(S.receipt);
+    const request = await call("POST", `/admin/payments/${S.payment}/refund`, S.manager, { reason: "Synthetic withdrawal" });
+    expect(request.status, JSON.stringify(request.json)).toBe(201);
+    const refundId = request.json!.data.id;
+    expect(request.json!.data.status).toBe("requested");
+    // Only one open full refund fits the payment; a second request is refused while it is reserved.
+    expect((await call("POST", `/admin/payments/${S.payment}/refund`, S.manager, { reason: "again" })).status).toBe(409);
+    // Maker/checker: the requester cannot approve; a different staff user can.
+    expect((await call("POST", `/admin/refunds/${refundId}/approve`, S.manager, {})).status).toBe(403);
+    expect((await call("POST", `/admin/refunds/${refundId}/approve`, S.root, {})).status).toBe(200);
+    const payout = await call("POST", `/admin/refunds/${refundId}/payout`, S.manager, { method: "mobile_money", reference: "SYN-MM-0001" });
+    expect(payout.status, JSON.stringify(payout.json)).toBe(200);
+    expect((await call("POST", `/admin/refunds/${refundId}/payout`, S.manager, { method: "mobile_money", reference: "SYN-MM-0002" })).status).toBe(400);
+    expect(one("SELECT status, refund_status FROM payments WHERE id = ?", [S.payment])).toEqual({ status: "refunded", refund_status: "fully_refunded" });
+    expect(one("SELECT COUNT(*) AS n FROM credit_notes WHERE refund_id = ?", [refundId]).n).toBe(1);
     expect(one("SELECT status FROM receipts WHERE id = ?", [S.receipt]).status).toBe("voided");
+    expect(one("SELECT credit_note_number, receipt_id FROM credit_notes WHERE refund_id = ?", [refundId])).toEqual({ credit_note_number: "KSM-CRN-0001", receipt_id: S.receipt });
     expect(one("SELECT payment_attention_required AS f FROM bookings WHERE id = ?", [S.booking]).f).toBe(1);
     expect((await call("POST", `/admin/payments/${S.payment}/refund`, S.manager, { reason: "again" })).status).toBe(400);
     // Refunded payment may now be archived.

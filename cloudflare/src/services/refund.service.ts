@@ -149,6 +149,8 @@ export class RefundService {
     if (!reason) throw new Error("Refund reason required");
     const state = await this.refundable(paymentId);
     if (state.paymentStatus !== "verified") throw new Error("Invalid workflow transition");
+    // Nothing left (fully reserved by open requests or already paid out) is a conflict, not bad input.
+    if (input.amountMinor == null && state.refundableMinor <= 0) throw new Error(REFUND_EXCEEDS_ERROR);
     const amount = input.amountMinor == null ? state.refundableMinor : Number(input.amountMinor);
     if (!Number.isInteger(amount) || amount <= 0) throw new Error("Invalid refund amount");
     if (amount > state.refundableMinor) throw new Error(REFUND_EXCEEDS_ERROR);
