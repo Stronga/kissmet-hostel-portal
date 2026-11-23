@@ -2,6 +2,7 @@ import { hashPassword, randomToken } from "../auth/crypto";
 import { validateUploadFile } from "../http/uploads";
 import type { AuthUser } from "../auth/context";
 import { AdminRepository } from "../repositories/admin.repository";
+import { assertGenderEligible, genderEligibleRoomSql, restrictedRoomGender } from "./gender-eligibility";
 import { MockAnnouncementDeliveryProvider, type AnnouncementDeliveryProvider, type ExternalAnnouncementChannel } from "./announcement-delivery.service";
 import { MockMessageDeliveryProvider, type MessageDeliveryProvider, type MessageExternalChannel } from "./message-delivery.service";
 import {
@@ -810,6 +811,7 @@ export class AdminService {
 
       const room = await this.get("rooms", data.roomId) as Record<string, unknown> | null;
       if (!room) throw new Error("Room not found");
+      await this.assertResidentRoomGenderEligible(application.resident_id, data.roomId);
       const occupancy = data.occupancyCapacity ?? Number(room.capacity);
       if (!isRateCardOccupancyCapacity(occupancy)) {
         throw new Error("Invalid occupancy capacity: only 1, 2, or 4 are supported");
@@ -1263,6 +1265,7 @@ export class AdminService {
 
     const room = await this.get("rooms", data.roomId) as Record<string, unknown> | null;
     if (!room) throw new Error("Room not found");
+    await this.assertResidentRoomGenderEligible(prior.resident_id, data.roomId);
     const occupancy = data.occupancyCapacity ?? Number(room.capacity);
     if (!isRateCardOccupancyCapacity(occupancy)) {
       throw new Error("Invalid occupancy capacity: only 1, 2, or 4 are supported");
@@ -1429,6 +1432,8 @@ export class AdminService {
     if (!oldEndsOn) throw new Error("Agreement has no end date to extend");
     if (newEndsOn <= oldEndsOn) throw new Error("New end date must be after the current end date");
     if (startsOn && newEndsOn < startsOn) throw new Error("Invalid agreement dates: starts_on must be <= ends_on");
+    // Extending occupancy of a single-gender room requires an eligible resident (before any write).
+    await this.assertResidentRoomGenderEligible(booking.resident_id, booking.priced_room_id);
 
     const oldTotal = Number(booking.total_amount_minor);
     const oldMaintenance = booking.maintenance_fee_minor == null ? null : Number(booking.maintenance_fee_minor);
@@ -1574,6 +1579,8 @@ export class AdminService {
     if (Number(sourceBed.room_id) === Number(destBed.room_id)) {
       throw new Error("Destination bed is in the same room; use same-room transfer");
     }
+    // Fail before the agreement room is rewritten (validateAllocation re-checks the same rule).
+    await this.assertResidentRoomGenderEligible(allocation.resident_id, destBed.room_id);
 
     const transferStarts = data.startsOn.slice(0, 10);
     const oldStarts = String(allocation.starts_on).slice(0, 10);
@@ -1892,6 +1899,7 @@ export class AdminService {
       }
       const duplicate = await this.repo.first("SELECT id FROM bookings WHERE resident_id = ? AND academic_session_id = ? AND status IN ('pending', 'confirmed')", application.resident_id, application.academic_session_id);
       if (duplicate) throw new Error("Duplicate active booking");
+      await this.assertResidentRoomGenderEligible(application.resident_id, data.roomId);
       const rate = await this.repo.first<{ id: number; amount_minor: number; currency: string }>("SELECT id, amount_minor, currency FROM room_rates WHERE room_id = ? AND academic_session_id = ? AND status = 'active' LIMIT 1", data.roomId, application.academic_session_id);
       if (!rate) throw new Error("Missing active room rate");
       const bookingNumber = await this.repo.allocateBookingNumber();
@@ -1932,6 +1940,8 @@ export class AdminService {
     };
     if (!allowed[current]?.includes(status)) throw new Error("Invalid workflow transition");
     if (current === "pending" && status === "confirmed") {
+      // Re-check at approval: the booking may predate the rule or the resident record may have changed.
+      await this.assertResidentRoomGenderEligible(booking.resident_id, booking.priced_room_id);
       const summary = await this.bookingPaymentSummary(id);
       if (!summary.confirmationRequirementMet) throw new Error("Payment confirmation requirement not satisfied");
     }
@@ -1941,8 +1951,12 @@ export class AdminService {
   }
 
   async availability(academicSessionId: number, residentId?: number | null) {
-    const resident = residentId ? await this.repo.first<{ gender: string | null }>("SELECT gender FROM residents WHERE id = ?", residentId) : null;
-    const gender = resident?.gender ?? null;
+    // Without a resident the listing is a raw inventory view (no gender filter). With a resident,
+    // only gender-eligible beds are offered: mixed rooms always, single-gender rooms only when the
+    // resident's recorded gender matches (missing / not_specified / other → mixed rooms only).
+    const residentScoped = residentId != null && residentId > 0;
+    const resident = residentScoped ? await this.repo.first<{ gender: string | null }>("SELECT gender FROM residents WHERE id = ?", residentId) : null;
+    const eligibleGender = restrictedRoomGender(resident?.gender ?? null);
     const rows = await this.repo.all(`
       SELECT r.id AS room_id, r.room_code, r.room_name, r.capacity, r.gender_policy,
              b.id AS bed_id, b.bed_code, b.label, rr.amount_minor, rr.currency
@@ -1951,11 +1965,11 @@ export class AdminService {
       JOIN room_rates rr ON rr.room_id = r.id AND rr.academic_session_id = ? AND rr.status = 'active'
       WHERE r.status = 'available'
         AND b.status = 'available'
-        AND (r.gender_policy = 'any' OR ? IS NULL OR r.gender_policy = ?)
+        AND (? = 0 OR ${genderEligibleRoomSql("r")})
         AND (SELECT COUNT(*) FROM beds bx WHERE bx.room_id = r.id AND bx.status <> 'archived') <= r.capacity
         AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.bed_id = b.id AND a.status = 'active')
       ORDER BY r.room_code, b.label
-    `, academicSessionId, gender, gender);
+    `, academicSessionId, residentScoped ? 1 : 0, eligibleGender);
     return rows.results ?? [];
   }
 
@@ -1974,7 +1988,7 @@ export class AdminService {
     if (resolvedEnds != null && resolvedEnds !== "" && startsOn > resolvedEnds) throw new Error("Invalid allocation dates: starts_on must be <= ends_on");
 
     const resident = await this.repo.first<{ gender: string | null }>("SELECT gender FROM residents WHERE id = ?", booking.resident_id);
-    const gender = resident?.gender ?? null;
+    const eligibleGender = restrictedRoomGender(resident?.gender ?? null);
     const roomId = Number(booking.priced_room_id);
     const ignoreId = ignoreAllocationId ?? 0;
 
@@ -1989,7 +2003,7 @@ export class AdminService {
       WHERE b.room_id = ?
         AND r.status = 'available'
         AND b.status = 'available'
-        AND (r.gender_policy = 'any' OR ? IS NULL OR r.gender_policy = ?)
+        AND ${genderEligibleRoomSql("r")}
         AND (SELECT COUNT(*) FROM beds bx WHERE bx.room_id = r.id AND bx.status <> 'archived') <= r.capacity
         AND NOT EXISTS (
           SELECT 1 FROM allocations a
@@ -2002,7 +2016,7 @@ export class AdminService {
             )
         )
       ORDER BY b.label
-    `, bookingId, roomId, gender, gender, ignoreId, startsOn, resolvedEnds, resolvedEnds, resolvedEnds);
+    `, bookingId, roomId, eligibleGender, ignoreId, startsOn, resolvedEnds, resolvedEnds, resolvedEnds);
     return rows.results ?? [];
   }
 
@@ -3095,6 +3109,21 @@ export class AdminService {
     return total;
   }
 
+  /**
+   * Shared gender-restricted room check for booking workflows (allocation workflows go through
+   * validateAllocation, which uses the same assertGenderEligible rule). Throws
+   * GenderEligibilityError with a stable code; never leaks resident details.
+   */
+  private async assertResidentRoomGenderEligible(residentId: unknown, roomId: unknown) {
+    if (roomId == null) return;
+    const room = await this.get("rooms", Number(roomId)) as { gender_policy?: string | null } | null;
+    if (!room) throw new Error("Room not found");
+    // Mixed rooms accept every resident: skip the resident lookup entirely.
+    if (room.gender_policy === "any") return;
+    const resident = await this.repo.first<{ gender: string | null }>("SELECT gender FROM residents WHERE id = ?", Number(residentId));
+    assertGenderEligible(room.gender_policy, resident?.gender ?? null);
+  }
+
   private async validateAllocation(data: {
     bookingId: number;
     residentId: number;
@@ -3136,7 +3165,7 @@ export class AdminService {
     if (!bed) throw new Error("Bed not found");
     if (bed.room_status !== "available") throw new Error("Inactive room");
     if (bed.status !== "available") throw new Error("Inactive bed");
-    if (bed.gender_policy !== "any" && bed.gender && bed.gender_policy !== bed.gender) throw new Error("Gender-policy mismatch");
+    assertGenderEligible(bed.gender_policy, bed.gender);
 
     const pricedRoomId = booking.priced_room_id == null ? null : Number(booking.priced_room_id);
     if (pricedRoomId != null && Number(bed.room_id) !== pricedRoomId) {
