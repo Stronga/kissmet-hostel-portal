@@ -30,6 +30,8 @@ describe("Phase 2 CORS production lockdown", () => {
     for (const origin of ["https://admin.kissmetgroup.org", "https://portal.kissmetgroup.org"]) {
       const res = await app.fetch(new Request("http://api/ping", { headers: { Origin: origin } }), env);
       expect(res.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+      expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+      expect(res.headers.get("Access-Control-Allow-Origin")).not.toBe("*");
     }
   });
 

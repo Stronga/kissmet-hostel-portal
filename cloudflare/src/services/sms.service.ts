@@ -4,6 +4,7 @@ import {
   MisconfiguredSmsProvider,
   resolveArkeselConfigState
 } from "./arkesel-sms.provider";
+import { persistStagingOtp } from "./staging-otp-test";
 
 /**
  * Provider-independent OTP delivery interface.
@@ -93,6 +94,7 @@ export function clearDevOtpsForTests(): void {
  * Development/mock SMS provider.
  * Stores the last OTP in-memory for unit tests and, when APP_ENV=local (or DEV_OTP_LOG=true),
  * also logs it to the Worker console for local E2E. Disabled for production.
+ * In staging, plaintext OTPs are written to the staging OTP inbox (not the console).
  * Never makes network calls — safe for CI.
  */
 export class MockSmsProvider implements SmsProvider {
@@ -103,7 +105,7 @@ export class MockSmsProvider implements SmsProvider {
     return this.lastMessage?.phone ?? null;
   }
 
-  constructor(private readonly env?: DevOtpCaptureEnv) {}
+  constructor(private readonly env?: DevOtpCaptureEnv & { DB?: D1Database }) {}
 
   async sendOtp(request: OtpDeliveryRequest): Promise<OtpDeliveryResult> {
     this.lastMessage = {
@@ -112,6 +114,7 @@ export class MockSmsProvider implements SmsProvider {
       expiresInMinutes: request.expiresInMinutes
     };
     captureDevOtp(request.phone, request.code, this.env);
+    await persistStagingOtp(this.env, request);
     return { ok: true, provider: this.name, providerMessageId: `mock-${Date.now()}` };
   }
 }

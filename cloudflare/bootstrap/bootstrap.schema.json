@@ -21,6 +21,7 @@
     "$schema": { "type": "string" },
     "version": { "const": 1 },
     "notes": { "type": "string" },
+    "synthetic": { "type": "boolean", "description": "Required true for staging synthetic seed; refused in production." },
     "organization": {
       "type": "object", "additionalProperties": false,
       "properties": { "name": { "$ref": "#/$defs/text" }, "supportEmail": { "$ref": "#/$defs/email" }, "supportPhone": { "$ref": "#/$defs/phone" }, "addressText": { "$ref": "#/$defs/text" } }

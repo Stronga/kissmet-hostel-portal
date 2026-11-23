@@ -26,7 +26,9 @@
  *   The super admin row is always created with must_change_password = 1 (migration 0021): the
  *   temporary password only allows the forced change-password screen until it is replaced.
  * - Dev-seed fingerprints (example.com / .test emails, +233000000xxx phones, dev salts, template
- *   placeholders) are refused.
+ *   placeholders) are refused, except a config with `"synthetic": true` which also requires
+ *   `--synthetic` and `--env staging|local`. Synthetic mode still refuses placeholders,
+ *   dev-staff-salt, example.com, and +233000000xxx, and can never target production.
  */
 import { randomBytes, webcrypto } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -80,8 +82,11 @@ function isValidDate(s) {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
 
+const SYNTHETIC_ALLOWED_FINGERPRINTS = [/\.test$/i];
+
 /** Validate the owner-supplied config. Returns a normalised plan or throws BootstrapConfigError. */
-export function validateConfig(raw) {
+export function validateConfig(raw, options = {}) {
+  const allowSynthetic = options.allowSynthetic === true;
   const errors = [];
   const err = (m) => errors.push(m);
   const str = (v, re, where) => {
@@ -90,8 +95,11 @@ export function validateConfig(raw) {
       return false;
     }
     if (typeof v === "string" && DEV_FINGERPRINTS.some((f) => f.test(v))) {
-      err(`${where} looks like development seed data; refuse`);
-      return false;
+      const allowedForSynthetic = SYNTHETIC_ALLOWED_FINGERPRINTS.some((f) => f.test(v));
+      if (!(allowSynthetic && allowedForSynthetic)) {
+        err(`${where} looks like development seed data; refuse`);
+        return false;
+      }
     }
     if (typeof v !== "string" || !re.test(v)) {
       err(`${where} is missing or has an invalid format`);
@@ -115,9 +123,16 @@ export function validateConfig(raw) {
   };
 
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new BootstrapConfigError(["config must be a JSON object"]);
-  const allowedTop = new Set(["$schema", "version", "organization", "superAdmin", "institutions", "academicSessions", "leasePeriods", "rooms", "rateCards", "roomRates", "notes"]);
+  const allowedTop = new Set(["$schema", "version", "organization", "superAdmin", "institutions", "academicSessions", "leasePeriods", "rooms", "rateCards", "roomRates", "notes", "synthetic"]);
   for (const k of Object.keys(raw)) if (!allowedTop.has(k)) err(`unknown top-level key ${JSON.stringify(k)}`);
   if (raw.version !== 1) err("version must be 1");
+  if (raw.synthetic != null && raw.synthetic !== true && raw.synthetic !== false) err("synthetic must be a boolean");
+  if (raw.synthetic === true && !allowSynthetic) {
+    err("synthetic configs require --synthetic and --env staging or local (never production)");
+  }
+  if (allowSynthetic && raw.synthetic !== true) {
+    err("--synthetic requires the config to set \"synthetic\": true");
+  }
   if (JSON.stringify(raw).match(/"password(_hash)?"\s*:/i)) err("config must not contain a password or password_hash field");
 
   // organization (optional)
@@ -278,14 +293,31 @@ export function generateTemporaryPassword() {
 export function generateSql(plan, { env, adminPasswordHash = null, generatedAt = new Date().toISOString() }) {
   if (!ENVIRONMENTS.includes(env)) throw new Error("env must be local, staging or production");
   const c = plan.config;
+  if (c.synthetic && env === "production") {
+    throw new Error("synthetic bootstrap SQL cannot be generated for production");
+  }
   const out = [];
   const L = (s = "") => out.push(s);
   L(`-- Kissmet bootstrap (${env}) generated ${generatedAt}`);
   L("-- Idempotent: INSERT ... ON CONFLICT DO NOTHING / WHERE NOT EXISTS. Never updates or deletes.");
   L("-- Does NOT include development seed data. Review before applying. Treat this file as sensitive");
   L("-- if it contains an admin password hash; delete it after use.");
+  if (c.synthetic) L("-- SYNTHETIC staging/local data only. Never apply to kissmet-production.");
   L("PRAGMA foreign_keys = ON;");
   L();
+  if (c.synthetic && (env === "staging" || env === "local")) {
+    L("-- Staging-only OTP inbox. Not a numbered production migration (0022 is reserved for refunds).");
+    L("CREATE TABLE IF NOT EXISTS staging_otp_inbox (");
+    L("  id INTEGER PRIMARY KEY,");
+    L("  destination TEXT NOT NULL,");
+    L("  otp TEXT NOT NULL,");
+    L("  purpose TEXT,");
+    L("  expires_at TEXT NOT NULL,");
+    L("  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))");
+    L(");");
+    L("CREATE INDEX IF NOT EXISTS idx_staging_otp_inbox_destination_created ON staging_otp_inbox(destination, created_at DESC);");
+    L();
+  }
   L("-- Schema guard: fails the whole batch unless migrations 0001-0021 are applied.");
   L("SELECT id, kind, academic_session_id FROM lease_periods LIMIT 0;");
   L("SELECT id, occupancy_capacity, package_months FROM rate_cards LIMIT 0;");
@@ -391,6 +423,7 @@ export function parseArgs(argv) {
     else if (k === "--confirm") a.confirm = next();
     else if (k === "--apply") a.apply = true;
     else if (k === "--issue-admin-temp-password") a.issueAdminTempPassword = true;
+    else if (k === "--synthetic") a.synthetic = true;
     else if (k === "--help" || k === "-h") a.help = true;
     else throw new Error(`unknown argument ${k}`);
   }
@@ -399,11 +432,15 @@ export function parseArgs(argv) {
 
 const USAGE = `Usage:
   node scripts/bootstrap-production.mjs --env <local|staging|production> --config <file.json> [--out bootstrap.sql]
-        [--issue-admin-temp-password] [--apply --confirm <d1 database_name>]
+        [--issue-admin-temp-password] [--synthetic] [--apply --confirm <d1 database_name>]
 
 Default is a dry run: validate and print/write SQL only. --apply executes the SQL through
 wrangler d1 execute (remote for staging/production) and requires --confirm with the exact
-database_name from wrangler.toml for that env.`;
+database_name from wrangler.toml for that env.
+
+--synthetic is required for configs with "synthetic": true (staging/local only). It can never
+be combined with --env production or --confirm kissmet-production. Prefer
+scripts/seed-staging-synthetic.mjs for the staging seed. Never use seeds/development.sql.`;
 
 /** CLI entry. `deps` is injectable for tests (no real wrangler, no real fs writes). */
 export async function main(argv, deps = {}) {
@@ -435,13 +472,17 @@ export async function main(argv, deps = {}) {
     io.stderr(`--config is required\n${USAGE}\n`);
     return 2;
   }
+  if (args.synthetic && args.env === "production") {
+    io.stderr("Refusing: --synthetic cannot be used with --env production\n");
+    return 2;
+  }
   if (/seeds[\\/]/.test(args.config) || /development\.sql$/.test(args.config)) {
     io.stderr("Refusing: the development seed is never used by the bootstrap\n");
     return 2;
   }
   let plan;
   try {
-    plan = validateConfig(JSON.parse(io.readFile(args.config)));
+    plan = validateConfig(JSON.parse(io.readFile(args.config)), { allowSynthetic: Boolean(args.synthetic) });
   } catch (e) {
     io.stderr(`${e instanceof SyntaxError ? `Config is not valid JSON: ${e.message}` : e.message}\n`);
     return 1;
@@ -470,6 +511,12 @@ export async function main(argv, deps = {}) {
     if (args.confirm !== dbName) {
       io.stderr(`Refusing to apply: pass --confirm ${dbName} to confirm the target database\n`);
       return 2;
+    }
+    if (args.synthetic || plan.config.synthetic) {
+      if (args.env === "production" || args.confirm === "kissmet-production" || dbName === "kissmet-production") {
+        io.stderr("Refusing: synthetic seed cannot be applied to production\n");
+        return 2;
+      }
     }
     if (!args.out) {
       io.stderr("--apply requires --out <file.sql> so the exact SQL applied is kept for review\n");

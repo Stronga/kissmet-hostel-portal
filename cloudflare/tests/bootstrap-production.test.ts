@@ -246,7 +246,12 @@ describe("bootstrap CLI guards (no wrangler, no network)", () => {
   });
 
   it("--apply refuses staging while its D1 id is a placeholder", async () => {
-    const h = harness(files);
+    const placeholderToml = wrangler.replace(
+      /database_id = "958f10b6-a7a6-4943-8c20-afe9b97e6388"/,
+      'database_id = "replace-with-staging-d1-database-id"'
+    );
+    expect(placeholderToml).toContain("replace-with-staging-d1-database-id");
+    const h = harness({ ...files, "wrangler.toml": placeholderToml });
     expect(await boot.main(["--env", "staging", "--config", "cfg.json", "--apply", "--confirm", "kissmet-hostel-staging", "--out", "s.sql"], h.deps)).toBe(2);
     expect(h.err.join("")).toMatch(/placeholder/);
     expect(h.spawned).toEqual([]);
@@ -266,5 +271,93 @@ describe("bootstrap CLI guards (no wrangler, no network)", () => {
     const h = harness({ ...files, "cfg.json": "{not json" });
     expect(await boot.main(["--env", "production", "--config", "cfg.json"], h.deps)).toBe(1);
     expect(h.spawned).toEqual([]);
+  });
+});
+
+describe("synthetic staging seed", () => {
+  function syntheticConfig(): Record<string, any> {
+    const raw = JSON.parse(fs.readFileSync(path.join(root, "bootstrap/staging.synthetic.config.json"), "utf8"));
+    return raw;
+  }
+
+  it("refuses the committed synthetic config without --synthetic", () => {
+    expect(() => boot.validateConfig(syntheticConfig())).toThrow(/--synthetic/);
+  });
+
+  it("accepts the committed synthetic config with allowSynthetic and emits a staging OTP inbox", () => {
+    const plan = boot.validateConfig(syntheticConfig(), { allowSynthetic: true });
+    const sql = boot.generateSql(plan, { env: "staging" });
+    expect(sql).toContain("SYNTHETIC staging/local data only");
+    expect(sql).toContain("CREATE TABLE IF NOT EXISTS staging_otp_inbox");
+    expect(sql).toContain("staging.admin@staging.kissmet.test");
+    expect(sql).toContain("STG-F1");
+    expect(sql).not.toContain("+233000000");
+    expect(sql).not.toContain("example.com");
+    expect(sql).not.toContain("dev-staff-salt");
+    expect(() => boot.generateSql(plan, { env: "production" })).toThrow(/cannot be generated for production/);
+  });
+
+  it("still refuses example.com, +233000000xxx and dev-staff-salt in synthetic mode", () => {
+    for (const mutate of [
+      (c: any) => (c.superAdmin.email = "ama.resident@example.com"),
+      (c: any) => (c.superAdmin.phone = "+233000000001"),
+      (c: any) => (c.superAdmin.displayName = "dev-staff-salt")
+    ]) {
+      const c = syntheticConfig();
+      mutate(c);
+      expect(() => boot.validateConfig(c, { allowSynthetic: true })).toThrow(/development seed/);
+    }
+  });
+
+  it("CLI refuses --synthetic with --env production and never spawns wrangler", async () => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const spawned: string[][] = [];
+    const deps = {
+      readFile: (p: string) => {
+        if (p.endsWith("staging.synthetic.config.json") || p.endsWith("cfg.json")) return JSON.stringify(syntheticConfig());
+        if (p.endsWith("wrangler.toml")) return fs.readFileSync(path.join(root, "wrangler.toml"), "utf8");
+        throw new Error(`ENOENT ${p}`);
+      },
+      writeFile: () => undefined,
+      stdout: (s: string) => out.push(s),
+      stderr: (s: string) => err.push(s),
+      spawn: (cmd: string, args: string[]) => {
+        spawned.push([cmd, ...args]);
+        return { status: 0 };
+      },
+      root: "/repo/cloudflare"
+    };
+    expect(await boot.main(["--env", "production", "--config", "cfg.json", "--synthetic"], deps)).toBe(2);
+    expect(err.join("")).toMatch(/cannot be used with --env production/);
+    expect(spawned).toEqual([]);
+  });
+
+  it("CLI dry-run for staging synthetic writes inbox SQL and executes nothing", async () => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const spawned: string[][] = [];
+    const written: Record<string, string> = {};
+    const deps = {
+      readFile: (p: string) => {
+        if (p.endsWith("cfg.json")) return JSON.stringify(syntheticConfig());
+        if (p.endsWith("wrangler.toml")) return fs.readFileSync(path.join(root, "wrangler.toml"), "utf8");
+        throw new Error(`ENOENT ${p}`);
+      },
+      writeFile: (p: string, s: string) => {
+        written[p] = s;
+      },
+      stdout: (s: string) => out.push(s),
+      stderr: (s: string) => err.push(s),
+      spawn: (cmd: string, args: string[]) => {
+        spawned.push([cmd, ...args]);
+        return { status: 0 };
+      },
+      root: "/repo/cloudflare"
+    };
+    expect(await boot.main(["--env", "staging", "--config", "cfg.json", "--synthetic", "--out", "s.sql"], deps)).toBe(0);
+    expect(written["s.sql"]).toContain("CREATE TABLE IF NOT EXISTS staging_otp_inbox");
+    expect(err.join("")).toMatch(/dry run/);
+    expect(spawned).toEqual([]);
   });
 });

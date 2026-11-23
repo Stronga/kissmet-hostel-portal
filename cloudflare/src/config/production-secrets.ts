@@ -164,6 +164,14 @@ export function validateProductionConfig(env: Env): ProductionConfigIssue[] {
     });
   }
 
+  if ((env.STAGING_OTP_TEST_KEY ?? "").trim()) {
+    issues.push({
+      code: "staging_otp_test_key",
+      severity: "critical",
+      message: "STAGING_OTP_TEST_KEY must not be set in production; the staging OTP test path is impossible when APP_ENV=production"
+    });
+  }
+
   if ((env.PUBLIC_BASE_URL ?? "").startsWith("http://")) {
     issues.push({
       code: "public_base_url",

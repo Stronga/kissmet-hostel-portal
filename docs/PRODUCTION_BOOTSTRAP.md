@@ -68,3 +68,14 @@ See `production.config.template.json`; every `<REPLACE …>` must be filled:
 - **Rate cards**: code, lease period, occupancy (1/2/4), amount in pesewas, optional package months, status.
 - **Room rates** (only if session-based per-room pricing is still used): room, session, amount in pesewas.
 - **Not covered by the bootstrap** (set in the admin UI after login): payment confirmation policy (default `full`), additional staff accounts, announcements.
+
+
+## Staging synthetic seed (never production)
+
+Staging uses `cloudflare/scripts/seed-staging-synthetic.mjs` with
+`bootstrap/staging.synthetic.config.json` (`"synthetic": true`). That wrapper forces `--synthetic`,
+defaults to `--env staging`, and refuses `--env production` and `--confirm kissmet-production`.
+The invented rooms, prices, and staff are labelled synthetic; they are not real hostel data.
+
+Default is a dry run. `--apply` still needs a real staging D1 id (not the wrangler.toml placeholder)
+and explicit owner approval. See `docs/STAGING_PLAN.md`.

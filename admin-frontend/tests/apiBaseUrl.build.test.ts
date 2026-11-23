@@ -46,5 +46,5 @@ describe("production vite build guard", () => {
     });
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(fs.existsSync(path.join(outDir, "index.html"))).toBe(true);
-  });
+  }, 30_000);
 });

@@ -53,8 +53,10 @@ function applyCors(c: Context<{ Bindings: Env }>) {
   c.header("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
   c.header("Access-Control-Allow-Headers", "Authorization, Content-Type");
   c.header("Access-Control-Max-Age", "86400");
-  // Bearer-token auth (not cookies). Do not pair wildcard with credentials.
-  // Credentials header omitted intentionally — Authorization header is enough.
+  // Allowlisted origins only — never pair wildcard with credentials.
+  // Credentials are required so a Cloudflare Access cookie on the API host
+  // can ride with Bearer-token SPA requests (credentials: "include").
+  c.header("Access-Control-Allow-Credentials", "true");
 }
 
 export async function corsMiddleware(c: Context<{ Bindings: Env }>, next: Next) {

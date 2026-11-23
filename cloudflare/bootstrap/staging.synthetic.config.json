@@ -1,0 +1,41 @@
+{
+  "$schema": "./bootstrap.schema.json",
+  "version": 1,
+  "synthetic": true,
+  "notes": "SYNTHETIC staging data only. Invented names, rooms, and prices — not real Kissmet inventory, tariffs, or staff. Never apply to kissmet-production. Never copied from production.",
+  "organization": {
+    "name": "Kissmet Staging Hostel",
+    "supportEmail": "staging-support@staging.kissmet.test",
+    "supportPhone": "+233555010099",
+    "addressText": "Synthetic staging address, not a real site"
+  },
+  "superAdmin": {
+    "displayName": "Staging Admin",
+    "username": "staging.admin",
+    "email": "staging.admin@staging.kissmet.test",
+    "phone": "+233555010001",
+    "staffCode": "STG-STF-001",
+    "jobTitle": "Staging Administrator"
+  },
+  "institutions": [
+    { "code": "staging-uni", "name": "Staging University (synthetic)" }
+  ],
+  "academicSessions": [
+    { "code": "STG-2026", "name": "Staging Session 2026-2027", "startsOn": "2026-09-01", "endsOn": "2027-08-31", "status": "active" }
+  ],
+  "leasePeriods": [
+    { "code": "STG-AY-2026", "name": "Staging Academic Year 2026-2027", "kind": "academic_calendar", "academicSessionCode": "STG-2026", "startsOn": "2026-09-01", "endsOn": "2027-08-31", "status": "active" },
+    { "code": "STG-CY-2027", "name": "Staging Calendar Year 2027", "kind": "calendar_year", "startsOn": "2027-01-01", "endsOn": "2027-12-31", "status": "draft" }
+  ],
+  "rooms": [
+    { "roomCode": "STG-F1", "roomName": "Staging Female 1", "floor": "1", "capacity": 2, "genderPolicy": "female", "bedLabels": ["A", "B"] },
+    { "roomCode": "STG-M1", "roomName": "Staging Male 1", "floor": "1", "capacity": 2, "genderPolicy": "male", "bedLabels": ["A", "B"] },
+    { "roomCode": "STG-X1", "roomName": "Staging Mixed 1", "floor": "2", "capacity": 4, "genderPolicy": "any", "bedLabels": ["A", "B", "C", "D"] }
+  ],
+  "rateCards": [
+    { "rateCode": "STG-AY-OCC1", "leasePeriodCode": "STG-AY-2026", "occupancyCapacity": 1, "amountMinor": 100000, "currency": "GHS", "status": "active" },
+    { "rateCode": "STG-AY-OCC2", "leasePeriodCode": "STG-AY-2026", "occupancyCapacity": 2, "amountMinor": 200000, "currency": "GHS", "status": "active" },
+    { "rateCode": "STG-AY-OCC4", "leasePeriodCode": "STG-AY-2026", "occupancyCapacity": 4, "amountMinor": 400000, "currency": "GHS", "packageMonths": 12, "status": "active" }
+  ],
+  "roomRates": []
+}
