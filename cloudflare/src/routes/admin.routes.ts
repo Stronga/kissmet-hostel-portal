@@ -640,7 +640,9 @@ routes.patch("/payments/:id/status", async (c) => {
   try {
     const input = await body(c);
     const status = stringField(input, "status")!;
-    // Reject/refund transitions require payment:verify (same gate as dedicated verify/reject/refund routes).
+    // Reject requires payment:verify (same gate as the dedicated reject route). `refunded` keeps the
+    // payment:verify gate and is then refused by the service: refunds must use POST /payments/:id/refund,
+    // the single authoritative refund path (receipt void + booking payment-attention + audit).
     const permission = status === "rejected" || status === "refunded" ? "payment:verify" : "payment:write";
     if (!hasPermission(c.get("authUser").role, permission)) return c.json(error("Forbidden", "forbidden"), 403);
     return c.json(ok(await service(c).updatePaymentStatus(c.get("authUser"), Number(c.req.param("id")), status as never, stringField(input, "notes", false, 2000))));
@@ -655,7 +657,12 @@ routes.post("/payments/:id/reject", requirePermission("payment:verify"), async (
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/payments/:id/refund", requirePermission("payment:verify"), async (c) => {
-  try { const input = await body(c); return c.json(ok(await service(c).refundPayment(c.get("authUser"), Number(c.req.param("id")), stringField(input, "notes", false, 2000)))); }
+  try {
+    const input = await body(c);
+    // `reason` is preferred; `notes` is accepted for backward compatibility with existing clients.
+    const reason = stringField(input, "reason", false, 2000) ?? stringField(input, "notes", false, 2000);
+    return c.json(ok(await service(c).refundPayment(c.get("authUser"), Number(c.req.param("id")), reason)));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/payments/:id/slip", requirePermission("payment:write"), async (c) => {

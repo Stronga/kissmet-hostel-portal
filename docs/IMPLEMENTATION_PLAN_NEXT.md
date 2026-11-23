@@ -2,17 +2,20 @@
 
 Scope requested: refund redesign, admin connector-status card, document access, gender-restricted allocation, frontend
 performance. Findings come from reading the current code on `feature/pi-connector`. Effort is in focused engineering days
-(incl. tests). Nothing here is implemented yet.
+(incl. tests).
+
+**Status (2026-11-22):** item 1 (refund phase A) is implemented on branch `fix/refund-integrity` (PR open, not merged).
+Everything else is not implemented yet.
 
 ## Recommended order
 
 | # | Item | Why this position | Effort | Risk |
 |---|---|---|---|---|
-| 1 | Refund redesign — phase A (integrity fix) | A live financial-integrity gap exists today (below) | 1 d | Low |
+| 1 | Refund redesign — phase A (integrity fix) — **done, PR open** | A live financial-integrity gap exists today (below) | 1 d | Low |
 | 2 | Gender-restricted allocation hardening | Safety/policy issue; small, contained change | 1–1.5 d | Low–med |
 | 3 | Document access tightening | Privacy (Ghana Card); mostly server-side | 1.5–2 d | Low |
 | 4 | Admin connector-status card | Needed for Pi commissioning visibility; depends on 0020 applied remotely | 1 d | Low |
-| 5 | Refund redesign — phase B (refund records, partial refunds, receipts) | Needs product decisions + migration 0021 | 3–4 d | Medium |
+| 5 | Refund redesign — phase B (refund records, partial refunds, receipts) | Needs product decisions + migration 0022 | 3–4 d | Medium |
 | 6 | Frontend performance | No correctness impact; quick wins first | 1–1.5 d | Low |
 | — | Self-service staff password change (found while building the bootstrap) | Bootstrap temp password otherwise never rotates | 0.5–1 d | Low |
 
@@ -32,7 +35,15 @@ performance. Findings come from reading the current code on `feature/pi-connecto
 **Phase A (now, no migration):** remove `refunded` from the generic status transition (or route it through
 `refundPayment`); require a reason; in the same batch void the active receipt (or block refund until voided — decision);
 tests for both routes. 
-**Phase B (migration 0021):** `refunds` table (`payment_id`, `amount_minor` ≤ refundable remainder, `method`, `reference`,
+**Phase A — implemented (`fix/refund-integrity`):** the generic status path refuses `refunded` (route + service) and points
+to `POST /refund`; `refundPayment` is the single path; reason required (stored on the payment, not in audit); conditional
+claim blocks double/concurrent refunds; active receipt auto-voided with a fixed reason; confirmed-booking attention flag +
+reason set; PII-free audit; admin UI requires a reason. No migration. Real-schema tests in
+`cloudflare/tests/refund-integrity.test.ts` (service + HTTP/RBAC). Follow-ups for phase B: write the claim, receipt void,
+booking flag and audits in one D1 `batch` (today they are sequential, claim first); clear the attention flag automatically
+when verified payments recover (decision open). **Decided 2026-11-22:** `verified → archived` is refused while the
+linked booking is `pending`/`confirmed` (PAYMENTS_RECEIPTS.md).
+**Phase B (migration 0022; 0021 is reserved for staff password rotation, PR #24):** `refunds` table (`payment_id`, `amount_minor` ≤ refundable remainder, `method`, `reference`,
 `reason`, `status requested|approved|paid|cancelled`, `requested_by`, `approved_by` ≠ requester, timestamps); payment
 summary uses `verified − refunded` amounts; partial refund keeps payment `verified`, full refund sets `refunded`; refund
 receipt/credit note numbering; resident read-only view; finance report by refund status. 

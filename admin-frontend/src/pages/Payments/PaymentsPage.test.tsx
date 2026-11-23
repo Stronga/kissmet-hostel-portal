@@ -143,9 +143,11 @@ describe("PaymentsPage", () => {
     await openPayment(1);
     expect(screen.getByText("Payment attention required")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Refund" }));
-    expect(screen.getByText(/removes it from the verified payment total/)).toBeInTheDocument();
+    expect(screen.getByText(/removes it from the verified payment total and voids its issued receipt/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Refund reason"), "Resident withdrew");
     await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    await waitFor(() => expect(vi.mocked(globalThis.fetch).mock.calls.some(([url]) => String(url).endsWith("/admin/payments/2/refund"))).toBe(true));
+    await waitFor(() => expect(vi.mocked(globalThis.fetch).mock.calls.some(([url, init]) => String(url).endsWith("/admin/payments/2/refund") && JSON.parse(String((init as RequestInit).body)).reason === "Resident withdrew")).toBe(true));
   });
 
   it("handles private slip upload failures through backend messages", async () => {

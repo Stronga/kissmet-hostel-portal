@@ -514,7 +514,7 @@ describe("Stage 2L-G-R repaired 0018 booking rebuild", () => {
       expect(summary.balanceMinor).toBe(150000);
 
       const refunded = await svc.refundPayment(actor, paymentId, "test refund");
-      expect(refunded.summary.verifiedPaidMinor).toBe(0);
+      expect(refunded.summary?.verifiedPaidMinor).toBe(0);
 
       const afterRefund = get<Record<string, unknown>>(db, `SELECT payment_attention_required, payment_attention_reason FROM bookings WHERE id = ?`, [
         bookingId,
