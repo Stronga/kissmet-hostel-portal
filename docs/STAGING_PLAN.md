@@ -21,8 +21,11 @@ staging D1 `database_id` is the placeholder `replace-with-staging-d1-database-id
 
 ```bash
 cd cloudflare
-npx wrangler d1 create kissmet-hostel-staging            # prints database_id
+npx wrangler d1 create kissmet-hostel-staging            # prints database_id (account API; owner approval)
 npx wrangler r2 bucket create kissmet-hostel-staging-documents
+# Wrangler v4: D1 execute/migrations and KV/R2 object commands default to local.
+# The apply/execute scripts in package.json already pass --remote for staging/production.
+# `d1 create` / `r2 bucket create` talk to the account API (they are not local object writes).
 ```
 Then replace the placeholder `database_id` in `[[env.staging.d1_databases]]` via a reviewed PR (ids are not secrets).
 Keep the R2 bucket private (no public bucket URL, no custom domain).
