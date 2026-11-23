@@ -97,7 +97,7 @@ Database:
 2. Set production `ADMIN_ALLOWED_ORIGINS=https://admin.kissmetgroup.org,https://portal.kissmetgroup.org` (already in toml).
 3. Domains: `api.kissmetgroup.org`, `admin.kissmetgroup.org`, `portal.kissmetgroup.org` (+ zone DNS/routes).
 4. Secrets (values not recorded here): any future SMS/email provider credentials; Cloudflare API tokens for CI; **no** OTP/password secrets belong in D1 `system_settings`.
-5. Frontend build env: `VITE_API_BASE_URL=https://api.kissmetgroup.org`.
+5. Frontend production build env: `VITE_API_BASE_URL=https://api.kissmetgroup.org`. The production build fails (and runtime init throws) if this is missing, empty, not absolute https, or points at localhost/127.0.0.1/http.
 6. Confirm `APP_ENV=production` so Mock OTP console capture is disabled.
 7. Apply migrations remotely; seed only non-production data intentionally.
 8. Establish D1 export/backup + restore drill before go-live.

@@ -67,11 +67,11 @@ Smoke test (staging only):
 npm ci && npm test && npm run typecheck                    # in cloudflare/
 npx wrangler deploy --env staging                          # owner approval
 ```
-Frontends: build with `VITE_API_BASE_URL=https://staging-api.kissmetgroup.org` (or the workers.dev URL). The clients fall back
-to `http://localhost:8787` when the variable is missing, so a staging/production build **must** set it (add a build-time
-guard — see implementation plan). Host on Cloudflare Pages projects `kissmet-admin-staging` / `kissmet-portal-staging` with
-custom domains `staging-admin.kissmetgroup.org` / `staging-portal.kissmetgroup.org` (match `ADMIN_ALLOWED_ORIGINS`).
-Optionally put Cloudflare Access in front of all staging hostnames.
+Frontends: build with `VITE_API_BASE_URL=https://staging-api.kissmetgroup.org` (or the staging workers.dev https URL).
+The production-mode build guard (and runtime init) refuses a missing, empty, `http`, or localhost/loopback value;
+`http://localhost:8787` is only a development/test fallback. Host on Cloudflare Pages projects `kissmet-admin-staging` /
+`kissmet-portal-staging` with custom domains `staging-admin.kissmetgroup.org` / `staging-portal.kissmetgroup.org`
+(match `ADMIN_ALLOWED_ORIGINS`). Optionally put Cloudflare Access in front of all staging hostnames.
 
 ## 6. Rollback
 
