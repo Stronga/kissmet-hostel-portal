@@ -99,11 +99,14 @@ bucket_name = "kissmet-hostel-test-documents"
 # Mock SMS only. No MIKROTIK_CONNECTOR_URL — staging never talks to the real MikroTik or Pi.
 # Do not set DEV_OTP_LOG here (OTPs would land in Worker logs). Use the staging OTP test path
 # (APP_ENV=staging + STAGING_OTP_TEST_KEY secret), behind Cloudflare Access.
-# After a custom domain is approved, add:
-#   routes = [{ pattern = "staging-api.kissmetgroup.org/*", zone_name = "kissmetgroup.org" }]
 [env.staging]
 name = "kissmet-hostel-api-staging"
+# workers_dev remains true, but this account has no workers.dev subdomain yet.
+# Serve staging on the approved custom domain until that subdomain is registered.
 workers_dev = true
+routes = [
+  { pattern = "staging-api.kissmetgroup.org/*", zone_name = "kissmetgroup.org" }
+]
 
 [env.staging.vars]
 APP_NAME = "Kissmet Hostel Portal API"
