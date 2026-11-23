@@ -275,7 +275,8 @@ Role changes, staff-status changes, account-status changes, and password resets 
 
 ### Staff password change & mandatory rotation (migration 0021)
 
-- `users.must_change_password` (0/1, default 0) and `users.password_changed_at` are added by `0021_staff_password_rotation.sql`.
+- `users.must_change_password` (0/1, default 0), `users.password_changed_at` and the `auth_rate_limits` counter table are added by
+  `0021_staff_password_rotation.sql`. Migration 0021 is reserved for password rotation; refund records use 0022.
 - The flag is set to 1 by: the production bootstrap (temporary super admin password), Staff → Reset password, and Staff → Create (initial password known to the creating admin).
 - `POST /auth/staff/login` returns `mustChangePassword` (top level and in `user`); `GET /auth/me` returns `user.mustChangePassword`.
 - While the flag is set, `requireAuth` rejects every staff route except `GET /auth/me`, `POST /auth/logout` and `POST /auth/staff/change-password` (exact paths, fail closed) with `403 { ok: false, error: { code: "PASSWORD_CHANGE_REQUIRED" } }`.
@@ -283,7 +284,11 @@ Role changes, staff-status changes, account-status changes, and password resets 
   - current password verified against the PBKDF2 hash → `400 PASSWORD_CURRENT_INVALID`
   - policy (`src/auth/password-policy.ts`): 12–256 characters; at least 3 of lower/upper/digit/symbol unless 20+ characters; not a common password (also after stripping symbols/trailing digits); not one repeated character; must not contain the username or email local part → `400 PASSWORD_TOO_WEAK` with `requirements`
   - must differ from the current password → `400 PASSWORD_REUSED`
-  - isolate-local limit of 5 attempts per user per 15 minutes → `429 PASSWORD_CHANGE_RATE_LIMITED`
+  - persistent, shared limit of 5 attempts per staff user per 15-minute fixed window → `429 PASSWORD_CHANGE_RATE_LIMITED`.
+    Counted in D1 table `auth_rate_limits` (migration 0021) with one atomic `INSERT … ON CONFLICT DO UPDATE … RETURNING`,
+    so every isolate/POP shares the same counter (not per instance). Key `staff-password-change:user:<id>` (numeric id
+    only, no username/email/IP). Every attempt counts, including successful ones; the window restarts after 15 minutes.
+    If the counter cannot be read back the request is refused (fail closed).
   - on success: new PBKDF2 hash, flag cleared, `password_changed_at` set, **all other active sessions of the user revoked** (`revocation_reason = 'password_changed'`); the calling session stays valid.
 - Audit: `auth.staff.password_changed` `{ wasForced, revokedOtherSessions }`, `auth.staff.password_change_failed` `{ reason: current_invalid | policy | reused }`, `auth.staff.password_change_rate_limited`, and `auth.staff.login_succeeded` carries `{ mustChangePassword: true }` when flagged. No password material is ever logged.
 - Admin UI: forced "Set a new password" screen (all other routes redirect to it while flagged) and a voluntary Change password page from the top bar key icon.

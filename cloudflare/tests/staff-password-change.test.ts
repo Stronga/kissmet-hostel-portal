@@ -8,6 +8,7 @@ import { hashPassword } from "../src/auth/crypto";
 import { resetRateLimitsForTests } from "../src/auth/rate-limit";
 import { PASSWORD_MIN_LENGTH, assertPasswordStrong, passwordProblems } from "../src/auth/password-policy";
 import { PASSWORD_CHANGE_ALLOWED_PATHS } from "../src/middleware/auth.middleware";
+import { PASSWORD_CHANGE_LIMIT, PASSWORD_CHANGE_WINDOW_MS, passwordChangeRateLimitKey } from "../src/services/auth.service";
 
 /** Synthetic credentials for a throwaway in-memory database only. */
 const ADMIN_PW = "Synthetic-Admin-Pass-01";
@@ -43,6 +44,16 @@ describe("migration 0021 (staff password rotation)", () => {
     db.run(readMigrationSql("0021_staff_password_rotation.sql"));
     expect(get(db, `SELECT must_change_password AS m, password_changed_at AS p, email FROM users`)).toEqual({ m: 0, p: null, email: "pre@example.test" });
     expect(() => run(db, `UPDATE users SET must_change_password = 2`)).toThrow(/CHECK/);
+  });
+
+  it("creates the shared auth_rate_limits counter table (PK bucket_key, non-negative count)", async () => {
+    const db = await openMigratedDatabase();
+    const cols = all<{ name: string; notnull: number; pk: number }>(db, `PRAGMA table_info(auth_rate_limits)`).map((c) => [c.name, c.notnull, c.pk]);
+    expect(cols).toEqual([["bucket_key", 0, 1], ["window_started_at", 1, 0], ["attempt_count", 1, 0], ["updated_at", 1, 0]]);
+    run(db, `INSERT INTO auth_rate_limits (bucket_key, window_started_at, attempt_count) VALUES ('k', '2026-01-01T00:00:00.000Z', 1)`);
+    expect(() => run(db, `INSERT INTO auth_rate_limits (bucket_key, window_started_at, attempt_count) VALUES ('k', '2026-01-01T00:00:00.000Z', 1)`)).toThrow(/UNIQUE|PRIMARY/);
+    expect(() => run(db, `UPDATE auth_rate_limits SET attempt_count = -1`)).toThrow(/CHECK/);
+    expect(() => run(db, `INSERT INTO auth_rate_limits (bucket_key, window_started_at) VALUES ('', 'x')`)).toThrow(/CHECK/);
   });
 });
 
@@ -194,6 +205,44 @@ describe("staff password change & mandatory rotation (real schema, full app)", (
     }
     const limited = await req("POST", "/auth/staff/change-password", token, { currentPassword: TEMP_PW, newPassword: NEW_PW });
     expect(limited).toMatchObject({ status: 429, body: { error: { code: "PASSWORD_CHANGE_RATE_LIMITED" } } });
+  });
+
+  it("rate limit is persistent and shared: a fresh isolate (cleared in-memory state) and a second app env still see the D1 count", async () => {
+    const token = (await login("ops.manager", TEMP_PW)).body.token as string;
+    for (let i = 0; i < PASSWORD_CHANGE_LIMIT; i += 1) {
+      resetRateLimitsForTests(); // simulate each attempt landing on a different isolate
+      env = { ...env, DB: createSqlJsD1(db) } as Env; // and a different Worker instance/binding object
+      const r = await req("POST", "/auth/staff/change-password", token, { currentPassword: "Wrong-Guess-Pass-1", newPassword: NEW_PW });
+      expect(r.status).toBe(400);
+    }
+    resetRateLimitsForTests();
+    const limited = await req("POST", "/auth/staff/change-password", token, { currentPassword: TEMP_PW, newPassword: NEW_PW });
+    expect(limited).toMatchObject({ status: 429, body: { error: { code: "PASSWORD_CHANGE_RATE_LIMITED" } } });
+    // Password unchanged and flag still set: the limited attempt did nothing.
+    expect(get(db, `SELECT must_change_password AS m FROM users WHERE id = ?`, [staffUserId])).toEqual({ m: 1 });
+    const rows = all<{ bucket_key: string; attempt_count: number }>(db, `SELECT bucket_key, attempt_count FROM auth_rate_limits`);
+    expect(rows).toEqual([{ bucket_key: passwordChangeRateLimitKey(staffUserId), attempt_count: PASSWORD_CHANGE_LIMIT + 1 }]);
+    // PII-free key: numeric id only.
+    expect(rows[0].bucket_key).toMatch(/^staff-password-change:user:\d+$/);
+    expect(rows[0].bucket_key).not.toContain("ops");
+    expect(JSON.stringify(all(db, `SELECT action FROM audit_logs WHERE action = 'auth.staff.password_change_rate_limited'`))).toContain("rate_limited");
+  });
+
+  it("rate limit is per user and the window expires", async () => {
+    const token = (await login("ops.manager", TEMP_PW)).body.token as string;
+    for (let i = 0; i < PASSWORD_CHANGE_LIMIT; i += 1) {
+      await req("POST", "/auth/staff/change-password", token, { currentPassword: "Wrong-Guess-Pass-1", newPassword: NEW_PW });
+    }
+    expect((await req("POST", "/auth/staff/change-password", token, { currentPassword: TEMP_PW, newPassword: NEW_PW })).status).toBe(429);
+    // Another staff user is unaffected.
+    const adminToken = (await login("root.admin", ADMIN_PW)).body.token as string;
+    expect((await req("POST", "/auth/staff/change-password", adminToken, { currentPassword: ADMIN_PW, newPassword: NEW_PW })).status).toBe(200);
+    // Age the stored window past the limit window: the next attempt starts a new window and succeeds.
+    const aged = new Date(Date.now() - PASSWORD_CHANGE_WINDOW_MS - 1000).toISOString();
+    run(db, `UPDATE auth_rate_limits SET window_started_at = ? WHERE bucket_key = ?`, [aged, passwordChangeRateLimitKey(staffUserId)]);
+    const ok = await req("POST", "/auth/staff/change-password", token, { currentPassword: TEMP_PW, newPassword: NEW_PW });
+    expect(ok.status).toBe(200);
+    expect(get(db, `SELECT attempt_count AS c FROM auth_rate_limits WHERE bucket_key = ?`, [passwordChangeRateLimitKey(staffUserId)])).toEqual({ c: 1 });
   });
 
   it("requires authentication and a staff session", async () => {

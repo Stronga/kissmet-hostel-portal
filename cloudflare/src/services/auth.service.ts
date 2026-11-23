@@ -26,9 +26,17 @@ const OTP_VERIFY_IP_WINDOW_MS = 15 * 60_000;
 /** Isolate-local IP ceiling for staff login across identifiers. */
 const STAFF_LOGIN_IP_LIMIT = 30;
 const STAFF_LOGIN_IP_WINDOW_MS = 15 * 60_000;
-/** Isolate-local ceiling for self-service password change attempts per staff user. */
-const PASSWORD_CHANGE_LIMIT = 5;
-const PASSWORD_CHANGE_WINDOW_MS = 15 * 60_000;
+/**
+ * Self-service password change attempts per staff user, counted in D1 (`auth_rate_limits`,
+ * migration 0021) so the limit is shared by every isolate/POP rather than per instance.
+ */
+export const PASSWORD_CHANGE_LIMIT = 5;
+export const PASSWORD_CHANGE_WINDOW_MS = 15 * 60_000;
+
+/** PII-free D1 bucket key: numeric user id only. */
+export function passwordChangeRateLimitKey(userId: number): string {
+  return `staff-password-change:user:${userId}`;
+}
 
 function passwordError(status: number, code: string, message: string, extra: Record<string, unknown> = {}) {
   return { ok: false as const, status, body: { ok: false as const, error: { code, message, ...extra } } };
@@ -139,7 +147,13 @@ export class AuthService {
   async changeStaffPassword(user: AuthUser, currentPassword: string, newPassword: string) {
     if (user.userType !== "staff" || !user.staffId) return passwordError(403, "forbidden", "Forbidden");
 
-    if (!checkRateLimit(rateLimitKey({ surface: "staff-password-change", identity: String(user.id) }), PASSWORD_CHANGE_LIMIT, PASSWORD_CHANGE_WINDOW_MS)) {
+    const nowMs = Date.now();
+    const attempt = await this.repo.hitRateLimit(
+      passwordChangeRateLimitKey(user.id),
+      new Date(nowMs).toISOString(),
+      new Date(nowMs - PASSWORD_CHANGE_WINDOW_MS).toISOString()
+    );
+    if (attempt > PASSWORD_CHANGE_LIMIT) {
       await this.repo.writeAudit(user.id, user.staffId, "auth.staff.password_change_rate_limited", "user", user.id);
       return passwordError(429, PASSWORD_ERROR_CODES.rateLimited, "Too many password change attempts. Try again later.");
     }
