@@ -50,4 +50,11 @@ export interface Env {
   ARKESEL_SENDER_ID?: string;
   /** Optional override of Arkesel SMS send URL (tests). Defaults to official V2 endpoint. */
   ARKESEL_SMS_ENDPOINT?: string;
+  /**
+   * Staging-only OTP test-path secret. Worker secret, never a wrangler [vars] value.
+   * The /staging/otp-test route is 404 unless APP_ENV=staging and this secret is set.
+   * If this is present in production, validateProductionConfig flags a critical issue
+   * and the route still returns 404.
+   */
+  STAGING_OTP_TEST_KEY?: string;
 }

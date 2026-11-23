@@ -6,5 +6,6 @@ dist/
 # Production bootstrap: real hostel config and generated SQL (may contain an admin password hash)
 bootstrap/*.config.json
 !bootstrap/*.template.json
+!bootstrap/*.synthetic.config.json
 bootstrap/*.sql
 *.bootstrap.sql

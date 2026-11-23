@@ -176,4 +176,23 @@ describe("env templates keep TRUST_PROXY scoped to the trusted-proxy deployment"
     expect(cfg.mikrotikApiTls).toBe(true);
     expect(cfg.mikrotikApiPort).toBe(8729);
   });
+
+  it("staging template is mock-only, loopback, TRUST_PROXY=false, no real router host", () => {
+    const text = read("deploy/connector.env.staging.example");
+    const env = parseEnv(text);
+    expect(env).toMatchObject({
+      CONNECTOR_MODE: "local",
+      ROUTEROS_DRIVER: "mock",
+      BIND_HOST: "127.0.0.1",
+      TRUST_PROXY: "false"
+    });
+    expect(env.MIKROTIK_HOST).toBeUndefined();
+    expect(text).toMatch(/NEVER point at the real MikroTik/i);
+    expect(text).toMatch(/TRUST_PROXY=true remains restricted to the production trusted-proxy/);
+    const cfg = loadConfig({ ...env, CONNECTOR_SECRET: "Qx7".repeat(15) });
+    expect(cfg.trustProxy).toBe(false);
+    expect(cfg.bindHost).toBe("127.0.0.1");
+    expect(cfg.routerosDriver).toBe("mock");
+  });
+
 });

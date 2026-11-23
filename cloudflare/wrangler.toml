@@ -8,9 +8,13 @@
 #
 # NEVER point production at local/test D1, R2, mock SMS, localhost CORS, or the WireGuard .5 connector.
 # Production D1 (kissmet-production) and R2 (kissmet-documents-production) are wired below (PR #17).
-# Staging D1 database_id is still a PLACEHOLDER.
+# Staging D1 database_id and the staging R2 bucket are still PLACEHOLDERS until the owner
+# approves resource creation. Do not run `d1 create`, `r2 bucket create`, remote migrations,
+# secret put, or deploy from this branch without that approval.
+# Migration 0022 is reserved for refund records and must not be used for staging schema.
 #
 # Secrets (never commit; never put in [vars]) — names only, run only with owner approval:
+#   npx wrangler secret put STAGING_OTP_TEST_KEY --env staging   # staging OTP test path only
 #   npx wrangler secret put ARKESEL_API_KEY --env production
 #   npx wrangler secret put MIKROTIK_CONNECTOR_SECRET --env production
 #   npx wrangler secret put MIKROTIK_CONNECTOR_URL --env production            # or a var once the Tunnel hostname is final
@@ -90,6 +94,13 @@ binding = "DOCUMENTS"
 bucket_name = "kissmet-hostel-test-documents"
 
 # --- staging ---
+# Isolated pre-prod. Do not create the D1 database or R2 bucket, apply remote migrations,
+# set secrets, or deploy until the owner approves the exact commands in docs/STAGING_PLAN.md.
+# Mock SMS only. No MIKROTIK_CONNECTOR_URL — staging never talks to the real MikroTik or Pi.
+# Do not set DEV_OTP_LOG here (OTPs would land in Worker logs). Use the staging OTP test path
+# (APP_ENV=staging + STAGING_OTP_TEST_KEY secret), behind Cloudflare Access.
+# After a custom domain is approved, add:
+#   routes = [{ pattern = "staging-api.kissmetgroup.org/*", zone_name = "kissmetgroup.org" }]
 [env.staging]
 name = "kissmet-hostel-api-staging"
 workers_dev = true
@@ -100,18 +111,23 @@ APP_ENV = "staging"
 APP_VERSION = "0.1.0"
 PUBLIC_BASE_URL = "https://staging-api.kissmetgroup.org"
 ADMIN_ALLOWED_ORIGINS = "https://staging-admin.kissmetgroup.org,https://staging-portal.kissmetgroup.org"
+SMS_PROVIDER = "mock"
 # SMS_PROVIDER = "arkesel"  # only when staging Arkesel + secrets are intentionally enabled
 # ARKESEL_SENDER_ID = "<approved-sender>"
+# Never set DEV_OTP_LOG, MIKROTIK_CONNECTOR_URL, or production secrets here.
+# STAGING_OTP_TEST_KEY is a Worker secret (wrangler secret put), never a [vars] value.
 
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "kissmet-hostel-staging"
-# PLACEHOLDER — replace with real staging D1 database_id from Cloudflare dashboard
+# PLACEHOLDER — replace with real staging D1 database_id after `wrangler d1 create` is approved
 database_id = "replace-with-staging-d1-database-id"
 migrations_dir = "migrations"
 
 [[env.staging.r2_buckets]]
 binding = "DOCUMENTS"
+# Private bucket — no public access / public bucket URL / custom domain. Worker binding only.
+# PLACEHOLDER name until `wrangler r2 bucket create kissmet-hostel-staging-documents` is approved.
 bucket_name = "kissmet-hostel-staging-documents"
 
 # --- production ---
