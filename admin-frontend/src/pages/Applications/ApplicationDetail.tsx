@@ -46,6 +46,7 @@ export function ApplicationDetail({
   session,
   leasePeriods,
   documents,
+  hasRestrictedDocuments,
   canManage,
   canCreateAgreement,
   pending,
@@ -58,6 +59,7 @@ export function ApplicationDetail({
   session?: AcademicSession;
   leasePeriods: LeasePeriod[];
   documents: IdentityDocument[];
+  hasRestrictedDocuments?: boolean;
   canManage: boolean;
   canCreateAgreement: boolean;
   pending: boolean;
@@ -97,7 +99,7 @@ export function ApplicationDetail({
         ["Decision notes", application.decision_notes]
       ]} />
       <DetailSection title="Documents">
-        <DocumentReviewSection documents={documents} />
+        <DocumentReviewSection documents={documents} hasRestrictedDocuments={hasRestrictedDocuments} />
       </DetailSection>
       <DetailSection title="AGREEMENT (management-controlled)" rows={[
         ["Eligibility", application.status === "approved" ? "Eligible for Create Agreement" : "Approve the application before creating an agreement"],

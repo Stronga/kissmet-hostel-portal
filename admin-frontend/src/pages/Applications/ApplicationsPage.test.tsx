@@ -41,7 +41,7 @@ function renderWithFetch(options: { role?: "manager" | "accounts"; applications?
     if (url.includes("/admin/applications?")) return envelope(apps);
     if (url.includes("/admin/institutions")) return envelope([institution]);
     if (url.includes("/admin/academic-sessions")) return envelope([session]);
-    if (url.endsWith("/admin/documents")) return json({ ok: true, data: [documentRow] });
+    if (url.endsWith("/admin/documents")) return json({ ok: true, data: { documents: [documentRow], restrictedResidentIds: [] } });
     if (url.endsWith("/admin/residents/7")) return json({ ok: true, data: resident });
     if (url.endsWith("/admin/applications/11")) return json({ ok: true, data: submittedApplication });
     if (url.endsWith("/admin/applications/12")) return json({ ok: true, data: reviewApplication });

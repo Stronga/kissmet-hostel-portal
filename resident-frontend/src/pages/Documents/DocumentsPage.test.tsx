@@ -30,6 +30,12 @@ function mockDocuments(state: MockState = {}) {
       if (state.failUpload) return json({ error: "Upload failed" }, 400);
       return json({ ok: true, data: { id: 9, document_type: url.includes("student-card") ? "student_card" : "ghana_card", status: "uploaded", original_filename: "upload.pdf", content_type: "application/pdf", size_bytes: 4 } }, 201);
     }
+    if (url.includes("/resident/me/documents/") && url.endsWith("/content") && method === "GET") {
+      return new Response(new Blob(["%PDF-1.4"], { type: "application/pdf" }), {
+        status: 200,
+        headers: { "Content-Type": "application/pdf", "Content-Disposition": 'attachment; filename="student.pdf"' }
+      });
+    }
     return residentEndpointResponse(url) ?? json({ ok: true, data: [] });
   }));
   return requests;
@@ -89,6 +95,12 @@ describe("resident documents", () => {
     expect(screen.getByText("ghana.png")).toBeInTheDocument();
     expect(screen.getByText("Awaiting verification")).toBeInTheDocument();
     expect(screen.getByText("Verified")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download Student Card" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download Ghana Card" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Upload Student Card")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Upload Ghana Card")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Replace/ })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/cannot be replaced while it is awaiting verification or already verified/i).length).toBe(2);
   });
 
   it("shows rejected state with resident-safe reason and neutral fallback", async () => {
@@ -104,6 +116,29 @@ describe("resident documents", () => {
     expect(await screen.findByText("Image is unclear.")).toBeInTheDocument();
     expect(screen.getByText("This document needs to be uploaded again.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Re-upload Student Card" })).toBeInTheDocument();
+  });
+
+  it("downloads an uploaded document through the resident content endpoint", async () => {
+    seedResidentToken();
+    URL.createObjectURL = vi.fn(() => "blob:student");
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.fn();
+    const realCreate = window.document.createElement.bind(window.document);
+    vi.spyOn(window.document, "createElement").mockImplementation((tag: string) => {
+      const el = realCreate(tag);
+      if (tag === "a") el.click = click;
+      return el;
+    });
+    const requests = mockDocuments({
+      documents: [
+        { id: 1, document_type: "student_card", status: "uploaded", original_filename: "student.pdf", content_type: "application/pdf", size_bytes: 1024, created_at: "2026-08-28T03:37:35.599Z" }
+      ]
+    });
+    render(renderResidentApp(["/documents"]));
+    await userEvent.click(await screen.findByRole("button", { name: "Download Student Card" }));
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    expect(requests.some((request) => request.url.endsWith("/resident/me/documents/1/content") && request.method === "GET")).toBe(true);
+    expect(URL.createObjectURL).toHaveBeenCalled();
   });
 
   it("uploads Student Card with authenticated multipart form data and refreshes the list", async () => {

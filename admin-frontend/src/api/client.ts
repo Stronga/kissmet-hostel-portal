@@ -50,3 +50,29 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
 
   return payload as T;
 }
+
+export async function apiDownload(path: string): Promise<{ blob: Blob; filename: string; contentType: string }> {
+  const headers = new Headers();
+  headers.set("Accept", "*/*");
+  if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, { headers });
+  if (!response.ok) {
+    if (response.status === 401) unauthorizedHandler?.();
+    let message = "Download failed";
+    try {
+      const payload = JSON.parse(await response.text()) as { error?: string | { message?: string } };
+      if (typeof payload.error === "string") message = payload.error;
+      else if (payload.error && typeof payload.error === "object" && payload.error.message) message = payload.error.message;
+    } catch {
+      // non-JSON error body
+    }
+    throw new ApiError(message, response.status);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  return {
+    blob: await response.blob(),
+    filename: match?.[1] || "document",
+    contentType: response.headers.get("Content-Type") ?? "application/octet-stream"
+  };
+}
