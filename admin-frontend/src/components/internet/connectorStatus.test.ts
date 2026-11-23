@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { connectorPresence, formatAge, presenceLabel } from "./connectorStatus";
+import { connectorPresence, formatAge, presenceLabel, primaryConnector } from "./connectorStatus";
+import type { ConnectorStatus } from "../../types/api";
 
 describe("connectorPresence", () => {
   it("is online under two minutes, stale before the threshold, and offline after it or when never seen", () => {
@@ -20,5 +21,14 @@ describe("formatAge and labels", () => {
     expect(presenceLabel("online")).toBe("Online");
     expect(presenceLabel("stale")).toBe("Stale");
     expect(presenceLabel("offline")).toBe("Offline");
+  });
+});
+
+describe("primaryConnector", () => {
+  it("returns null instead of throwing for a missing or malformed payload", () => {
+    expect(primaryConnector(null)).toBeNull();
+    expect(primaryConnector({} as unknown as ConnectorStatus)).toBeNull();
+    expect(primaryConnector({ configured: true, staleAfterSeconds: 180, connectors: "x" } as unknown as ConnectorStatus)).toBeNull();
+    expect(primaryConnector({ configured: true, staleAfterSeconds: 180, connectors: [] })).toBeNull();
   });
 });
