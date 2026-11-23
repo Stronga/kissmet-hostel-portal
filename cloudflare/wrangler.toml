@@ -8,9 +8,9 @@
 #
 # NEVER point production at local/test D1, R2, mock SMS, localhost CORS, or the WireGuard .5 connector.
 # Production D1 (kissmet-production) and R2 (kissmet-documents-production) are wired below (PR #17).
-# Staging D1 database_id and the staging R2 bucket are still PLACEHOLDERS until the owner
-# approves resource creation. Do not run `d1 create`, `r2 bucket create`, remote migrations,
-# secret put, or deploy from this branch without that approval.
+# Staging D1 kissmet-hostel-staging (958f10b6-a7a6-4943-8c20-afe9b97e6388) and private R2
+# kissmet-hostel-staging-documents were created 2026-11-23 after owner approval.
+# Further staging deploys, secret changes, and Access/DNS still need care; production is separate.
 # Migration 0022 is reserved for refund records and must not be used for staging schema.
 #
 # Secrets (never commit; never put in [vars]) — names only, run only with owner approval:
@@ -120,14 +120,12 @@ SMS_PROVIDER = "mock"
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "kissmet-hostel-staging"
-# PLACEHOLDER — replace with real staging D1 database_id after `wrangler d1 create` is approved
-database_id = "replace-with-staging-d1-database-id"
+database_id = "958f10b6-a7a6-4943-8c20-afe9b97e6388"
 migrations_dir = "migrations"
 
 [[env.staging.r2_buckets]]
 binding = "DOCUMENTS"
 # Private bucket — no public access / public bucket URL / custom domain. Worker binding only.
-# PLACEHOLDER name until `wrangler r2 bucket create kissmet-hostel-staging-documents` is approved.
 bucket_name = "kissmet-hostel-staging-documents"
 
 # --- production ---
