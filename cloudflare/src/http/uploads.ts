@@ -73,3 +73,51 @@ export function contentDispositionAttachment(filename: string): string {
 }
 
 export const UPLOAD_MAX_BYTES = MAX_UPLOAD_BYTES;
+
+const ALLOWED_DOWNLOAD_TYPES = new Set(Object.keys(ALLOWED_UPLOADS));
+
+/** Opaque R2 object key. No resident id, document type, payment reference, or filename. */
+export function opaqueObjectKey(): string {
+  return `objects/${crypto.randomUUID()}`;
+}
+
+function hasPrefix(bytes: Uint8Array, prefix: number[]): boolean {
+  return bytes.length >= prefix.length && prefix.every((b, i) => bytes[i] === b);
+}
+
+/** Magic-byte checks for allowlisted upload types. MIME/extension alone is not sufficient. */
+export function matchesUploadMagic(bytes: Uint8Array, contentType: string): boolean {
+  const type = contentType.toLowerCase().trim();
+  if (type === "application/pdf") return hasPrefix(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d]); // %PDF-
+  if (type === "image/jpeg") return hasPrefix(bytes, [0xff, 0xd8, 0xff]);
+  if (type === "image/png") return hasPrefix(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (type === "image/webp") {
+    return hasPrefix(bytes, [0x52, 0x49, 0x46, 0x46]) && bytes.length >= 12
+      && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+  }
+  return false;
+}
+
+export async function assertUploadMagicBytes(file: File, label = "Document"): Promise<void> {
+  const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+  const contentType = (file.type || "").toLowerCase().trim();
+  if (!matchesUploadMagic(head, contentType)) {
+    throw new Error(`Unsupported ${label.toLowerCase()} type`);
+  }
+}
+
+/** Never serve identity documents or slips as HTML or a non-allowlisted type. */
+export function safeDownloadContentType(contentType: string | null | undefined): string {
+  const type = (contentType || "").toLowerCase().trim();
+  return ALLOWED_DOWNLOAD_TYPES.has(type) ? type : "application/octet-stream";
+}
+
+export function documentDownloadHeaders(filename: string, contentType: string | null | undefined): HeadersInit {
+  return {
+    "Content-Type": safeDownloadContentType(contentType),
+    "Content-Disposition": contentDispositionAttachment(filename),
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, no-store",
+    "Referrer-Policy": "no-referrer"
+  };
+}

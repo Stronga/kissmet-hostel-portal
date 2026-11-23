@@ -6,7 +6,7 @@ import { AdminRepository } from "../repositories/admin.repository";
 import type { SmsProvider } from "./sms.service";
 import { OTP_DELIVERY_FAILURE_MESSAGE } from "./sms.service";
 import { normalizeGhanaPhoneForSms } from "./phone";
-import { validateUploadFile } from "../http/uploads";
+import { assertUploadMagicBytes, opaqueObjectKey, validateUploadFile } from "../http/uploads";
 import {
   assertIdentityDocsForSubmit,
   assertResidentIdentityFields,
@@ -372,23 +372,54 @@ export class ResidentService {
     if (!actor.residentId) throw new Error("Resident session required");
     if (!this.documents) throw new Error("Document storage is not configured");
     const validated = validateUploadFile(file, "Document");
-    const key = `identity/${actor.residentId}/${type}/${crypto.randomUUID()}-${validated.safeFilename}`;
+    await assertUploadMagicBytes(file, "Document");
+    const existing = await this.repo.first<{ id: number; status: string }>(
+      "SELECT id, status FROM documents WHERE resident_id = ? AND document_type = ? AND status IN ('uploaded', 'verified', 'rejected') ORDER BY id DESC",
+      actor.residentId,
+      type
+    );
+    if (existing && existing.status === "verified") {
+      throw new Error("A verified identity document of this type is already on file and cannot be replaced until it is rejected");
+    }
+    if (existing && existing.status === "uploaded") {
+      throw new Error("An identity document of this type is already on file and cannot be replaced until it is rejected");
+    }
+    if (existing && existing.status === "rejected") {
+      await this.repo.run(
+        "UPDATE documents SET status = 'archived', archived_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND resident_id = ? AND status = 'rejected'",
+        existing.id,
+        actor.residentId
+      );
+    }
+    const key = opaqueObjectKey();
     await this.documents.put(key, file.stream(), { httpMetadata: { contentType: validated.contentType } });
     const res = await this.repo.run("INSERT INTO documents (owner_user_id, resident_id, document_type, status, r2_bucket, r2_key, original_filename, content_type, size_bytes, uploaded_by_user_id) VALUES (?, ?, ?, 'uploaded', 'DOCUMENTS', ?, ?, ?, ?, ?)", actor.id, actor.residentId, type, key, validated.safeFilename, validated.contentType, validated.size, actor.id);
-    await this.repo.audit(actor.id, null, `resident.document.${type}_uploaded`, "document", res.meta.last_row_id);
+    await this.repo.audit(actor.id, null, `resident.document.${type}_uploaded`, "document", res.meta.last_row_id, { replacedRejected: Boolean(existing) });
     return this.ownDocument(actor, Number(res.meta.last_row_id));
   }
 
   documentsFor(actor: AuthUser) {
     if (!actor.residentId) throw new Error("Resident session required");
-    return this.repo.all("SELECT id, document_type, status, original_filename, content_type, size_bytes, created_at FROM documents WHERE resident_id = ? ORDER BY id DESC", actor.residentId);
+    return this.repo.all("SELECT id, document_type, status, original_filename, content_type, size_bytes, created_at FROM documents WHERE resident_id = ? AND status NOT IN ('deleted', 'archived') ORDER BY id DESC", actor.residentId);
   }
 
   async ownDocument(actor: AuthUser, id: number) {
     if (!actor.residentId) throw new Error("Resident session required");
-    const doc = await this.repo.first<Record<string, unknown>>("SELECT id, document_type, status, original_filename, content_type, size_bytes, created_at FROM documents WHERE id = ? AND resident_id = ?", id, actor.residentId);
+    const doc = await this.repo.first<Record<string, unknown>>("SELECT id, document_type, status, original_filename, content_type, size_bytes, created_at FROM documents WHERE id = ? AND resident_id = ? AND status NOT IN ('deleted')", id, actor.residentId);
     if (!doc) throw new Error("Document not found");
     return doc;
+  }
+
+  async ownDocumentContent(actor: AuthUser, id: number) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    if (!this.documents) throw new Error("Document storage is not configured");
+    const doc = await this.ownDocument(actor, id);
+    const stored = await this.repo.first<{ r2_key: string }>("SELECT r2_key FROM documents WHERE id = ? AND resident_id = ?", id, actor.residentId);
+    if (!stored?.r2_key) throw new Error("Document content not found");
+    const object = await this.documents.get(stored.r2_key);
+    if (!object) throw new Error("Document content not found");
+    await this.repo.audit(actor.id, null, "resident.document.content_accessed", "document", id, { documentType: doc.document_type });
+    return { object, document: doc };
   }
 
   async createApplication(actor: AuthUser, input: number | { academicSessionId?: number | null; leasePeriodId?: number | null }) {
@@ -665,7 +696,8 @@ export class ResidentService {
     if (!payment) throw new Error("Payment not found");
     if (!["pending", "submitted"].includes(String(payment.status))) throw new Error("Invalid workflow transition");
     const validated = validateUploadFile(file, "Payment slip");
-    const key = `payment-slips/${payment.payment_reference}/${crypto.randomUUID()}-${validated.safeFilename}`;
+    await assertUploadMagicBytes(file, "Payment slip");
+    const key = opaqueObjectKey();
     await this.documents.put(key, file.stream(), { httpMetadata: { contentType: validated.contentType } });
     const res = await this.repo.run(
       "INSERT INTO documents (owner_user_id, resident_id, booking_id, payment_id, document_type, status, r2_bucket, r2_key, original_filename, content_type, size_bytes, uploaded_by_user_id) VALUES (?, ?, ?, ?, 'payment_slip', 'uploaded', 'DOCUMENTS', ?, ?, ?, ?, ?)",

@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiDownload, apiRequest } from "./client";
 import type { AcademicSession, MaintenanceCategory, MaintenancePriority, ResidentAllocation, ResidentAnnouncement, ResidentApplication, ResidentBooking, ResidentDocument, ResidentLeasePeriod, ResidentMaintenanceRequest, ResidentMessage, ResidentPayment, ResidentPaymentSummary, ResidentProfile, ResidentReceipt } from "../types/resident";
 
 export function fetchResidentProfile() {
@@ -21,6 +21,10 @@ export function uploadResidentIdentityDocument(type: "student_card" | "ghana_car
   formData.append("file", file);
   const path = type === "student_card" ? "/resident/me/documents/student-card" : "/resident/me/documents/ghana-card";
   return apiRequest<{ ok: true; data: ResidentDocument }>(path, { method: "POST", body: formData });
+}
+
+export function downloadResidentDocument(id: number) {
+  return apiDownload(`/resident/me/documents/${id}/content`);
 }
 
 export function fetchResidentApplications() {

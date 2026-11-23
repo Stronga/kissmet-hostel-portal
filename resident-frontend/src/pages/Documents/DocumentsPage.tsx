@@ -6,10 +6,10 @@ import { InfoHelp } from "../../components/common/InfoHelp";
 import { LoadingState } from "../../components/common/LoadingState";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { PageHeader } from "../../components/layout/PageHeader";
-import { fetchResidentDocuments, fetchResidentProfile, uploadResidentIdentityDocument } from "../../api/resident";
+import { downloadResidentDocument, fetchResidentDocuments, fetchResidentProfile, uploadResidentIdentityDocument } from "../../api/resident";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import type { ResidentDocument, ResidentProfile } from "../../types/resident";
-import { documentActionLabel, documentStatusLabel, documentTypeLabel, formatFileSize, identityDocumentTypes, isDocumentUploaded, latestIdentityDocuments, validateIdentityDocumentFile, type IdentityDocumentType } from "../../utils/documents";
+import { canReplaceIdentityDocument, documentActionLabel, documentStatusLabel, documentTypeLabel, formatFileSize, identityDocumentTypes, isDocumentUploaded, latestIdentityDocuments, validateIdentityDocumentFile, type IdentityDocumentType } from "../../utils/documents";
 import { formatDateTime } from "../../utils/format";
 
 type UploadState = Record<IdentityDocumentType, { error: string | null; success: string | null; isUploading: boolean }>;
@@ -56,10 +56,11 @@ function RequirementSummary({ documents, requiredTypes }: { documents: Record<Id
   );
 }
 
-function DocumentCard({ type, document, state, onUpload }: { type: IdentityDocumentType; document: ResidentDocument | null; state: UploadState[IdentityDocumentType]; onUpload: (type: IdentityDocumentType, file: File | null) => void }) {
+function DocumentCard({ type, document, state, onUpload, onDownload, downloadError }: { type: IdentityDocumentType; document: ResidentDocument | null; state: UploadState[IdentityDocumentType]; onUpload: (type: IdentityDocumentType, file: File | null) => void; onDownload: (document: ResidentDocument) => void; downloadError: string | null }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const label = documentTypeLabel(type);
   const rejected = document?.status === "rejected";
+  const canReplace = canReplaceIdentityDocument(document);
 
   return (
     <Card>
@@ -74,7 +75,7 @@ function DocumentCard({ type, document, state, onUpload }: { type: IdentityDocum
         <span className="inline-flex items-center gap-1">
           <StatusBadge status={documentStatusLabel(document?.status)} />
           <InfoHelp label={`About ${label} status`}>
-            Uploaded documents await staff verification. Rejected documents must be uploaded again. Secure viewing is not exposed by the current resident backend.
+            Uploaded documents await staff verification. Rejected documents must be uploaded again. You can download your own file. Re-upload is available only after staff reject a document.
           </InfoHelp>
         </span>
       </div>
@@ -101,6 +102,15 @@ function DocumentCard({ type, document, state, onUpload }: { type: IdentityDocum
           {document.rejection_reason || "This document needs to be uploaded again."}
         </div>
       ) : null}
+      {document ? (
+        <div className="mt-4">
+          <Button type="button" variant="secondary" className="w-full rounded-full sm:w-auto" onClick={() => onDownload(document)}>
+            Download {label}
+          </Button>
+          {downloadError ? <p className="mt-2 text-sm font-semibold text-danger" role="alert">{downloadError}</p> : null}
+        </div>
+      ) : null}
+      {canReplace ? (
       <div className="mt-5 space-y-3">
         <label className="block text-sm font-semibold text-text-primary" htmlFor={`${type}-file`}>{documentActionLabel(type, document)}</label>
         <input
@@ -111,7 +121,7 @@ function DocumentCard({ type, document, state, onUpload }: { type: IdentityDocum
           accept="application/pdf,image/jpeg,image/png,image/webp"
           className="block w-full rounded-xl border border-border bg-white px-3 py-2 text-sm text-text-primary file:mr-3 file:rounded-full file:border-0 file:bg-muted file:px-3 file:py-2 file:text-sm file:font-semibold file:text-text-primary"
         />
-        <p className="text-xs text-text-secondary">PDF, JPEG, PNG, or WebP. Maximum 5 MB.</p>
+        <p className="text-xs text-text-secondary">PDF, JPEG, PNG, or WebP. Maximum 5 MB. Re-upload is allowed only after a rejection.</p>
         {state.error ? <p className="text-sm font-semibold text-danger" role="alert">{state.error}</p> : null}
         {state.success ? <p className="text-sm font-semibold text-success">{state.success}</p> : null}
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -120,6 +130,9 @@ function DocumentCard({ type, document, state, onUpload }: { type: IdentityDocum
           </Button>
         </div>
       </div>
+      ) : (
+        <p className="mt-4 text-sm text-text-secondary">This file cannot be replaced while it is awaiting verification or already verified.</p>
+      )}
     </Card>
   );
 }
@@ -130,6 +143,7 @@ export function DocumentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploadState, setUploadState] = useState<UploadState>(() => initialUploadState());
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const uploadsInFlight = useRef<Record<IdentityDocumentType, boolean>>({ student_card: false, ghana_card: false });
   usePageTitle("Documents");
 
@@ -151,6 +165,21 @@ export function DocumentsPage() {
 
   const identityDocuments = useMemo(() => latestIdentityDocuments(documents), [documents]);
   const requiredTypes = useMemo(() => requiredIdentityTypes(profile), [profile]);
+
+  async function handleDownload(document: ResidentDocument) {
+    setDownloadError(null);
+    try {
+      const { blob, filename } = await downloadResidentDocument(document.id);
+      const url = URL.createObjectURL(blob);
+      const link = window.document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : "Download failed.");
+    }
+  }
 
   async function handleUpload(type: IdentityDocumentType, file: File | null) {
     const validationError = validateIdentityDocumentFile(file);
@@ -184,7 +213,7 @@ export function DocumentsPage() {
       <RequirementSummary documents={identityDocuments} requiredTypes={requiredTypes} />
       <div className="grid gap-5 lg:grid-cols-2">
         {requiredTypes.map((type) => (
-          <DocumentCard key={type} type={type} document={identityDocuments[type]} state={uploadState[type]} onUpload={(docType, file) => void handleUpload(docType, file)} />
+          <DocumentCard key={type} type={type} document={identityDocuments[type]} state={uploadState[type]} onUpload={(docType, file) => void handleUpload(docType, file)} onDownload={(doc) => void handleDownload(doc)} downloadError={downloadError} />
         ))}
       </div>
     </>

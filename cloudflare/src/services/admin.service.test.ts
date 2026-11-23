@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { AdminService } from "./admin.service";
 import { requireRole } from "../middleware/auth.middleware";
 import type { AuthUser } from "../auth/context";
+import { samplePdfFile } from "../../tests/upload-samples";
 
 const manager: AuthUser = { id: 1, userType: "staff", displayName: "Manager", email: "m@test", role: "manager", staffId: 1, residentId: null, sessionId: 1 };
 const accounts: AuthUser = { ...manager, role: "accounts" };
