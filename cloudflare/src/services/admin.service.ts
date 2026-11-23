@@ -36,8 +36,11 @@ type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | "comple
 type AllocationStatus = "active" | "ended" | "cancelled" | "transferred" | "archived";
 type PaymentStatus = "pending" | "submitted" | "verified" | "rejected" | "refunded" | "cancelled" | "archived";
 export const REFUND_VIA_STATUS_ERROR = "Invalid workflow transition: refunds must use POST /admin/payments/:id/refund";
-export const REFUND_RECEIPT_VOID_REASON = "Payment refunded";
+export { REFUND_RECEIPT_VOID_REASON } from "./refund.service";
 export const REFUND_ATTENTION_REASON = "Refund reduced verified payments below confirmation threshold";
+export const ARCHIVE_ATTENTION_REASON = "Archived payment reduced verified payments below confirmation threshold";
+export const ARCHIVE_OPEN_REFUND_ERROR = "Payment has an open refund; finish or cancel it before archiving";
+export type PaymentAttentionCause = "refund" | "verification" | "archive";
 /** Booking statuses that count as "active" for payment archiving (same set as duplicate-booking checks). */
 export const ACTIVE_BOOKING_STATUSES = ["pending", "confirmed"] as const;
 export const ARCHIVE_VERIFIED_ACTIVE_BOOKING_ERROR = "Payment is verified and linked to an active booking; refund it or end the booking before archiving";
@@ -735,7 +738,7 @@ export class AdminService {
     const row = booking ?? (await this.get("bookings", bookingId) as Record<string, unknown> | null);
     if (!row) throw new Error("Booking not found");
     const paid = await this.repo.first<{ verified_paid_minor: number }>(
-      "SELECT COALESCE(SUM(amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
+      "SELECT COALESCE(SUM(amount_minor), 0) - COALESCE(SUM(refunded_amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
       bookingId
     );
     const financial = computeAgreementFinancial(row, Number(paid?.verified_paid_minor ?? 0));
@@ -1449,7 +1452,7 @@ export class AdminService {
     }
 
     const verifiedRow = await this.repo.first<{ verified_paid_minor: number }>(
-      "SELECT COALESCE(SUM(amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
+      "SELECT COALESCE(SUM(amount_minor), 0) - COALESCE(SUM(refunded_amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
       id
     );
     const verifiedPaid = Number(verifiedRow?.verified_paid_minor ?? 0);
@@ -1606,7 +1609,7 @@ export class AdminService {
     }
 
     const verifiedRow = await this.repo.first<{ verified_paid_minor: number }>(
-      "SELECT COALESCE(SUM(amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
+      "SELECT COALESCE(SUM(amount_minor), 0) - COALESCE(SUM(refunded_amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
       bookingId
     );
     const verifiedPaid = Number(verifiedRow?.verified_paid_minor ?? 0);
@@ -2264,7 +2267,7 @@ export class AdminService {
   async bookingPaymentSummary(bookingId: number) {
     const booking = await this.get("bookings", bookingId) as Record<string, unknown> | null;
     if (!booking) throw new Error("Booking not found");
-    const paid = await this.repo.first<{ verified_paid_minor: number }>("SELECT COALESCE(SUM(amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'", bookingId);
+    const paid = await this.repo.first<{ verified_paid_minor: number }>("SELECT COALESCE(SUM(amount_minor), 0) - COALESCE(SUM(refunded_amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'", bookingId);
     const setting = await this.repo.first<{ requirement_type: string; fixed_amount_minor: number | null; percentage_basis_points: number | null }>("SELECT requirement_type, fixed_amount_minor, percentage_basis_points FROM payment_confirmation_settings WHERE id = 1 AND status = 'active'");
     const financial = computeAgreementFinancial(booking, Number(paid?.verified_paid_minor ?? 0));
     // Confirmation threshold remains based on agreed accommodation (historical confirmation policy).
@@ -2297,7 +2300,7 @@ export class AdminService {
     if (Number(booking.resident_id) !== data.residentId) throw new Error("Payment resident/booking mismatch");
     if (!Number.isInteger(data.amountMinor) || data.amountMinor <= 0) throw new Error("Payment amount must be positive");
     const paid = await this.repo.first<{ verified_paid_minor: number }>(
-      "SELECT COALESCE(SUM(amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
+      "SELECT COALESCE(SUM(amount_minor), 0) - COALESCE(SUM(refunded_amount_minor), 0) AS verified_paid_minor FROM payments WHERE booking_id = ? AND status = 'verified'",
       data.bookingId
     );
     const outstanding = Math.max(agreementObligationMinor(booking) - Number(paid?.verified_paid_minor ?? 0), 0);
@@ -2328,7 +2331,8 @@ export class AdminService {
 
   async updatePaymentStatus(actor: AuthUser, id: number, status: PaymentStatus, notes?: string | null) {
     // Refunds have side effects (receipt void, booking payment-attention, audit) that live only in
-    // refundPayment. The generic status path must never mark a payment refunded.
+    // RefundService (POST /admin/payments/:id/refund + /admin/refunds/:id/*). The generic status path
+    // must never mark a payment refunded.
     if (status === "refunded") throw new Error(REFUND_VIA_STATUS_ERROR);
     const payment = await this.get("payments", id) as Record<string, unknown> | null;
     if (!payment) throw new Error("Payment not found");
@@ -2348,6 +2352,10 @@ export class AdminService {
     // under-count what the resident paid, so it is refused; refund (POST /payments/:id/refund) or end
     // the booking first. The guard is repeated inside the UPDATE so a booking that becomes active
     // between the read and the write cannot slip through.
+    if (status === "archived" && current === "verified") {
+      const open = await this.repo.first<{ id: number }>("SELECT id FROM refunds WHERE payment_id = ? AND status IN ('requested', 'approved') LIMIT 1", id);
+      if (open) throw new Error(ARCHIVE_OPEN_REFUND_ERROR);
+    }
     if (status === "archived" && current === "verified" && payment.booking_id != null) {
       const booking = await this.repo.first<{ status: string }>("SELECT status FROM bookings WHERE id = ?", Number(payment.booking_id));
       if (booking && (ACTIVE_BOOKING_STATUSES as readonly string[]).includes(booking.status)) {
@@ -2356,9 +2364,13 @@ export class AdminService {
       }
     }
     const transition = await this.repo.run(`UPDATE payments SET status = ?, notes = COALESCE(?, notes), submitted_at = CASE WHEN ? = 'submitted' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE submitted_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = ?
-      AND NOT (? = 'archived' AND status = 'verified' AND EXISTS (SELECT 1 FROM bookings b WHERE b.id = payments.booking_id AND b.status IN ('pending', 'confirmed')))`, status, notes ?? null, status, id, current, status);
+      AND NOT (? = 'archived' AND status = 'verified' AND EXISTS (SELECT 1 FROM bookings b WHERE b.id = payments.booking_id AND b.status IN ('pending', 'confirmed')))
+      AND NOT (? = 'archived' AND status = 'verified' AND EXISTS (SELECT 1 FROM refunds r WHERE r.payment_id = payments.id AND r.status IN ('requested', 'approved')))`, status, notes ?? null, status, id, current, status, status);
     if (Number(transition?.meta?.changes ?? 0) !== 1) throw new Error("Invalid workflow transition");
     await this.repo.audit(actor.id, actor.staffId, `admin.payment.${status}`, "payment", id, { from: current, to: status });
+    if (status === "archived" && current === "verified" && payment.booking_id != null) {
+      await this.recalculatePaymentAttention(actor, Number(payment.booking_id), "archive", id);
+    }
     return this.get("payments", id);
   }
 
@@ -2382,7 +2394,7 @@ export class AdminService {
           SELECT b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)
           FROM bookings b WHERE b.id = ?
         ) >= (
-          SELECT COALESCE(SUM(p.amount_minor), 0) + ?
+          SELECT COALESCE(SUM(p.amount_minor), 0) - COALESCE(SUM(p.refunded_amount_minor), 0) + ?
           FROM payments p
           WHERE p.booking_id = ?
             AND p.status = 'verified'
@@ -2395,69 +2407,50 @@ export class AdminService {
     if (!before.confirmationRequirementMet && after.confirmationRequirementMet) {
       await this.repo.audit(actor.id, actor.staffId, "admin.booking.payment_threshold_reached", "booking", Number(payment.booking_id), { paymentId: id });
     }
-    return { payment: await this.get("payments", id), summary: after };
+    const recalculated = await this.recalculatePaymentAttention(actor, Number(payment.booking_id), "verification", id);
+    return { payment: await this.get("payments", id), summary: recalculated ?? after };
   }
 
   /**
-   * Single authoritative refund path (milestone 1 of the refund redesign).
+   * Recalculates the booking's payment-attention flag from NET verified payments
+   * (SUM(amount_minor - refunded_amount_minor) over verified payments; see bookingPaymentSummary).
    *
-   * Every way of moving a payment to `refunded` must go through here: the generic
-   * `updatePaymentStatus` refuses `refunded` and the admin route directs callers to
-   * `POST /admin/payments/:id/refund`. In one place this:
-   *  - claims the refund with a conditional `verified -> refunded` update (double/concurrent
-   *    refunds change zero rows and fail),
-   *  - voids the payment's active receipt (receipts.status = 'voided' with a fixed, PII-free
-   *    reason) so no issued receipt remains for money that was returned,
-   *  - re-evaluates the booking and sets payment_attention_required / payment_attention_reason
-   *    when a confirmed booking drops below its confirmation threshold,
-   *  - writes PII-free audit events (the free-text reason is stored on the payment only).
+   * - Sets the flag (with a cause-specific reason) when a CONFIRMED booking no longer meets its
+   *   confirmation requirement and is not already flagged.
+   * - Clears the flag only when the confirmation requirement is genuinely met again on net
+   *   verified payments (the same requirement booking confirmation enforces).
+   * Both writes are conditional so concurrent recalculations audit at most once. Nothing historical
+   * is deleted: every set/clear is a new audit event, and payments/refunds/credit notes stay as-is.
    */
-  async refundPayment(actor: AuthUser, id: number, reason?: string | null) {
-    const trimmedReason = typeof reason === "string" ? reason.trim() : "";
-    if (!trimmedReason) throw new Error("Refund reason required");
-    const payment = await this.get("payments", id) as Record<string, unknown> | null;
-    if (!payment) throw new Error("Payment not found");
-    if (payment.status !== "verified") throw new Error("Invalid workflow transition");
-    const claim = await this.repo.run(
-      "UPDATE payments SET status = 'refunded', notes = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = 'verified'",
-      trimmedReason,
-      id
-    );
-    if (Number(claim?.meta?.changes ?? 0) !== 1) throw new Error("Invalid workflow transition");
-
-    const receipt = await this.repo.first<{ id: number }>("SELECT id FROM receipts WHERE payment_id = ? AND status = 'issued'", id);
-    let voidedReceiptId: number | null = null;
-    if (receipt) {
-      const voided = await this.repo.run(
-        "UPDATE receipts SET status = 'voided', voided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), void_reason = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = 'issued'",
-        REFUND_RECEIPT_VOID_REASON,
-        Number(receipt.id)
-      );
-      if (Number(voided?.meta?.changes ?? 0) === 1) {
-        voidedReceiptId = Number(receipt.id);
-        await this.repo.audit(actor.id, actor.staffId, "admin.receipt.voided", "receipt", voidedReceiptId, { paymentId: id, cause: "payment_refunded" });
-      }
-    }
-
-    const bookingId = payment.booking_id == null ? null : Number(payment.booking_id);
-    let summary: Awaited<ReturnType<AdminService["bookingPaymentSummary"]>> | null = null;
-    if (bookingId != null && Number.isInteger(bookingId)) {
-      const booking = await this.get("bookings", bookingId) as Record<string, unknown> | null;
-      if (booking) {
+  async recalculatePaymentAttention(actor: AuthUser, bookingId: number, cause: PaymentAttentionCause, paymentId: number | null) {
+    const booking = await this.get("bookings", bookingId) as Record<string, unknown> | null;
+    if (!booking) return null;
+    let summary = await this.bookingPaymentSummary(bookingId);
+    const flagged = Boolean(booking.payment_attention_required);
+    if (!flagged && booking.status === "confirmed" && !summary.confirmationRequirementMet && cause !== "verification") {
+      const reason = cause === "archive" ? ARCHIVE_ATTENTION_REASON : REFUND_ATTENTION_REASON;
+      const set = await this.repo.run(`UPDATE bookings SET payment_attention_required = 1, payment_attention_reason = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND payment_attention_required = 0`, reason, bookingId);
+      if (Number(set?.meta?.changes ?? 0) === 1) {
+        await this.repo.audit(actor.id, actor.staffId, cause === "archive" ? "admin.booking.payment_deficiency_after_archive" : "admin.booking.payment_deficiency_after_refund", "booking", bookingId, {
+          paymentId,
+          netVerifiedPaidMinor: summary.verifiedPaidMinor,
+          requiredConfirmationAmountMinor: summary.requiredConfirmationAmountMinor
+        });
         summary = await this.bookingPaymentSummary(bookingId);
-        if (booking.status === "confirmed" && !summary.confirmationRequirementMet) {
-          await this.repo.run("UPDATE bookings SET payment_attention_required = 1, payment_attention_reason = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", REFUND_ATTENTION_REASON, bookingId);
-          await this.repo.audit(actor.id, actor.staffId, "admin.booking.payment_deficiency_after_refund", "booking", bookingId, { paymentId: id });
-          summary = await this.bookingPaymentSummary(bookingId);
-        }
+      }
+    } else if (flagged && summary.confirmationRequirementMet) {
+      const cleared = await this.repo.run(`UPDATE bookings SET payment_attention_required = 0, payment_attention_reason = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND payment_attention_required = 1`, bookingId);
+      if (Number(cleared?.meta?.changes ?? 0) === 1) {
+        await this.repo.audit(actor.id, actor.staffId, "admin.booking.payment_attention_cleared", "booking", bookingId, {
+          cause,
+          paymentId,
+          netVerifiedPaidMinor: summary.verifiedPaidMinor,
+          requiredConfirmationAmountMinor: summary.requiredConfirmationAmountMinor
+        });
+        summary = await this.bookingPaymentSummary(bookingId);
       }
     }
-    await this.repo.audit(actor.id, actor.staffId, "admin.payment.refunded", "payment", id, {
-      bookingId: bookingId ?? null,
-      amountMinor: Number(payment.amount_minor),
-      receiptVoidedId: voidedReceiptId
-    });
-    return { payment: await this.get("payments", id), summary, voidedReceiptId };
+    return summary;
   }
 
   async uploadPaymentSlip(actor: AuthUser, paymentId: number, file: File) {
@@ -2963,13 +2956,15 @@ export class AdminService {
     return this.repo.first<Record<string, unknown>>(`
       SELECT
         (SELECT COALESCE(SUM(total_amount_minor + COALESCE(maintenance_fee_minor, 0)), 0) FROM bookings WHERE status IN ('pending', 'confirmed', 'completed')) AS expected_booking_revenue,
-        (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status = 'verified') AS verified_payments,
-        ((SELECT COALESCE(SUM(total_amount_minor + COALESCE(maintenance_fee_minor, 0)), 0) FROM bookings WHERE status IN ('pending', 'confirmed', 'completed')) - (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status = 'verified')) AS outstanding_booking_balances,
+        (SELECT COALESCE(SUM(amount_minor - refunded_amount_minor), 0) FROM payments WHERE status = 'verified') AS verified_payments,
+        (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status IN ('verified', 'refunded')) AS gross_verified_payments,
+        ((SELECT COALESCE(SUM(total_amount_minor + COALESCE(maintenance_fee_minor, 0)), 0) FROM bookings WHERE status IN ('pending', 'confirmed', 'completed')) - (SELECT COALESCE(SUM(amount_minor - refunded_amount_minor), 0) FROM payments WHERE status = 'verified')) AS outstanding_booking_balances,
         (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status IN ('pending', 'submitted')) AS pending_submitted_payment_totals,
-        (SELECT COALESCE(SUM(amount_minor), 0) FROM payments WHERE status = 'refunded') AS refunded_totals,
-        (SELECT COUNT(*) FROM bookings b WHERE b.status IN ('pending', 'confirmed', 'completed') AND (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) <= (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS fully_paid_bookings,
-        (SELECT COUNT(*) FROM bookings b WHERE b.status IN ('pending', 'confirmed', 'completed') AND (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified') > 0 AND (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) > (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS partially_paid_bookings,
-        (SELECT COUNT(*) FROM bookings b WHERE b.status IN ('pending', 'confirmed', 'completed') AND (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified') = 0) AS unpaid_bookings,
+        (SELECT COALESCE(SUM(refunded_amount_minor), 0) FROM payments) AS refunded_totals,
+        (SELECT COALESCE(SUM(amount_minor), 0) FROM refunds WHERE status IN ('requested', 'approved')) AS open_refund_totals,
+        (SELECT COUNT(*) FROM bookings b WHERE b.status IN ('pending', 'confirmed', 'completed') AND (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) <= (SELECT COALESCE(SUM(p.amount_minor - p.refunded_amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS fully_paid_bookings,
+        (SELECT COUNT(*) FROM bookings b WHERE b.status IN ('pending', 'confirmed', 'completed') AND (SELECT COALESCE(SUM(p.amount_minor - p.refunded_amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified') > 0 AND (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) > (SELECT COALESCE(SUM(p.amount_minor - p.refunded_amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS partially_paid_bookings,
+        (SELECT COUNT(*) FROM bookings b WHERE b.status IN ('pending', 'confirmed', 'completed') AND (SELECT COALESCE(SUM(p.amount_minor - p.refunded_amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified') = 0) AS unpaid_bookings,
         (SELECT COUNT(*) FROM bookings WHERE payment_attention_required = 1) AS bookings_requiring_payment_attention
     `);
   }
@@ -3051,8 +3046,8 @@ export class AdminService {
         s.name AS academic_session_name,
         r.resident_code, r.first_name, r.last_name,
         room.room_code AS priced_room_code,
-        COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS verified_amount_minor,
-        (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) - COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS outstanding_amount_minor
+        COALESCE((SELECT SUM(p.amount_minor - p.refunded_amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS verified_amount_minor,
+        (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) - COALESCE((SELECT SUM(p.amount_minor - p.refunded_amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS outstanding_amount_minor
        FROM bookings b
        JOIN residents r ON r.id = b.resident_id
        LEFT JOIN academic_sessions s ON s.id = b.academic_session_id
@@ -3077,12 +3072,14 @@ export class AdminService {
     const summary = await this.repo.first<Record<string, unknown>>(
       `SELECT
         (SELECT COALESCE(SUM(b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)), 0) FROM bookings b WHERE ${bookingWhere.join(" AND ")}) AS expected_booking_revenue,
-        (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p LEFT JOIN bookings b ON b.id = p.booking_id WHERE p.status = 'verified' ${paymentScope}) AS verified_payments,
+        (SELECT COALESCE(SUM(p.amount_minor - p.refunded_amount_minor), 0) FROM payments p LEFT JOIN bookings b ON b.id = p.booking_id WHERE p.status = 'verified' ${paymentScope}) AS verified_payments,
         (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p LEFT JOIN bookings b ON b.id = p.booking_id WHERE p.status IN ('pending', 'submitted') ${paymentScope}) AS pending_submitted_payment_totals,
-        (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p LEFT JOIN bookings b ON b.id = p.booking_id WHERE p.status = 'refunded' ${paymentScope}) AS refunded_totals,
-        (SELECT COUNT(*) FROM bookings b WHERE ${bookingWhere.join(" AND ")} AND (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) <= (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS fully_paid_bookings,
+        (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p LEFT JOIN bookings b ON b.id = p.booking_id WHERE p.status IN ('verified', 'refunded') ${paymentScope}) AS gross_verified_payments,
+        (SELECT COALESCE(SUM(p.refunded_amount_minor), 0) FROM payments p LEFT JOIN bookings b ON b.id = p.booking_id WHERE 1 = 1 ${paymentScope}) AS refunded_totals,
+        (SELECT COUNT(*) FROM bookings b WHERE ${bookingWhere.join(" AND ")} AND (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) <= (SELECT COALESCE(SUM(p.amount_minor - p.refunded_amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')) AS fully_paid_bookings,
         (SELECT COUNT(*) FROM bookings b WHERE ${bookingWhere.join(" AND ")} AND b.payment_attention_required = 1) AS bookings_requiring_payment_attention`,
       ...bookingBinds,
+      ...paymentBinds,
       ...paymentBinds,
       ...paymentBinds,
       ...paymentBinds,
@@ -3091,7 +3088,7 @@ export class AdminService {
     );
     const outstanding = await this.reportOutstanding(filters);
     const methods = await this.repo.all<Record<string, unknown>>(
-      `SELECT p.method, COUNT(*) AS count, COALESCE(SUM(p.amount_minor), 0) AS verified_amount_minor
+      `SELECT p.method, COUNT(*) AS count, COALESCE(SUM(p.amount_minor - p.refunded_amount_minor), 0) AS verified_amount_minor
        FROM payments p
        LEFT JOIN bookings b ON b.id = p.booking_id
        WHERE p.status = 'verified' ${paymentScope}
@@ -3109,8 +3106,8 @@ export class AdminService {
       `SELECT b.id, b.booking_number, b.status, b.total_amount_minor, b.maintenance_fee_minor, b.currency, b.payment_attention_required,
         b.lease_kind, b.academic_session_id,
         r.resident_code, r.first_name, r.last_name,
-        COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS verified_amount_minor,
-        (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) - COALESCE((SELECT SUM(p.amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS outstanding_amount_minor
+        COALESCE((SELECT SUM(p.amount_minor - p.refunded_amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS verified_amount_minor,
+        (b.total_amount_minor + COALESCE(b.maintenance_fee_minor, 0)) - COALESCE((SELECT SUM(p.amount_minor - p.refunded_amount_minor) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified'), 0) AS outstanding_amount_minor
        FROM bookings b
        JOIN residents r ON r.id = b.resident_id
        WHERE ${where.join(" AND ")}
@@ -3847,7 +3844,7 @@ export class AdminService {
        JOIN users u ON u.id = r.user_id
        LEFT JOIN institutions i ON i.id = r.institution_id
        WHERE b.status IN ('pending', 'confirmed')
-         AND b.total_amount_minor > (SELECT COALESCE(SUM(p.amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')
+         AND b.total_amount_minor > (SELECT COALESCE(SUM(p.amount_minor - p.refunded_amount_minor), 0) FROM payments p WHERE p.booking_id = b.id AND p.status = 'verified')
          AND u.status = 'active'`
     ).then((r) => r.results ?? []);
   }

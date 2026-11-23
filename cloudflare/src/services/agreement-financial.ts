@@ -3,7 +3,8 @@
  * Accommodation = bookings.total_amount_minor (snapshot).
  * Maintenance = bookings.maintenance_fee_minor (non-refundable, or 0 when null).
  * Obligation = accommodation + maintenance.
- * Verified paid = sum of payments with status = 'verified' only.
+ * Verified paid = NET verified: sum over status = 'verified' of (amount_minor - refunded_amount_minor)
+ * (refund milestone 2; fully refunded payments move to status 'refunded' and drop out).
  * Balance = obligation - verifiedPaid (may be negative if historical overpayment exists).
  */
 

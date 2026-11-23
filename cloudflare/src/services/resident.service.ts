@@ -585,10 +585,10 @@ export class ResidentService {
     if (!booking) return null;
     const totals = await this.repo.first<{ verified_minor: number; submitted_minor: number; pending_minor: number; refunded_minor: number }>(`
       SELECT
-        COALESCE(SUM(CASE WHEN status = 'verified' THEN amount_minor ELSE 0 END), 0) AS verified_minor,
+        COALESCE(SUM(CASE WHEN status = 'verified' THEN amount_minor - refunded_amount_minor ELSE 0 END), 0) AS verified_minor,
         COALESCE(SUM(CASE WHEN status = 'submitted' THEN amount_minor ELSE 0 END), 0) AS submitted_minor,
         COALESCE(SUM(CASE WHEN status = 'pending' THEN amount_minor ELSE 0 END), 0) AS pending_minor,
-        COALESCE(SUM(CASE WHEN status = 'refunded' THEN amount_minor ELSE 0 END), 0) AS refunded_minor
+        COALESCE(SUM(refunded_amount_minor), 0) AS refunded_minor
       FROM payments
       WHERE booking_id = ? AND resident_id = ?
     `, booking.id, actor.residentId);
@@ -637,7 +637,7 @@ export class ResidentService {
     const booking = await this.repo.first<Record<string, unknown>>("SELECT * FROM bookings WHERE id = ? AND resident_id = ? AND status IN ('pending', 'confirmed')", data.bookingId, actor.residentId);
     if (!booking) throw new Error("Booking not found");
     if (String(data.currency).toUpperCase() !== String(booking.currency).toUpperCase()) throw new Error("Payment currency must match booking currency");
-    const totals = await this.repo.first<{ verified_minor: number }>("SELECT COALESCE(SUM(amount_minor), 0) AS verified_minor FROM payments WHERE booking_id = ? AND resident_id = ? AND status = 'verified'", data.bookingId, actor.residentId);
+    const totals = await this.repo.first<{ verified_minor: number }>("SELECT COALESCE(SUM(amount_minor), 0) - COALESCE(SUM(refunded_amount_minor), 0) AS verified_minor FROM payments WHERE booking_id = ? AND resident_id = ? AND status = 'verified'", data.bookingId, actor.residentId);
     const verified = Number(totals?.verified_minor ?? 0);
     const obligation = agreementObligationMinor(booking);
     const outstandingMinor = Math.max(obligation - verified, 0);
