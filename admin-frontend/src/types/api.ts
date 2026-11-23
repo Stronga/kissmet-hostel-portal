@@ -801,3 +801,25 @@ export interface ConnectorHealth {
   board?: string;
   version?: string;
 }
+
+export type ConnectorPresence = "online" | "stale" | "offline";
+
+export interface ConnectorStatusEntry {
+  connectorId: string;
+  lastSeenAt: string;
+  ageSeconds: number;
+  stale: boolean;
+  version: string | null;
+  hostname: string | null;
+  connectorStatus: string;
+  routerosStatus: string;
+  uptimeSeconds: number | null;
+  heartbeatCount: number;
+  firstSeenAt: string;
+}
+
+export interface ConnectorStatus {
+  configured: boolean;
+  staleAfterSeconds: number;
+  connectors: ConnectorStatusEntry[];
+}
