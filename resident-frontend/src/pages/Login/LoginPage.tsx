@@ -11,8 +11,13 @@ import { loginContext, saveVerificationContext } from "../../auth/verificationCo
 import { useInstitutions } from "../../hooks/useInstitutions";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { safeAuthError } from "../../utils/errors";
+import hostelIllustrationAvif from "../../assets/hostel-illustration.avif";
+import hostelIllustrationWebp from "../../assets/hostel-illustration.webp";
 import hostelIllustration from "../../assets/hostel-illustration.png";
+import kissmetLogoAvif from "../../assets/kissmet-logo.avif";
+import kissmetLogoWebp from "../../assets/kissmet-logo.webp";
 import kissmetLogo from "../../assets/kissmet-logo.png";
+import { ResponsiveImage } from "../../components/common/ResponsiveImage";
 
 export function LoginPage() {
   const { isAuthenticated } = useAuth();
@@ -92,15 +97,33 @@ export function LoginPage() {
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-8">
       <div
-        className="pointer-events-none absolute bottom-0 left-0 z-0 h-[40vh] w-[85%] max-w-xl bg-contain bg-left-bottom bg-no-repeat opacity-90 sm:h-[55vh] sm:w-[65%] sm:max-w-2xl lg:h-[70vh] lg:w-[55%] lg:max-w-3xl"
-        style={{ backgroundImage: `url(${hostelIllustration})` }}
+        className="pointer-events-none absolute bottom-0 left-0 z-0 h-[40vh] w-[85%] max-w-xl sm:h-[55vh] sm:w-[65%] sm:max-w-2xl lg:h-[70vh] lg:w-[55%] lg:max-w-3xl"
         aria-hidden="true"
-      />
+      >
+        <ResponsiveImage
+          avif={hostelIllustrationAvif}
+          webp={hostelIllustrationWebp}
+          png={hostelIllustration}
+          alt=""
+          decorative
+          width={1100}
+          height={619}
+          loading="eager"
+          fetchPriority="high"
+          imgClassName="h-full w-full object-contain object-left-bottom opacity-90"
+        />
+      </div>
       <div className="relative z-10 flex w-full max-w-md flex-col items-center gap-4">
-        <img
-          src={kissmetLogo}
+        <ResponsiveImage
+          avif={kissmetLogoAvif}
+          webp={kissmetLogoWebp}
+          png={kissmetLogo}
           alt="Kissmet Hostel"
-          className="h-16 w-auto object-contain sm:h-20"
+          width={316}
+          height={240}
+          loading="eager"
+          fetchPriority="high"
+          imgClassName="h-16 w-auto object-contain sm:h-20"
         />
         <Card className="w-full">
         <h1 className="text-2xl font-semibold text-text-primary">Resident Portal</h1>
