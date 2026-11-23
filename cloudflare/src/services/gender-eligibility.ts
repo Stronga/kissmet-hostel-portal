@@ -82,3 +82,22 @@ export function genderEligibleRoomSql(roomAlias = "r"): string {
   if (!/^[a-z_]+$/.test(roomAlias)) throw new Error("Invalid SQL alias");
   return `(${roomAlias}.gender_policy = 'any' OR ${roomAlias}.gender_policy = ?)`;
 }
+
+/** Values allowed in residents.gender (migrations/0001 CHECK constraint). */
+export const RESIDENT_GENDERS = ["female", "male", "other", "not_specified"] as const;
+export type ResidentGender = (typeof RESIDENT_GENDERS)[number];
+
+export function isResidentGender(value: unknown): value is ResidentGender {
+  return typeof value === "string" && (RESIDENT_GENDERS as readonly string[]).includes(value);
+}
+
+/**
+ * Why a recorded gender is being corrected. A fixed code list (no free text) keeps the audit trail
+ * free of incidental personal data while still recording the justification.
+ */
+export const GENDER_CORRECTION_REASONS = ["data_entry_error", "resident_request", "identity_document_verified", "other"] as const;
+export type GenderCorrectionReason = (typeof GENDER_CORRECTION_REASONS)[number];
+
+export function isGenderCorrectionReason(value: unknown): value is GenderCorrectionReason {
+  return typeof value === "string" && (GENDER_CORRECTION_REASONS as readonly string[]).includes(value);
+}

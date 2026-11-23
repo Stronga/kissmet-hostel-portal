@@ -14,11 +14,17 @@ function ok(data: unknown) {
   return new Response(JSON.stringify({ ok: true, data, pagination: { limit: 25, offset: 0 } }), { status: 200 });
 }
 
-function renderWithAuth(role: "manager" | "accounts" = "manager") {
+type Extra = (url: string, init?: RequestInit) => Response | null;
+const reception = { ...manager, role: "reception" };
+
+function renderWithAuth(role: "manager" | "accounts" | "reception" = "manager", extra?: Extra) {
   localStorage.setItem("kissmet_admin_token", "token");
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
-    if (url.endsWith("/auth/me")) return new Response(JSON.stringify({ user: role === "manager" ? manager : accounts }), { status: 200 });
+    const custom = extra?.(url, init);
+    if (custom) return custom;
+    if (url.endsWith("/admin/gender-placement-conflicts")) return ok([]);
+    if (url.endsWith("/auth/me")) return new Response(JSON.stringify({ user: role === "manager" ? manager : role === "reception" ? reception : accounts }), { status: 200 });
     if (url.includes("/admin/institutions")) return ok([institution]);
     if (url.includes("/admin/residents?")) return ok([resident]);
     if (url.endsWith("/admin/residents/7")) return new Response(JSON.stringify({ ok: true, data: resident }), { status: 200 });
@@ -154,4 +160,67 @@ describe("ResidentsPage", () => {
     expect(screen.queryByText("GHA-123456789-0")).not.toBeInTheDocument();
   });
 
+
+  describe("gender correction", () => {
+    const conflict = { kind: "booking", allocationId: null, bookingId: 31, bookingNumber: "KSM-BKG-0031", bookingStatus: "confirmed", residentId: 7, roomId: 4, roomCode: "F-101", roomGenderPolicy: "female", code: "GENDER_NOT_ELIGIBLE_FOR_RESTRICTED_ROOM" };
+
+    it("is offered to managers", async () => {
+      renderWithAuth("manager");
+      await userEvent.click(await screen.findByRole("button", { name: /view/i }));
+      expect(await screen.findByRole("form", { name: /correct gender/i })).toBeInTheDocument();
+    });
+
+    it("hides the correction form for reception", async () => {
+      renderWithAuth("reception");
+      await userEvent.click(await screen.findByRole("button", { name: /view/i }));
+      expect(await screen.findByText("Resident Details")).toBeInTheDocument();
+      expect(screen.queryByRole("form", { name: /correct gender/i })).not.toBeInTheDocument();
+    });
+
+    it("shows conflicts on 409, requires acknowledgement, then applies and refreshes the conflicts panel", async () => {
+      const bodies: unknown[] = [];
+      let conflictsListed = false;
+      renderWithAuth("manager", (url, init) => {
+        if (url.endsWith("/admin/residents/7/gender-correction") && init?.method === "POST") {
+          const body = JSON.parse(String(init.body));
+          bodies.push(body);
+          if (!body.acknowledgeConflicts) {
+            return new Response(JSON.stringify({ ok: false, error: { code: "GENDER_CORRECTION_CONFLICTS", message: "Correction would leave active placements" }, data: { applied: false, requiresAcknowledgement: true, conflicts: [conflict] } }), { status: 409 });
+          }
+          conflictsListed = true;
+          return new Response(JSON.stringify({ ok: true, data: { applied: true, requiresAcknowledgement: false, resident: { ...resident, gender: "not_specified" }, conflicts: [conflict] } }), { status: 200 });
+        }
+        if (url.endsWith("/admin/gender-placement-conflicts")) return ok(conflictsListed ? [conflict] : []);
+        return null;
+      });
+      await userEvent.click(await screen.findByRole("button", { name: /view/i }));
+      await screen.findByRole("form", { name: /correct gender/i });
+      await userEvent.selectOptions(screen.getByLabelText("Corrected gender"), "not_specified");
+      await userEvent.selectOptions(screen.getByLabelText("Correction reason"), "resident_request");
+      await userEvent.click(screen.getByRole("button", { name: /^correct gender$/i }));
+      expect(await screen.findByText(/confirmed booking KSM-BKG-0031 in Female-only room F-101/i)).toBeInTheDocument();
+      const apply = screen.getByRole("button", { name: /apply and flag placements/i });
+      expect(apply).toBeDisabled();
+      await userEvent.click(screen.getByRole("checkbox"));
+      await userEvent.click(apply);
+      expect(await screen.findByText(/1 placement\(s\) flagged for transfer/i)).toBeInTheDocument();
+      expect(bodies).toEqual([
+        { gender: "not_specified", reasonCode: "resident_request", acknowledgeConflicts: false },
+        { gender: "not_specified", reasonCode: "resident_request", acknowledgeConflicts: true }
+      ]);
+      await waitFor(() => expect(screen.getByRole("region", { name: /gender placement conflicts/i })).toBeInTheDocument());
+    });
+
+    it("refuses to submit without a reason or with the already-recorded value", async () => {
+      renderWithAuth("manager");
+      await userEvent.click(await screen.findByRole("button", { name: /view/i }));
+      await screen.findByRole("form", { name: /correct gender/i });
+      await userEvent.click(screen.getByRole("button", { name: /^correct gender$/i }));
+      expect(await screen.findByText("Choose the corrected gender and a reason.")).toBeInTheDocument();
+      await userEvent.selectOptions(screen.getByLabelText("Corrected gender"), "female");
+      await userEvent.selectOptions(screen.getByLabelText("Correction reason"), "data_entry_error");
+      await userEvent.click(screen.getByRole("button", { name: /^correct gender$/i }));
+      expect(await screen.findByText("That gender is already recorded.")).toBeInTheDocument();
+    });
+  });
 });
