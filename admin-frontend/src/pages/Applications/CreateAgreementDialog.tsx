@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ConfirmDialog } from "../../components/common/ConfirmDialog";
 import type { Application, LeasePeriod, RateCard, Room } from "../../types/api";
 import { formatCurrencyMinor } from "../../utils/format";
+import { hasRestrictedRoomGender, isRoomGenderEligible, MIXED_ROOMS_ONLY_NOTICE } from "../../utils/genderEligibility";
 
 function termLabel(kind?: string | null) {
   if (kind === "calendar_year") return "Calendar Year";
@@ -15,6 +16,7 @@ export function CreateAgreementDialog({
   application,
   leasePeriods,
   rooms,
+  residentGender,
   resolvingRate,
   resolvedRate,
   rateError,
@@ -30,6 +32,8 @@ export function CreateAgreementDialog({
   application: Application;
   leasePeriods: LeasePeriod[];
   rooms: Room[];
+  /** Resident gender when known; single-gender rooms the resident is not eligible for are hidden. */
+  residentGender?: string | null;
   resolvingRate: boolean;
   resolvedRate: RateCard | null;
   rateError: string | null;
@@ -55,8 +59,9 @@ export function CreateAgreementDialog({
     [leasePeriods]
   );
   const availableRooms = useMemo(
-    () => rooms.filter((room) => room.status === "available" || room.status === "occupied" || room.status === "maintenance"),
-    [rooms]
+    () => rooms.filter((room) => (room.status === "available" || room.status === "occupied" || room.status === "maintenance")
+      && (residentGender === undefined || isRoomGenderEligible(room.gender_policy, residentGender))),
+    [rooms, residentGender]
   );
 
   const [leasePeriodId, setLeasePeriodId] = useState("");
@@ -210,6 +215,7 @@ export function CreateAgreementDialog({
                 </option>
               ))}
             </select>
+            {residentGender !== undefined && !hasRestrictedRoomGender(residentGender) ? <p className="mt-1 text-xs text-text-secondary">{MIXED_ROOMS_ONLY_NOTICE}</p> : null}
           </div>
           {selectedRoom ? (
             <p className="text-sm">Occupancy band: <strong>{selectedRoom.capacity} person{Number(selectedRoom.capacity) === 1 ? "" : "s"}</strong></p>

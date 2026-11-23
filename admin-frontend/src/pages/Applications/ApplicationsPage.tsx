@@ -220,6 +220,7 @@ export function ApplicationsPage() {
           application={selected}
           leasePeriods={leasePeriods}
           rooms={rooms}
+          residentGender={selectedResident ? selectedResident.gender ?? null : undefined}
           resolvingRate={resolvingRate}
           resolvedRate={resolvedRate}
           rateError={rateError}

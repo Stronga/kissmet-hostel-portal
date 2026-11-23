@@ -117,7 +117,7 @@ Availability checks:
 - bed status is `available`
 - bed has no active allocation
 - non-archived bed inventory does not exceed room capacity
-- room gender policy matches resident gender when known
+- room gender policy is satisfied (see *Gender-restricted rooms* below)
 
 ## Allocation Lifecycle
 
@@ -142,7 +142,27 @@ The allocation service rejects cross-room allocation when the destination room's
 
 Resident-facing allocation reads are read-only and ownership-scoped. `GET /resident/me/allocation` returns only the resident's active allocation, and `GET /resident/me/allocations` returns that resident's allocation history with safe room, bed, academic session, booking number, status, and date labels. These resident endpoints do not expose assigned staff IDs, arbitrary resident lookup, admin controls, audit metadata, or allocation mutation.
 
-Gender-policy audit: `residents.gender` exists and admin allocation validation compares it with `rooms.gender_policy` when gender is present. Resident registration/profile self-service does not currently collect gender, so gender-policy enforcement is complete only for residents whose gender has been captured by staff/admin or another trusted workflow. Residents without a stored gender are not rejected by the current allocation validation; this remains a production-hardening/onboarding gap.
+## Gender-restricted rooms
+
+Single source of truth: `cloudflare/src/services/gender-eligibility.ts`.
+
+- `rooms.gender_policy = 'any'` (mixed): every resident is eligible, whatever `residents.gender` holds.
+- `rooms.gender_policy = 'female' | 'male'` (single-gender): only residents whose recorded gender equals the policy.
+  A missing (`NULL`), `not_specified` or `other` gender is **not eligible** (fails closed).
+
+Enforced in every booking/allocation workflow: legacy booking create, rate-card (Path B) booking create, booking
+approval (`pending → confirmed`), renewal, extension, allocation create, same-room / legacy transfer, Path B
+cross-room transfer (checked before the agreement room is rewritten), and both availability listings (ineligible beds
+are never offered when a resident/booking is in context; the resident-less legacy listing stays an inventory view).
+Cancel / end / archive transitions are not blocked, so legacy ineligible placements can be cleaned up.
+
+API errors carry a stable `error.code`: `GENDER_NOT_ELIGIBLE_FOR_RESTRICTED_ROOM` or `GENDER_POLICY_MISMATCH`
+(HTTP 400). Messages and audit metadata never include the resident's name, identifiers or gender value. The admin UI
+maps the codes to friendly messages and hides ineligible single-gender rooms in the agreement/renewal room pickers.
+
+Operational note: existing residents with no recorded gender can no longer be booked/allocated into (or extended in)
+single-gender rooms. Run a read-only count before release, e.g.
+`SELECT COUNT(*) FROM allocations a JOIN beds b ON b.id = a.bed_id JOIN rooms r ON r.id = b.room_id JOIN residents res ON res.id = a.resident_id WHERE a.status = 'active' AND r.gender_policy <> 'any' AND (res.gender IS NULL OR res.gender NOT IN ('female','male'));`
 
 ## Transfers
 

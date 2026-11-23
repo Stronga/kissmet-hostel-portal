@@ -270,6 +270,7 @@ export function BookingsPage() {
           open={renewOpen}
           prior={selected}
           rooms={rooms}
+          residentGender={selectedResident ? selectedResident.gender ?? null : undefined}
           leasePeriods={leasePeriods}
           balanceMinor={summary?.balanceMinor ?? financial?.balance_minor}
           verifiedPaidMinor={summary?.verifiedPaidMinor ?? financial?.verified_paid_minor}

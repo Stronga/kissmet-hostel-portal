@@ -10,7 +10,7 @@ const manager = { id: 1, userType: "staff", displayName: "Manager", email: "m@te
 const maintenance = { ...manager, role: "maintenance" };
 const institution = { id: 1, code: "ug", name: "University of Ghana", status: "active" };
 const session = { id: 1, code: "2026", name: "2026/2027", status: "active" };
-const resident = { id: 7, user_id: 20, institution_id: 1, resident_code: "KSM-RES-0007", student_id: "UG-100", first_name: "Ama", last_name: "Mensah", status: "applicant" };
+const resident = { id: 7, user_id: 20, institution_id: 1, resident_code: "KSM-RES-0007", student_id: "UG-100", first_name: "Ama", last_name: "Mensah", gender: "female", status: "applicant" };
 const approvedApp = { id: 11, resident_id: 7, academic_session_id: 1, application_number: "KSM-APP-0011", status: "approved" };
 const submittedApp = { ...approvedApp, id: 12, application_number: "KSM-APP-0012", status: "submitted" };
 const room = { id: 2, room_code: "A1", room_name: "Aster", capacity: 2, gender_policy: "female", status: "available" };
@@ -30,7 +30,7 @@ function list(data: unknown) {
   return json({ ok: true, data, pagination: { limit: 25, offset: 0 } });
 }
 
-function renderBookings(options: { role?: "manager" | "maintenance"; bookings?: unknown[]; applications?: unknown[]; paymentSummary?: unknown; patchFails?: boolean; createFails?: boolean } = {}) {
+function renderBookings(options: { role?: "manager" | "maintenance"; residentGender?: string | null; bookings?: unknown[]; applications?: unknown[]; paymentSummary?: unknown; patchFails?: boolean; createFails?: boolean } = {}) {
   localStorage.setItem("kissmet_admin_token", "token");
   const rows = options.bookings ?? [booking];
   const apps = options.applications ?? [approvedApp, submittedApp];
@@ -44,7 +44,7 @@ function renderBookings(options: { role?: "manager" | "maintenance"; bookings?: 
     if (url.endsWith("/admin/bookings") && init?.method === "POST") return options.createFails ? json({ error: { message: "Duplicate active booking" } }, 409) : json({ ok: true, data: { ...booking, id: 22, booking_number: "KSM-BKG-0022" } }, 201);
     if (url.includes("/admin/applications?")) return list(apps);
     if (url.endsWith("/admin/applications/11")) return json({ ok: true, data: approvedApp });
-    if (url.endsWith("/admin/residents/7")) return json({ ok: true, data: resident });
+    if (url.endsWith("/admin/residents/7")) return json({ ok: true, data: "residentGender" in options ? { ...resident, gender: options.residentGender } : resident });
     if (url.includes("/admin/institutions")) return list([institution]);
     if (url.includes("/admin/academic-sessions")) return list([session]);
     if (url.includes("/admin/rooms")) return list([room]);
@@ -293,6 +293,15 @@ describe("BookingsPage", () => {
       expect(String(post?.[1]?.body)).toContain('"leasePeriodId":3');
       expect(String(post?.[1]?.body)).toContain('"roomId":2');
     });
+  });
+
+  it("hides single-gender rooms from renewal when the resident gender is not recorded", async () => {
+    renderBookings({ bookings: [flexibleBooking], residentGender: "not_specified" });
+    await userEvent.click(await screen.findByRole("button", { name: "View" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Renew Agreement" }));
+    const select = await screen.findByLabelText("Renewal room");
+    expect(select.querySelector('option[value="2"]')).toBeNull();
+    expect(screen.getByText(/only mixed rooms are offered/i)).toBeInTheDocument();
   });
 
   it("extends agreement with reason and new end date", async () => {

@@ -32,9 +32,9 @@ class PolicyRepo {
       { id: 3, resident_id: 3, academic_session_id: null, lease_period_id: 3, lease_kind: "short_term", status: "approved", application_number: "A3" }
     ],
     rooms: [
-      { id: 1, room_code: "R1", capacity: 2, status: "available" },
-      { id: 2, room_code: "R2", capacity: 2, status: "available" },
-      { id: 3, room_code: "R3", capacity: 2, status: "available" }
+      { id: 1, room_code: "R1", capacity: 2, status: "available", gender_policy: "any" },
+      { id: 2, room_code: "R2", capacity: 2, status: "available", gender_policy: "any" },
+      { id: 3, room_code: "R3", capacity: 2, status: "available", gender_policy: "any" }
     ],
     bookings: [],
     payments: [],

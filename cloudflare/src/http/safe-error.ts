@@ -98,6 +98,18 @@ export function publicErrorMessage(e: unknown, fallback = "Request failed"): str
   return message;
 }
 
+/**
+ * Stable, machine-readable domain error codes (e.g. GENDER_NOT_ELIGIBLE_FOR_RESTRICTED_ROOM).
+ * Only UPPER_SNAKE_CASE codes set explicitly on an Error are surfaced; anything else falls
+ * back to the generic code so internal error codes (e.g. SQLITE_*) never leak.
+ */
+const DOMAIN_CODE_ALLOWLIST = /^(GENDER_[A-Z_]+|PASSWORD_[A-Z_]+)$/;
+
+export function domainErrorCode(e: unknown): string | null {
+  const code = e instanceof Error ? (e as Error & { code?: unknown }).code : undefined;
+  return typeof code === "string" && DOMAIN_CODE_ALLOWLIST.test(code) ? code : null;
+}
+
 export function routeError(e: unknown, options?: { fallback?: string; conflictOnUnique?: boolean; correlationId?: string }) {
   const raw = e instanceof Error ? e.message : "";
   const fallback = options?.fallback ?? "Request failed";
@@ -110,7 +122,7 @@ export function routeError(e: unknown, options?: { fallback?: string; conflictOn
     : /too many|attempt limit|rate/i.test(raw) ? 429
     : /misconfigured|temporarily unavailable|couldn't send/i.test(raw) ? 503
     : 400;
-  const body = error(message) as { ok: false; error: { message: string; correlationId?: string } };
+  const body = error(message, domainErrorCode(e) ?? "bad_request") as { ok: false; error: { code: string; message: string; correlationId?: string } };
   if (options?.correlationId) {
     body.error.correlationId = options.correlationId;
   }
