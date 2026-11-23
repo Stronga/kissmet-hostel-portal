@@ -239,3 +239,32 @@ export interface DashboardData {
   messages: ResidentMessage[];
   partialErrors: string[];
 }
+
+export interface ResidentRefund {
+  id: number;
+  refund_number: string;
+  amount_minor: number;
+  currency: string;
+  status: "requested" | "approved" | "rejected" | "cancelled" | "paid";
+  requested_at: string;
+  approved_at?: string | null;
+  paid_at?: string | null;
+  payout_method?: string | null;
+  payout_reference?: string | null;
+  payment_reference: string;
+  booking_number?: string | null;
+  credit_note_number?: string | null;
+}
+
+export interface ResidentCreditNote {
+  id: number;
+  credit_note_number: string;
+  amount_minor: number;
+  currency: string;
+  status: "issued" | "voided";
+  issued_at: string;
+  refund_number: string;
+  payment_reference: string;
+  booking_number?: string | null;
+  receipt_number?: string | null;
+}

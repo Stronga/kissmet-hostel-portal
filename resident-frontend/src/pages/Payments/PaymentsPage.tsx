@@ -8,9 +8,9 @@ import { InfoHelp } from "../../components/common/InfoHelp";
 import { LoadingState } from "../../components/common/LoadingState";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { PageHeader } from "../../components/layout/PageHeader";
-import { createResidentPayment, fetchResidentPaymentSummary, fetchResidentPayments, fetchResidentReceipts, submitResidentPayment, uploadResidentPaymentSlip } from "../../api/resident";
+import { createResidentPayment, fetchResidentCreditNotes, fetchResidentPaymentSummary, fetchResidentPayments, fetchResidentReceipts, fetchResidentRefunds, submitResidentPayment, uploadResidentPaymentSlip } from "../../api/resident";
 import { usePageTitle } from "../../hooks/usePageTitle";
-import type { ResidentPayment, ResidentPaymentSummary, ResidentReceipt } from "../../types/resident";
+import type { ResidentCreditNote, ResidentPayment, ResidentPaymentSummary, ResidentReceipt, ResidentRefund } from "../../types/resident";
 import { formatDateTime, formatMoneyMinor } from "../../utils/format";
 import { methodLabel, parseGhsMinor, paymentMethods, paymentStatusLabel, validatePaymentAmount, validatePaymentSlip } from "../../utils/payments";
 
@@ -18,6 +18,8 @@ interface PaymentsData {
   summary: ResidentPaymentSummary | null;
   payments: ResidentPayment[];
   receipts: ResidentReceipt[];
+  refunds: ResidentRefund[];
+  creditNotes: ResidentCreditNote[];
 }
 
 function SummaryMetric({
@@ -59,12 +61,15 @@ export function PaymentsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [summary, payments, receipts] = await Promise.all([
+      const [summary, payments, receipts, refunds, creditNotes] = await Promise.all([
         fetchResidentPaymentSummary(),
         fetchResidentPayments(),
-        fetchResidentReceipts()
+        fetchResidentReceipts(),
+        // Refund history is read-only and optional: a failure here must not hide payments.
+        fetchResidentRefunds().then((r) => r.data ?? []).catch(() => [] as ResidentRefund[]),
+        fetchResidentCreditNotes().then((r) => r.data ?? []).catch(() => [] as ResidentCreditNote[])
       ]);
-      setData({ summary: summary.data, payments: payments.data, receipts: receipts.data });
+      setData({ summary: summary.data, payments: payments.data, receipts: receipts.data, refunds, creditNotes });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load payments.");
     } finally {
@@ -323,6 +328,44 @@ export function PaymentsPage() {
           <EmptyState title="No receipts yet" message="Issued receipts for verified payments will appear here." />
         )}
       </Card>
+
+      {data.refunds.length || data.creditNotes.length ? (
+        <Card className="mt-5">
+          <h2 className="inline-flex items-center gap-1 text-lg font-bold text-text-primary">
+            Refunds and credit notes
+            <InfoHelp label="About refunds">
+              Refunds are requested and approved by hostel staff. A credit note is issued when the refund is paid out to you.
+            </InfoHelp>
+          </h2>
+          <div className="mt-4 space-y-3">
+            {data.refunds.map((refund) => (
+              <div key={`refund-${refund.id}`} className="rounded-xl border border-border bg-white p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-semibold text-text-primary">{refund.refund_number}</p>
+                    <p className="mt-1 text-sm text-text-secondary">{refund.payment_reference} - {formatMoneyMinor(refund.amount_minor, refund.currency)}</p>
+                    {refund.paid_at ? <p className="mt-1 text-[13px] text-text-secondary">Paid {formatDateTime(refund.paid_at)}{refund.payout_method ? ` via ${methodLabel(refund.payout_method)}` : ""}{refund.payout_reference ? ` (ref ${refund.payout_reference})` : ""}</p> : <p className="mt-1 text-[13px] text-text-secondary">Requested {formatDateTime(refund.requested_at)}</p>}
+                    {refund.credit_note_number ? <p className="mt-1 text-[13px] text-text-secondary">Credit note {refund.credit_note_number}</p> : null}
+                  </div>
+                  <StatusBadge status={refund.status} />
+                </div>
+              </div>
+            ))}
+            {data.creditNotes.map((note) => (
+              <div key={`credit-note-${note.id}`} className="rounded-xl border border-border bg-[#f7f9fa] p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-semibold text-text-primary">{note.credit_note_number}</p>
+                    <p className="mt-1 text-sm text-text-secondary">{note.refund_number} for {note.payment_reference} - {formatMoneyMinor(note.amount_minor, note.currency)}</p>
+                    <p className="mt-1 text-[13px] text-text-secondary">Issued {formatDateTime(note.issued_at)}{note.receipt_number ? ` against receipt ${note.receipt_number}` : ""}</p>
+                  </div>
+                  <StatusBadge status={note.status} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
     </>
   );
 }

@@ -1,5 +1,5 @@
 import { apiDownload, apiRequest } from "./client";
-import type { AcademicSession, MaintenanceCategory, MaintenancePriority, ResidentAllocation, ResidentAnnouncement, ResidentApplication, ResidentBooking, ResidentDocument, ResidentLeasePeriod, ResidentMaintenanceRequest, ResidentMessage, ResidentPayment, ResidentPaymentSummary, ResidentProfile, ResidentReceipt } from "../types/resident";
+import type { AcademicSession, MaintenanceCategory, MaintenancePriority, ResidentAllocation, ResidentAnnouncement, ResidentApplication, ResidentBooking, ResidentDocument, ResidentLeasePeriod, ResidentMaintenanceRequest, ResidentMessage, ResidentPayment, ResidentPaymentSummary, ResidentProfile, ResidentReceipt, ResidentRefund, ResidentCreditNote } from "../types/resident";
 
 export function fetchResidentProfile() {
   return apiRequest<{ ok: true; data: ResidentProfile }>("/resident/me");
@@ -136,4 +136,12 @@ export function fetchResidentMessage(id: number) {
 
 export function markResidentMessageRead(id: number) {
   return apiRequest<{ ok: true; data: ResidentMessage }>(`/resident/me/messages/${id}/read`, { method: "POST" });
+}
+
+export function fetchResidentRefunds() {
+  return apiRequest<{ ok: true; data: ResidentRefund[] }>("/resident/me/refunds");
+}
+
+export function fetchResidentCreditNotes() {
+  return apiRequest<{ ok: true; data: ResidentCreditNote[] }>("/resident/me/credit-notes");
 }
