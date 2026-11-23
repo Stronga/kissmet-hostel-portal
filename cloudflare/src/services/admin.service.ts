@@ -2,7 +2,7 @@ import { hashPassword, randomToken } from "../auth/crypto";
 import { validateUploadFile } from "../http/uploads";
 import type { AuthUser } from "../auth/context";
 import { AdminRepository } from "../repositories/admin.repository";
-import { assertGenderEligible, genderEligibleRoomSql, restrictedRoomGender } from "./gender-eligibility";
+import { assertGenderEligible, evaluateGenderEligibility, genderEligibleRoomSql, isGenderCorrectionReason, isResidentGender, restrictedRoomGender, type GenderCorrectionReason, type ResidentGender } from "./gender-eligibility";
 import { MockAnnouncementDeliveryProvider, type AnnouncementDeliveryProvider, type ExternalAnnouncementChannel } from "./announcement-delivery.service";
 import { MockMessageDeliveryProvider, type MessageDeliveryProvider, type MessageExternalChannel } from "./message-delivery.service";
 import {
@@ -1782,6 +1782,106 @@ export class AdminService {
     const row = await this.get("residents", id) as Record<string, unknown> | null;
     if (!row) return null;
     return presentResidentRow(row);
+  }
+
+  /**
+   * Live list of placements that break the single-gender rule: active allocations whose bed is in a
+   * single-gender room, and pending/confirmed bookings whose priced room is single-gender, where the
+   * resident's CURRENT recorded gender is not eligible (see gender-eligibility.ts). Optionally scoped
+   * to one resident and/or evaluated against a hypothetical gender (used before a correction).
+   * Returns ids, room codes and policies only — no names, identifiers or recorded gender values.
+   */
+  async genderPlacementConflicts(options: { residentId?: number; assumeGender?: ResidentGender | null } = {}) {
+    const scoped = options.residentId != null;
+    const allocations = await this.repo.all<{ allocation_id: number; booking_id: number; resident_id: number; room_id: number; room_code: string; gender_policy: string; gender: string | null }>(`
+      SELECT a.id AS allocation_id, a.booking_id, a.resident_id, r.id AS room_id, r.room_code, r.gender_policy, res.gender
+      FROM allocations a
+      JOIN beds b ON b.id = a.bed_id
+      JOIN rooms r ON r.id = b.room_id
+      JOIN residents res ON res.id = a.resident_id
+      WHERE a.status = 'active' AND r.gender_policy <> 'any' AND (? = 0 OR a.resident_id = ?)
+      ORDER BY a.id
+    `, scoped ? 1 : 0, scoped ? Number(options.residentId) : 0);
+    const bookings = await this.repo.all<{ booking_id: number; booking_number: string; status: string; resident_id: number; room_id: number; room_code: string; gender_policy: string; gender: string | null }>(`
+      SELECT bk.id AS booking_id, bk.booking_number, bk.status, bk.resident_id, r.id AS room_id, r.room_code, r.gender_policy, res.gender
+      FROM bookings bk
+      JOIN rooms r ON r.id = bk.priced_room_id
+      JOIN residents res ON res.id = bk.resident_id
+      WHERE bk.status IN ('pending', 'confirmed') AND r.gender_policy <> 'any' AND (? = 0 OR bk.resident_id = ?)
+      ORDER BY bk.id
+    `, scoped ? 1 : 0, scoped ? Number(options.residentId) : 0);
+    const genderFor = (actual: string | null) => ("assumeGender" in options ? options.assumeGender ?? null : actual);
+    const conflicts: Array<{ kind: "allocation" | "booking"; allocationId: number | null; bookingId: number; bookingNumber: string | null; bookingStatus: string | null; residentId: number; roomId: number; roomCode: string; roomGenderPolicy: string; code: string }> = [];
+    for (const a of allocations.results ?? []) {
+      const verdict = evaluateGenderEligibility(a.gender_policy, genderFor(a.gender));
+      if (!verdict.eligible) conflicts.push({ kind: "allocation", allocationId: Number(a.allocation_id), bookingId: Number(a.booking_id), bookingNumber: null, bookingStatus: null, residentId: Number(a.resident_id), roomId: Number(a.room_id), roomCode: String(a.room_code), roomGenderPolicy: String(a.gender_policy), code: verdict.code });
+    }
+    for (const b of bookings.results ?? []) {
+      const verdict = evaluateGenderEligibility(b.gender_policy, genderFor(b.gender));
+      if (!verdict.eligible) conflicts.push({ kind: "booking", allocationId: null, bookingId: Number(b.booking_id), bookingNumber: String(b.booking_number), bookingStatus: String(b.status), residentId: Number(b.resident_id), roomId: Number(b.room_id), roomCode: String(b.room_code), roomGenderPolicy: String(b.gender_policy), code: verdict.code });
+    }
+    return conflicts;
+  }
+
+  /**
+   * Authorized, audited correction of a resident's recorded gender (permission resident:gender_correct).
+   *
+   * - `gender` must be one of female | male | other | not_specified; `reasonCode` one of
+   *   GENDER_CORRECTION_REASONS (fixed codes, no free text).
+   * - If the new value would leave an active allocation or a pending/confirmed booking in a single-gender
+   *   room the resident is no longer eligible for, nothing is changed and the conflicts are returned
+   *   (`requiresAcknowledgement`). Re-submitting with `acknowledgeConflicts: true` applies the correction
+   *   and FLAGS each conflicting placement in the audit log (`admin.resident.gender_placement_conflict`);
+   *   placements are never moved or cancelled automatically — staff transfer or end them, and they stay
+   *   listed by GET /admin/gender-placement-conflicts until resolved.
+   * - The update is conditional on the value read (no lost update under concurrency).
+   * - Audit metadata: previous/new gender codes, reason code, conflict ids/count. No names, identifiers,
+   *   phone numbers or free text.
+   */
+  async correctResidentGender(actor: AuthUser, residentId: number, input: { gender: unknown; reasonCode: unknown; acknowledgeConflicts?: boolean }) {
+    if (!Number.isInteger(residentId) || residentId <= 0) throw new Error("Resident not found");
+    if (!isResidentGender(input.gender)) throw new Error("Invalid gender: use female, male, other or not_specified");
+    if (!isGenderCorrectionReason(input.reasonCode)) throw new Error("Invalid gender correction reason");
+    const gender: ResidentGender = input.gender;
+    const reasonCode: GenderCorrectionReason = input.reasonCode;
+    const resident = await this.repo.first<{ id: number; gender: string | null }>("SELECT id, gender FROM residents WHERE id = ?", residentId);
+    if (!resident) throw new Error("Resident not found");
+    const previous = resident.gender ?? null;
+    if (previous === gender) throw new Error("Gender already recorded with this value");
+
+    const conflicts = await this.genderPlacementConflicts({ residentId, assumeGender: gender });
+    if (conflicts.length && input.acknowledgeConflicts !== true) {
+      await this.repo.audit(actor.id, actor.staffId, "admin.resident.gender_correction_held", "resident", residentId, {
+        reasonCode,
+        conflictCount: conflicts.length
+      });
+      return { applied: false as const, requiresAcknowledgement: true as const, conflicts };
+    }
+
+    const update = await this.repo.run(
+      "UPDATE residents SET gender = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND gender IS ?",
+      gender, residentId, previous
+    );
+    if (Number(update?.meta?.changes ?? 0) !== 1) throw new Error("Resident record changed concurrently; reload and retry (Conflict)");
+
+    await this.repo.audit(actor.id, actor.staffId, "admin.resident.gender_corrected", "resident", residentId, {
+      previousGender: previous,
+      newGender: gender,
+      reasonCode,
+      conflictCount: conflicts.length,
+      conflictingAllocationIds: conflicts.filter((c) => c.kind === "allocation").map((c) => c.allocationId),
+      conflictingBookingIds: conflicts.filter((c) => c.kind === "booking").map((c) => c.bookingId)
+    });
+    for (const c of conflicts) {
+      await this.repo.audit(actor.id, actor.staffId, "admin.resident.gender_placement_conflict", c.kind, c.kind === "allocation" ? Number(c.allocationId) : c.bookingId, {
+        residentId,
+        roomId: c.roomId,
+        code: c.code,
+        cause: "gender_correction"
+      });
+    }
+    const row = await this.get("residents", residentId) as Record<string, unknown>;
+    return { applied: true as const, requiresAcknowledgement: false as const, resident: presentResidentRow(row), conflicts };
   }
 
   async createApplication(actor: AuthUser, data: {

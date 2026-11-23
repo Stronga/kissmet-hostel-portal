@@ -164,6 +164,30 @@ Operational note: existing residents with no recorded gender can no longer be bo
 single-gender rooms. Run a read-only count before release, e.g.
 `SELECT COUNT(*) FROM allocations a JOIN beds b ON b.id = a.bed_id JOIN rooms r ON r.id = b.room_id JOIN residents res ON res.id = a.resident_id WHERE a.status = 'active' AND r.gender_policy <> 'any' AND (res.gender IS NULL OR res.gender NOT IN ('female','male'));`
 
+### Gender corrections (authorized, audited)
+
+- `POST /admin/residents/:id/gender-correction` — permission `resident:gender_correct` (super_admin, manager only;
+  reception's `resident:write` is not enough). Body `{ gender, reasonCode, acknowledgeConflicts? }` with
+  `gender` ∈ `female | male | other | not_specified` and `reasonCode` ∈
+  `data_entry_error | resident_request | identity_document_verified | other` (fixed codes, no free text).
+- **Decision — placements are flagged, never silently left or moved.** If the new value would leave an active allocation,
+  or a pending/confirmed booking whose priced room is single-gender, in a room the resident is no longer eligible for,
+  the request returns `409 GENDER_CORRECTION_CONFLICTS` with the placements (ids + room code only) and changes nothing.
+  Re-sending with `acknowledgeConflicts: true` (literal boolean) applies the correction and writes one
+  `admin.resident.gender_placement_conflict` audit event per placement (`{ residentId, roomId, code, cause }`). Nothing is
+  moved or cancelled automatically; staff transfer or end the placement with the existing workflows, which already
+  enforce the rule.
+- `GET /admin/gender-placement-conflicts` (`allocation:read`) lists, live, every active allocation and pending/confirmed
+  booking that currently breaks the rule — from corrections or legacy data — until it is resolved. The admin Residents
+  page shows it as a "Gender placement conflicts" panel.
+- Audit: `admin.resident.gender_corrected` `{ previousGender, newGender, reasonCode, conflictCount,
+  conflictingAllocationIds, conflictingBookingIds }` and `admin.resident.gender_correction_held` `{ reasonCode,
+  conflictCount }`. The previous/new gender codes are kept because they are the subject of the correction; no names,
+  student/Ghana Card numbers, phones or free text are logged.
+- The update is conditional on the value that was read (`WHERE gender IS ?`); a concurrent change returns 409.
+- No migration. Tests: `cloudflare/tests/resident-gender-correction.test.ts` (real schema + HTTP/RBAC) and
+  `admin-frontend/src/pages/Residents/ResidentsPage.test.tsx`.
+
 ## Transfers
 
 A transfer validates the destination bed first. It then marks the old active allocation as `transferred` with end/release timestamps and creates a new active allocation for the destination bed. The old bed assignment remains as history, and the active-allocation unique indexes remain the final concurrency guard.
