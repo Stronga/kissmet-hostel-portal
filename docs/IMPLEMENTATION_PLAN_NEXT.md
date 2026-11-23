@@ -4,8 +4,8 @@ Scope requested: refund redesign, admin connector-status card, document access, 
 performance. Findings come from reading the current code on `feature/pi-connector`. Effort is in focused engineering days
 (incl. tests).
 
-**Status (2026-11-22):** item 1 (refund phase A) is implemented on branch `fix/refund-integrity` (PR open, not merged).
-Everything else is not implemented yet.
+**Status (2026-11-22):** item 1 (refund phase A) is merged (PR #19). Item 5 (refund phase B) is implemented on branch
+`feat/refund-milestone-2` (migration 0022; PR open, not merged). See PAYMENTS_RECEIPTS.md → Refunds.
 
 ## Recommended order
 
@@ -15,7 +15,7 @@ Everything else is not implemented yet.
 | 2 | Gender-restricted allocation hardening | Safety/policy issue; small, contained change | 1–1.5 d | Low–med |
 | 3 | Document access tightening | Privacy (Ghana Card); mostly server-side | 1.5–2 d | Low |
 | 4 | Admin connector-status card | Needed for Pi commissioning visibility; depends on 0020 applied remotely | 1 d | Low |
-| 5 | Refund redesign — phase B (refund records, partial refunds, receipts) | Needs product decisions + migration 0022 | 3–4 d | Medium |
+| 5 | Refund redesign — phase B (refund records, partial refunds, receipts) — **done, PR open** | Needs product decisions + migration 0022 | 3–4 d | Medium |
 | 6 | Frontend performance | No correctness impact; quick wins first | 1–1.5 d | Low |
 | — | Self-service staff password change (found while building the bootstrap) | Bootstrap temp password otherwise never rotates | 0.5–1 d | Low |
 
@@ -49,6 +49,15 @@ summary uses `verified − refunded` amounts; partial refund keeps payment `veri
 receipt/credit note numbering; resident read-only view; finance report by refund status. 
 Dependencies: product decisions (partial refunds? maintenance fee non-refundable — 0015 already models it; who approves).
 Risks: booking payment-summary math used across confirmation/renewal (2L-J/2L-K) — needs real-schema E2E tests like 2L-L.
+
+**Phase B — implemented (`feat/refund-milestone-2`, migration 0022):** `refunds` + `credit_notes` tables with DB guard
+triggers; `payments.refunded_amount_minor`/`refund_status`; request → approve (different user) → payout (method +
+unique reference) with reject/cancel; one D1 batch per operation guarded by a claim token; numbered credit notes linked
+to refund/payment/booking/receipt; NET verified everywhere; payment-attention recalculation on refund, verification and
+archive (clears only when the NET requirement is met); refund report; admin Refunds page; resident read-only view.
+Open decisions (defaults chosen): approval by a different *user* (not role); payout may be recorded by any
+`refund:payout` holder; the booking-level non-refundable `maintenance_fee_minor` (0015) is not yet deducted from the
+refundable amount because it is not attributed to individual payments.
 
 ## 2. Gender-restricted allocation
 
