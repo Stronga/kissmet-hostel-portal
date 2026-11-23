@@ -118,6 +118,7 @@ See also `mikrotik-connector/MIKROTIK_CONNECTOR_DEPLOYMENT.md`.
 | 4 | Edge rate-limit rules fire as expected (staging first) |
 | 5 | HSTS present **only** after intentional enable |
 | 6 | Portal CSP does not break Vite/React production builds |
+| 6b | Production/staging frontend bundles were built with `VITE_API_BASE_URL=https://…` (build fails without it) |
 | 7 | Document download: attachment + nosniff + no public R2 URL |
 | 8 | Production errors contain no stack/SQL/Arkesel/MikroTik details |
 | 9 | Connector deep health via Tunnel from Worker |

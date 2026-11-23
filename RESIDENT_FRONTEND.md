@@ -26,20 +26,22 @@ The app is intentionally separate from `admin-frontend/` and does not depend on 
 
 ## Environment
 
-Resident frontend configuration uses:
+Resident frontend configuration uses `VITE_API_BASE_URL`. See `.env.example`.
 
 ```text
 VITE_API_BASE_URL=http://localhost:8787
-
-Local Vite port is pinned to **5174** (Admin uses **5173**) so CORS origins remain stable.
 ```
+
+Local Vite port is pinned to **5174** (Admin uses **5173**) so CORS origins remain stable. If the variable is unset in development or test mode, the client falls back to `http://localhost:8787`.
+
+Production and staging frontends are built with `vite build` (mode `production`). That build **refuses to complete** if `VITE_API_BASE_URL` is missing, empty, not an absolute `https` URL, or points at `localhost` / `127.0.0.1` / another loopback host, or uses `http`. The same check runs at runtime when `MODE` is `production`.
 
 Production API and portal domains are expected to be:
 
 - API: `https://api.kissmetgroup.org`
 - Resident Portal: `https://portal.kissmetgroup.org`
 
-Production URLs are not hardcoded in React components.
+Production URLs are not hardcoded in React components. Set `VITE_API_BASE_URL=https://api.kissmetgroup.org` (or the staging https URL) at build time.
 
 ## Routes
 

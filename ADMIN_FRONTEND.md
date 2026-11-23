@@ -27,19 +27,23 @@ admin-frontend/src/
 
 ## Environment
 
-The API base URL is configured through:
+The API base URL is configured through `VITE_API_BASE_URL`. See `.env.example`.
 
-```text
-VITE_API_BASE_URL
-```
-
-Example:
+Local development and tests (Vite mode `development` or `test`) use:
 
 ```text
 VITE_API_BASE_URL=http://localhost:8787
 ```
 
-Production can point this to `https://api.kissmetgroup.org` without changing components.
+If the variable is unset in those modes, the client falls back to `http://localhost:8787`.
+
+Production and staging frontends are built with `vite build` (mode `production`). That build **refuses to complete** if `VITE_API_BASE_URL` is missing, empty, not an absolute `https` URL, or points at `localhost` / `127.0.0.1` / another loopback host, or uses `http`. The same check runs at runtime when `MODE` is `production`.
+
+```text
+VITE_API_BASE_URL=https://api.kissmetgroup.org
+```
+
+Staging builds should use `https://staging-api.kissmetgroup.org` (or the staging workers.dev URL). Do not ship a production bundle that talks to localhost.
 
 ## Authentication
 
