@@ -37,7 +37,13 @@ Allowed transitions:
 
 - `pending -> submitted/cancelled/archived`
 - `submitted -> verified/rejected/cancelled`
-- `verified -> refunded/archived`
+- `verified -> refunded` only through `POST /admin/payments/:id/refund` (see Refunds)
+- `verified -> archived` only when the payment has no booking, or its booking is no longer active
+  (not `pending`/`confirmed`). While the booking is active the request is refused with
+  `Payment is verified and linked to an active booking; refund it or end the booking before archiving` (400), nothing
+  changes, and `admin.payment.archive_blocked` is audited with `{ bookingId, bookingStatus }`. The same condition is
+  repeated inside the conditional `UPDATE`, so a race cannot archive it. The admin UI never offered Archive for verified
+  payments; this closes the API path.
 - terminal states may archive where appropriate.
 
 Verification is performed only through the verify endpoint. Clients cannot submit a trusted verified status.
@@ -150,7 +156,7 @@ Only verified payments may be refunded. Refunded payments stop counting toward `
 - `admin.payment.refunded` metadata is `{ bookingId, amountMinor, receiptVoidedId }` — ids and amounts only.
 - Finance reports are unchanged: `refunded_totals` sums `refunded` payments and `verified_payments` excludes them.
 
-Not yet supported (milestone 2, migration 0021): partial refunds, separate requester/approver, refund payout method and
+Not yet supported (milestone 2, migration **0022** — 0021 is reserved for staff password rotation, PR #24): partial refunds, separate requester/approver, refund payout method and
 reference, credit notes, refund-status reporting and a resident refund view.
 
 ## Permissions

@@ -37,6 +37,9 @@ type PaymentStatus = "pending" | "submitted" | "verified" | "rejected" | "refund
 export const REFUND_VIA_STATUS_ERROR = "Invalid workflow transition: refunds must use POST /admin/payments/:id/refund";
 export const REFUND_RECEIPT_VOID_REASON = "Payment refunded";
 export const REFUND_ATTENTION_REASON = "Refund reduced verified payments below confirmation threshold";
+/** Booking statuses that count as "active" for payment archiving (same set as duplicate-booking checks). */
+export const ACTIVE_BOOKING_STATUSES = ["pending", "confirmed"] as const;
+export const ARCHIVE_VERIFIED_ACTIVE_BOOKING_ERROR = "Payment is verified and linked to an active booking; refund it or end the booking before archiving";
 type MaintenanceStatus = "open" | "assigned" | "in_progress" | "resolved" | "closed" | "cancelled" | "archived";
 type AnnouncementStatus = "draft" | "published" | "expired" | "archived";
 type AnnouncementAudience = "all" | "residents" | "staff";
@@ -2226,7 +2229,21 @@ export class AdminService {
       archived: []
     };
     if (!allowed[current]?.includes(status)) throw new Error("Invalid workflow transition");
-    await this.repo.run("UPDATE payments SET status = ?, notes = COALESCE(?, notes), submitted_at = CASE WHEN ? = 'submitted' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE submitted_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", status, notes ?? null, status, id);
+    // Archiving a verified payment drops it from verified totals without voiding its receipt or
+    // re-evaluating the booking. While the booking is active (pending/confirmed) that would silently
+    // under-count what the resident paid, so it is refused; refund (POST /payments/:id/refund) or end
+    // the booking first. The guard is repeated inside the UPDATE so a booking that becomes active
+    // between the read and the write cannot slip through.
+    if (status === "archived" && current === "verified" && payment.booking_id != null) {
+      const booking = await this.repo.first<{ status: string }>("SELECT status FROM bookings WHERE id = ?", Number(payment.booking_id));
+      if (booking && (ACTIVE_BOOKING_STATUSES as readonly string[]).includes(booking.status)) {
+        await this.repo.audit(actor.id, actor.staffId, "admin.payment.archive_blocked", "payment", id, { bookingId: Number(payment.booking_id), bookingStatus: booking.status });
+        throw new Error(ARCHIVE_VERIFIED_ACTIVE_BOOKING_ERROR);
+      }
+    }
+    const transition = await this.repo.run(`UPDATE payments SET status = ?, notes = COALESCE(?, notes), submitted_at = CASE WHEN ? = 'submitted' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE submitted_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = ?
+      AND NOT (? = 'archived' AND status = 'verified' AND EXISTS (SELECT 1 FROM bookings b WHERE b.id = payments.booking_id AND b.status IN ('pending', 'confirmed')))`, status, notes ?? null, status, id, current, status);
+    if (Number(transition?.meta?.changes ?? 0) !== 1) throw new Error("Invalid workflow transition");
     await this.repo.audit(actor.id, actor.staffId, `admin.payment.${status}`, "payment", id, { from: current, to: status });
     return this.get("payments", id);
   }

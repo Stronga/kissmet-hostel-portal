@@ -8,6 +8,7 @@ import {
   REFUND_ATTENTION_REASON,
   REFUND_RECEIPT_VOID_REASON,
   REFUND_VIA_STATUS_ERROR,
+  ARCHIVE_VERIFIED_ACTIVE_BOOKING_ERROR,
 } from "../src/services/admin.service";
 import { sha256Hex } from "../src/auth/crypto";
 import type { AuthUser } from "../src/auth/context";
@@ -345,5 +346,59 @@ describe("refund integrity — single authoritative refund path (real schema)", 
       expect(res.status).toBe(200);
       expect(row(f, "SELECT notes FROM payments WHERE id = ?", [paymentId]).notes).toBe(REFUND_REASON);
     });
+  });
+});
+
+describe("archiving verified payments linked to active bookings is blocked (real schema)", () => {
+  let f: Fixture;
+  beforeEach(async () => {
+    f = await seed();
+  });
+
+  for (const status of ["pending", "confirmed"] as const) {
+    it(`refuses verified -> archived while the booking is ${status}, and changes nothing`, async () => {
+      const bookingId = insertBooking(f, `KSM-BKG-A-${status}`, status);
+      const paymentId = insertVerifiedPayment(f, `KSM-PAY-A-${status}`, bookingId);
+      const receipt = await f.svc.issueReceipt(f.accounts, paymentId) as Record<string, unknown>;
+      const before = await f.svc.financialReport();
+      await expect(f.svc.updatePaymentStatus(f.accounts, paymentId, "archived")).rejects.toThrow(ARCHIVE_VERIFIED_ACTIVE_BOOKING_ERROR);
+      expect(row(f, "SELECT status FROM payments WHERE id = ?", [paymentId]).status).toBe("verified");
+      expect(row(f, "SELECT status FROM receipts WHERE id = ?", [Number(receipt.id)]).status).toBe("issued");
+      const after = await f.svc.financialReport();
+      expect(Number(after?.verified_payments)).toBe(Number(before?.verified_payments));
+      const blocked = audits(f).filter((a) => a.action === "admin.payment.archive_blocked");
+      expect(blocked).toHaveLength(1);
+      expect(JSON.parse(blocked[0].metadata_json ?? "{}")).toEqual({ bookingId, bookingStatus: status });
+      expect(audits(f).some((a) => a.action === "admin.payment.archived")).toBe(false);
+    });
+  }
+
+  for (const status of ["completed", "cancelled", "expired"] as const) {
+    it(`allows verified -> archived once the booking is ${status}`, async () => {
+      const bookingId = insertBooking(f, `KSM-BKG-B-${status}`, "confirmed");
+      const paymentId = insertVerifiedPayment(f, `KSM-PAY-B-${status}`, bookingId);
+      run(f.db, "UPDATE bookings SET status = ? WHERE id = ?", [status, bookingId]);
+      const archived = await f.svc.updatePaymentStatus(f.accounts, paymentId, "archived") as Record<string, unknown>;
+      expect(archived.status).toBe("archived");
+    });
+  }
+
+  it("allows archiving a verified payment with no booking, and refunded payments on active bookings", async () => {
+    const detached = insertVerifiedPayment(f, "KSM-PAY-C1", null);
+    expect((await f.svc.updatePaymentStatus(f.accounts, detached, "archived") as Record<string, unknown>).status).toBe("archived");
+    const bookingId = insertBooking(f, "KSM-BKG-C2", "confirmed");
+    const paymentId = insertVerifiedPayment(f, "KSM-PAY-C2", bookingId);
+    await f.svc.refundPayment(f.accounts, paymentId, REFUND_REASON);
+    expect((await f.svc.updatePaymentStatus(f.accounts, paymentId, "archived") as Record<string, unknown>).status).toBe("archived");
+  });
+
+  it("PATCH /admin/payments/:id/status {status: archived} returns a clear 4xx for an active booking", async () => {
+    const bookingId = insertBooking(f, "KSM-BKG-D1", "confirmed");
+    const paymentId = insertVerifiedPayment(f, "KSM-PAY-D1", bookingId);
+    const res = await api(f.db, TOKENS.accounts, "PATCH", `/admin/payments/${paymentId}/status`, { status: "archived" });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    expect(JSON.stringify(res.json)).toContain("refund it or end the booking");
+    expect(row(f, "SELECT status FROM payments WHERE id = ?", [paymentId]).status).toBe("verified");
   });
 });
