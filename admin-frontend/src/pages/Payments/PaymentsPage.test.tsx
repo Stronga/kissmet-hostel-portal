@@ -37,7 +37,7 @@ function renderPayments(options: { role?: "manager" | "maintenance"; payments?: 
     if (url.endsWith("/admin/payments") && init?.method === "POST") return options.failCreate ? json({ error: { message: "Payment would exceed booking total" } }, 409) : json({ ok: true, data: { id: 3, booking_id: 100, resident_id: 7, payment_reference: "KSM-PAY-0003", status: "pending", amount_minor: 125000, currency: "GHS", method: "bank_transfer" } }, 201);
     if (url.endsWith("/admin/payments/1/verify")) return options.failVerify ? json({ error: { message: "Payment would exceed booking total" } }, 400) : json({ ok: true, data: { payment: { ...payments[0], status: "verified", verified_at: "2026-08-30T03:37:35.599Z" }, summary: { ...summary, verifiedPaidMinor: 150000, balanceMinor: 100000, confirmationRequirementMet: true } } });
     if (url.endsWith("/admin/payments/1/reject")) return options.failReject ? json({ error: { message: "Invalid workflow transition" } }, 400) : json({ ok: true, data: { ...payments[0], status: "rejected" } });
-    if (url.endsWith("/admin/payments/2/refund")) return options.failRefund ? json({ error: { message: "Invalid workflow transition" } }, 400) : json({ ok: true, data: { payment: { ...payments[1], status: "refunded" }, summary: { ...summary, verifiedPaidMinor: 0, balanceMinor: 250000, paymentAttentionRequired: true } } });
+    if (url.endsWith("/admin/payments/2/refund")) return options.failRefund ? json({ error: { message: "Invalid workflow transition" } }, 400) : json({ ok: true, data: { id: 1, refund_number: "KSM-RFD-0001", payment_id: 2, status: "requested", amount_minor: 20000, currency: "GHS" } }, 201);
     if (url.endsWith("/admin/payments/1/status")) return json({ ok: true, data: { ...payments[0], status: "cancelled" } });
     if (url.endsWith("/admin/payments/1/slip")) return options.failUpload ? json({ error: { message: "Unsupported payment slip file type" } }, 400) : json({ ok: true, data: { id: 9, document_type: "payment_slip", original_filename: "slip.pdf", status: "uploaded" } }, 201);
     if (url.includes("/admin/bookings?")) return list([options.booking ?? booking]);
@@ -142,12 +142,17 @@ describe("PaymentsPage", () => {
     renderPayments({ booking: attentionBooking, summary: { ...summary, paymentAttentionRequired: true } });
     await openPayment(1);
     expect(screen.getByText("Payment attention required")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Refund" }));
-    expect(screen.getByText(/removes it from the verified payment total and voids its issued receipt/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirm" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Request refund" }));
+    expect(screen.getByText(/different staff member must approve/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Submit request" })).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Refund amount"), "200");
     await userEvent.type(screen.getByLabelText("Refund reason"), "Resident withdrew");
-    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    await waitFor(() => expect(vi.mocked(globalThis.fetch).mock.calls.some(([url, init]) => String(url).endsWith("/admin/payments/2/refund") && JSON.parse(String((init as RequestInit).body)).reason === "Resident withdrew")).toBe(true));
+    await userEvent.click(screen.getByRole("button", { name: "Submit request" }));
+    await waitFor(() => expect(vi.mocked(globalThis.fetch).mock.calls.some(([url, init]) => {
+      if (!String(url).endsWith("/admin/payments/2/refund")) return false;
+      const body = JSON.parse(String((init as RequestInit).body));
+      return body.reason === "Resident withdrew" && body.amountMinor === 20000;
+    })).toBe(true));
   });
 
   it("handles private slip upload failures through backend messages", async () => {
