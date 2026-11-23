@@ -9,4 +9,6 @@ export interface AuthUser {
   staffId: number | null;
   residentId: number | null;
   sessionId: number;
+  /** Staff only: true until the account sets a new password (bootstrap / admin reset / admin-created). */
+  mustChangePassword?: boolean;
 }

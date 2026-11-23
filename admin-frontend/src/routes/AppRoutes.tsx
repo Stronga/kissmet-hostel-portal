@@ -19,12 +19,14 @@ import { SettingsPage } from "../pages/Settings/SettingsPage";
 import { SetupPage } from "../pages/Setup/SetupPage";
 import { StaffPage } from "../pages/Staff/StaffPage";
 import { ProtectedRoute } from "./ProtectedRoute";
+import { ChangePasswordPage } from "../pages/Account/ChangePasswordPage";
 
 export function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<ProtectedRoute />}>
+        <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
