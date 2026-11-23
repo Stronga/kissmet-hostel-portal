@@ -23,7 +23,7 @@ dev-seed fingerprints (example.com/.test emails, `+233000000xxx` phones, dev sal
 
 Every statement is `INSERT … ON CONFLICT DO NOTHING` or `INSERT … SELECT … WHERE NOT EXISTS`; nothing is updated or deleted,
 so re-running is a no-op and later admin edits are never overwritten. A schema guard at the top makes the batch fail on a
-database that is missing migrations up to 0021 (the guard also selects `users.must_change_password`).
+database that is missing migrations up to 0021 (the guard also selects `users.must_change_password` and the `auth_rate_limits` table).
 
 ## Super admin credential
 

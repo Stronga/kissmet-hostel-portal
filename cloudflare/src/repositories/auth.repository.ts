@@ -149,6 +149,27 @@ export class AuthRepository {
     `).bind(userId).first<StaffPasswordRecord>();
   }
 
+  /**
+   * Persistent, shared fixed-window counter (migration 0021 `auth_rate_limits`).
+   * One atomic UPSERT ... RETURNING: increments the attempt count for `bucketKey`, or restarts the
+   * window at 1 when the stored window began at or before `windowStartCutoffIso`. Because it is a
+   * single statement on D1 (one primary), concurrent isolates cannot both see a stale count.
+   * Returns the attempt number within the current window (1 = first attempt).
+   */
+  async hitRateLimit(bucketKey: string, nowIso: string, windowStartCutoffIso: string): Promise<number> {
+    const row = await this.db.prepare(`
+      INSERT INTO auth_rate_limits (bucket_key, window_started_at, attempt_count, updated_at)
+      VALUES (?, ?, 1, ?)
+      ON CONFLICT(bucket_key) DO UPDATE SET
+        attempt_count = CASE WHEN auth_rate_limits.window_started_at <= ? THEN 1 ELSE auth_rate_limits.attempt_count + 1 END,
+        window_started_at = CASE WHEN auth_rate_limits.window_started_at <= ? THEN excluded.window_started_at ELSE auth_rate_limits.window_started_at END,
+        updated_at = excluded.updated_at
+      RETURNING attempt_count
+    `).bind(bucketKey, nowIso, nowIso, windowStartCutoffIso, windowStartCutoffIso).first<{ attempt_count: number }>();
+    // Fail closed: if the counter could not be read back, treat the request as over the limit.
+    return row ? Number(row.attempt_count) : Number.POSITIVE_INFINITY;
+  }
+
   /** Sets a new self-chosen password and clears the forced-rotation flag. */
   async updateStaffPassword(userId: number, passwordHash: string) {
     await this.db.prepare(`

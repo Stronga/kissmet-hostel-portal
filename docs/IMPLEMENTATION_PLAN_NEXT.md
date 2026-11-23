@@ -12,7 +12,7 @@ performance. Findings come from reading the current code on `feature/pi-connecto
 | 2 | Gender-restricted allocation hardening | Safety/policy issue; small, contained change | 1–1.5 d | Low–med |
 | 3 | Document access tightening | Privacy (Ghana Card); mostly server-side | 1.5–2 d | Low |
 | 4 | Admin connector-status card | Needed for Pi commissioning visibility; depends on 0020 applied remotely | 1 d | Low |
-| 5 | Refund redesign — phase B (refund records, partial refunds, receipts) | Needs product decisions + migration 0021 | 3–4 d | Medium |
+| 5 | Refund redesign — phase B (refund records, partial refunds, receipts) | Needs product decisions + migration 0022 | 3–4 d | Medium |
 | 6 | Frontend performance | No correctness impact; quick wins first | 1–1.5 d | Low |
 | — | Self-service staff password change (found while building the bootstrap) | Bootstrap temp password otherwise never rotates | 0.5–1 d | Low |
 
@@ -32,7 +32,7 @@ performance. Findings come from reading the current code on `feature/pi-connecto
 **Phase A (now, no migration):** remove `refunded` from the generic status transition (or route it through
 `refundPayment`); require a reason; in the same batch void the active receipt (or block refund until voided — decision);
 tests for both routes. 
-**Phase B (migration 0021):** `refunds` table (`payment_id`, `amount_minor` ≤ refundable remainder, `method`, `reference`,
+**Phase B (migration 0022; 0021 is reserved for staff password rotation):** `refunds` table (`payment_id`, `amount_minor` ≤ refundable remainder, `method`, `reference`,
 `reason`, `status requested|approved|paid|cancelled`, `requested_by`, `approved_by` ≠ requester, timestamps); payment
 summary uses `verified − refunded` amounts; partial refund keeps payment `verified`, full refund sets `refunded`; refund
 receipt/credit note numbering; resident read-only view; finance report by refund status. 
@@ -89,5 +89,6 @@ build-time guard that fails a production build when `VITE_API_BASE_URL` is unset
 
 - Hono/@hono/node-server upgraded (this PR); remaining Worker advisories are all in `wrangler@3` dev tooling → plan a
   `wrangler@4` upgrade (major; re-test `wrangler dev`, D1 local, `migrations` commands).
-- Self-service staff password change + forced change after a reset/bootstrap temp password. **Implemented on branch `feat/staff-password-change` (migration 0021).**
+- Self-service staff password change + forced change after a reset/bootstrap temp password. **Implemented on branch `feat/staff-password-change` (migration 0021, which also adds the D1-backed shared
+  password-change rate limiter `auth_rate_limits`).**
 - Mobile-money payments and email delivery remain unbuilt (from the pre-Pi report).

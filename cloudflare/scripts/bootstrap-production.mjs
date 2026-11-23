@@ -292,6 +292,7 @@ export function generateSql(plan, { env, adminPasswordHash = null, generatedAt =
   L("SELECT id, username FROM users LIMIT 0;");
   L("SELECT * FROM connector_heartbeats LIMIT 0;");
   L("SELECT must_change_password, password_changed_at FROM users LIMIT 0;");
+  L("SELECT bucket_key, window_started_at, attempt_count FROM auth_rate_limits LIMIT 0;");
   L("SELECT id FROM system_settings LIMIT 0;");
   L();
   L("-- Roles (codes must match cloudflare/src/auth/permissions.ts)");
