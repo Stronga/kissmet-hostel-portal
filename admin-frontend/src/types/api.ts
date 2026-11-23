@@ -765,3 +765,30 @@ export interface ConnectorHealth {
   board?: string;
   version?: string;
 }
+
+export type ResidentGenderValue = "female" | "male" | "other" | "not_specified";
+export type GenderCorrectionReason = "data_entry_error" | "resident_request" | "identity_document_verified" | "other";
+
+/** A placement that breaks the single-gender rule (ids and room codes only; no resident PII). */
+export interface GenderPlacementConflict {
+  kind: "allocation" | "booking";
+  allocationId: number | null;
+  bookingId: number;
+  bookingNumber: string | null;
+  bookingStatus: string | null;
+  residentId: number;
+  roomId: number;
+  roomCode: string;
+  roomGenderPolicy: string;
+  code: string;
+}
+
+export interface GenderCorrectionInput {
+  gender: ResidentGenderValue;
+  reasonCode: GenderCorrectionReason;
+  acknowledgeConflicts?: boolean;
+}
+
+export type GenderCorrectionResult =
+  | { applied: true; requiresAcknowledgement: false; resident: Resident; conflicts: GenderPlacementConflict[] }
+  | { applied: false; requiresAcknowledgement: true; conflicts: GenderPlacementConflict[] };

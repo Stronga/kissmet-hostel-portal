@@ -6,7 +6,7 @@ import { GENDER_ERROR_MESSAGES } from "../utils/genderEligibility";
 const DOMAIN_ERROR_MESSAGES: Record<string, string> = { ...GENDER_ERROR_MESSAGES };
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number, readonly code: string | null = null) {
+  constructor(message: string, readonly status: number, readonly code: string | null = null, readonly details: unknown = null) {
     super(message);
   }
 }
@@ -42,7 +42,8 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
         ? ((errorBody as { message?: string }).message ?? "Request failed")
         : "Request failed";
     const message = (code && DOMAIN_ERROR_MESSAGES[code]) || serverMessage;
-    throw new ApiError(message, response.status, code);
+    const details = typeof payload === "object" && payload && "data" in payload ? (payload as { data: unknown }).data : null;
+    throw new ApiError(message, response.status, code, details);
   }
 
   return payload as T;

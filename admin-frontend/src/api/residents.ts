@@ -1,5 +1,5 @@
-import { apiRequest } from "./client";
-import type { CreateResidentInput, DataEnvelope, Institution, ListEnvelope, Pagination, Resident } from "../types/api";
+import { ApiError, apiRequest } from "./client";
+import type { CreateResidentInput, DataEnvelope, GenderCorrectionInput, GenderCorrectionResult, GenderPlacementConflict, Institution, ListEnvelope, Pagination, Resident } from "../types/api";
 
 export interface ResidentListParams {
   search?: string;
@@ -33,4 +33,26 @@ export async function createResident(input: CreateResidentInput): Promise<Reside
 
 export async function listInstitutions(): Promise<Institution[]> {
   return (await apiRequest<ListEnvelope<Institution>>("/admin/institutions?limit=100&offset=0")).data;
+}
+
+/**
+ * Authorized gender correction. A 409 GENDER_CORRECTION_CONFLICTS means nothing changed and the
+ * returned placements need acknowledgement; it is returned (not thrown) so the UI can show them.
+ */
+export async function correctResidentGender(id: number, input: GenderCorrectionInput): Promise<GenderCorrectionResult> {
+  try {
+    return (await apiRequest<DataEnvelope<GenderCorrectionResult>>(`/admin/residents/${id}/gender-correction`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    })).data;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409 && err.code === "GENDER_CORRECTION_CONFLICTS" && err.details && typeof err.details === "object") {
+      return err.details as GenderCorrectionResult;
+    }
+    throw err;
+  }
+}
+
+export async function listGenderPlacementConflicts(): Promise<GenderPlacementConflict[]> {
+  return (await apiRequest<DataEnvelope<GenderPlacementConflict[]>>("/admin/gender-placement-conflicts")).data;
 }

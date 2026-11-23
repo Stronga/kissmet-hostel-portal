@@ -359,6 +359,21 @@ routes.post("/residents", requirePermission("resident:write"), async (c) => {
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.get("/residents/:id", requirePermission("resident:read"), async (c) => c.json(ok(await service(c).getResident(Number(c.req.param("id"))))));
+routes.post("/residents/:id/gender-correction", requirePermission("resident:gender_correct"), async (c) => {
+  try {
+    const input = await body(c);
+    const result = await service(c).correctResidentGender(c.get("authUser"), Number(c.req.param("id")), {
+      gender: input.gender,
+      reasonCode: input.reasonCode,
+      acknowledgeConflicts: input.acknowledgeConflicts === true
+    });
+    if (!result.applied) {
+      return c.json({ ok: false, error: { code: "GENDER_CORRECTION_CONFLICTS", message: "Correction would leave active placements in single-gender rooms the resident is not eligible for. Review and acknowledge to apply and flag them." }, data: result }, 409);
+    }
+    return c.json(ok(result));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/gender-placement-conflicts", requirePermission("allocation:read"), async (c) => c.json(ok(await service(c).genderPlacementConflicts())));
 
 routes.get("/staff", requirePermission("staff:read"), async (c) => {
   const p = pagination(new URL(c.req.url));
