@@ -101,9 +101,10 @@ bucket_name = "kissmet-hostel-test-documents"
 # (APP_ENV=staging + STAGING_OTP_TEST_KEY secret), behind Cloudflare Access.
 [env.staging]
 name = "kissmet-hostel-api-staging"
-# workers_dev remains true, but this account has no workers.dev subdomain yet.
-# Serve staging on the approved custom domain until that subdomain is registered.
-workers_dev = true
+# workers_dev=false until a workers.dev subdomain is registered on this account
+# (https://dash.cloudflare.com/9265bd10baf9262f5fa79264e8db2d84/workers/onboarding).
+# Staging is published on the custom domain route below.
+workers_dev = false
 routes = [
   { pattern = "staging-api.kissmetgroup.org/*", zone_name = "kissmetgroup.org" }
 ]
