@@ -1,10 +1,9 @@
-import { Copy, Plus, RefreshCw, Search, Wifi } from "lucide-react";
+import { Copy, Plus, Search } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   disconnectInternetSessions,
   enableInternet,
   ensureInternetProfile,
-  getConnectorHealth,
   getInternetAccount,
   getInternetSummary,
   listInternetAccounts,
@@ -23,10 +22,10 @@ import { EmptyState } from "../../components/common/EmptyState";
 import { ErrorState } from "../../components/common/ErrorState";
 import { LoadingState } from "../../components/common/LoadingState";
 import { StatCard } from "../../components/common/StatCard";
+import { ConnectorStatusCard } from "../../components/internet/ConnectorStatusCard";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import { PageHeader } from "../../components/layout/PageHeader";
 import type {
-  ConnectorHealth,
   EligibleResident,
   InternetAccount,
   InternetSession,
@@ -55,8 +54,6 @@ export function InternetAccessPage() {
 
   const [accounts, setAccounts] = useState<InternetAccount[]>([]);
   const [summary, setSummary] = useState<InternetSummary | null>(null);
-  const [health, setHealth] = useState<ConnectorHealth | null>(null);
-  const [healthError, setHealthError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<(typeof statusOptions)[number]>("all");
@@ -104,22 +101,9 @@ export function InternetAccessPage() {
     }
   }, [offset, statusFilter, submittedSearch, syncFilter]);
 
-  const refreshHealth = useCallback(async () => {
-    setHealthError(null);
-    try {
-      setHealth(await getConnectorHealth());
-    } catch (err) {
-      setHealth(null);
-      setHealthError(err instanceof Error ? err.message : "Unable to check connector health.");
-    }
-  }, []);
-
   useEffect(() => {
     if (!canRead) return;
     void load(0, "");
-    void refreshHealth();
-    const timer = window.setInterval(() => void refreshHealth(), 120_000);
-    return () => window.clearInterval(timer);
   }, [canRead]);
 
   async function submitSearch(event: FormEvent) {
@@ -243,40 +227,19 @@ export function InternetAccessPage() {
         ) : null}
       </div>
 
-      <section className="rounded-token border border-border bg-surface p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Wifi className={`h-4 w-4 ${health?.ok ? "text-emerald-600" : "text-amber-600"}`} aria-hidden />
-            <div>
-              <p className="text-sm font-semibold text-text-primary">Connector health</p>
-              <p className="text-xs text-text-secondary">
-                {healthError
-                  ? healthError
-                  : health
-                    ? health.ok
-                      ? `Reachable${health.board ? ` · ${health.board}` : ""}${health.version ? ` · ${health.version}` : ""}`
-                      : health.message || "Connector unavailable"
-                    : "Checking connector…"}
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {canManage ? (
-              <button
-                type="button"
-                onClick={() => void ensureInternetProfile().then(() => refreshHealth()).catch((err) => setHealthError(err instanceof Error ? err.message : "Ensure profile failed"))}
-                className="rounded-md border border-border px-3 py-1.5 text-sm font-medium"
-              >
-                Ensure Kissmet-Residents profile
-              </button>
-            ) : null}
-            <button type="button" onClick={() => void refreshHealth()} className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium">
-              <RefreshCw className="h-3.5 w-3.5" /> Refresh
-            </button>
-          </div>
+      <ConnectorStatusCard showLiveProbe />
+      {canManage ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => void ensureInternetProfile().catch((err) => setError(err instanceof Error ? err.message : "Ensure profile failed"))}
+            className="rounded-md border border-border px-3 py-1.5 text-sm font-medium"
+          >
+            Ensure Kissmet-Residents profile
+          </button>
         </div>
-        <p className="mt-2 text-xs text-text-secondary">Connector issues never block hostel booking, payment, or allocation workflows. Device limit: 3 simultaneous devices.</p>
-      </section>
+      ) : null}
+
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total Accounts" value={summary?.total ?? "—"} />

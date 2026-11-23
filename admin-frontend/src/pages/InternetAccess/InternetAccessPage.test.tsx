@@ -51,6 +51,11 @@ function renderPage(role: "manager" | "reception" = "manager") {
     if (url.endsWith("/auth/me")) return new Response(JSON.stringify({ user: role === "manager" ? manager : reception }), { status: 200 });
     if (url.includes("/admin/internet-access/summary")) return ok({ total: 1, active: 1, suspended: 0, sync_failed: 0, pending: 0 });
     if (url.includes("/admin/internet-access/connector-health")) return ok({ ok: true, configured: true, board: "hAP", version: "7.16" });
+    if (url.includes("/admin/internet-access/connector-status")) return ok({
+      configured: true,
+      staleAfterSeconds: 180,
+      connectors: [{ connectorId: "3f1c2b9e-8a7d-4c6b-9e5f-0a1b2c3d4e5f", lastSeenAt: "2026-11-22T12:00:00.000Z", ageSeconds: 15, stale: false, version: "0.1.0", hostname: "kissmet-pi", connectorStatus: "ok", routerosStatus: "ok", uptimeSeconds: 42, heartbeatCount: 4, firstSeenAt: "2026-11-22T10:00:00.000Z" }]
+    });
     if (url.includes("/admin/internet-access/eligible-residents")) return ok([eligible]);
     if (url.includes("/admin/internet-access/1/sessions")) return ok([]);
     if (url.match(/\/admin\/internet-access\/1$/) && (!init?.method || init.method === "GET")) return ok(account);
@@ -78,7 +83,9 @@ describe("InternetAccessPage", () => {
     expect((await screen.findAllByText("KSM-RES-0007")).length).toBeGreaterThan(0);
     expect(screen.getByText("ROOM-101 / ROOM-101-A")).toBeInTheDocument();
     expect(screen.getAllByText(/3 simultaneous devices/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Reachable/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Connector status" })).toBeInTheDocument();
+    expect(screen.getByText("Online")).toBeInTheDocument();
+    expect(screen.getByText("0.1.0")).toBeInTheDocument();
   });
 
   it("hides provision for roles without internet manage", async () => {
