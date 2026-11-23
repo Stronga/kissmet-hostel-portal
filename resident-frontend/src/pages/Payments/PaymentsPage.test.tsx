@@ -44,6 +44,9 @@ interface MockState {
   summary?: unknown | null;
   payments?: unknown[];
   receipts?: unknown[];
+  refunds?: unknown[];
+  creditNotes?: unknown[];
+  failRefunds?: boolean;
   failSummary?: boolean;
   failCreate?: boolean;
   failSubmit?: boolean;
@@ -79,6 +82,8 @@ function mockPayments(state: MockState = {}) {
       if (state.failSlip) return json({ error: "Upload failed" }, 400);
       return json({ ok: true, data: { id: 6, document_type: "payment_slip", status: "uploaded", original_filename: "slip.pdf" } }, 201);
     }
+    if (url.endsWith("/resident/me/refunds")) return state.failRefunds ? json({ error: "Unavailable" }, 500) : json({ ok: true, data: state.refunds ?? [] });
+    if (url.endsWith("/resident/me/credit-notes")) return json({ ok: true, data: state.creditNotes ?? [] });
     if (url.endsWith("/resident/me/receipts")) return json({ ok: true, data: state.receipts ?? [] });
     return residentEndpointResponse(url) ?? json({ ok: true, data: [] });
   }));
@@ -295,4 +300,33 @@ describe("resident payments", () => {
     expect(screen.queryByRole("button", { name: /authorize/i })).not.toBeInTheDocument();
   });
 
+  it("shows read-only refunds and credit notes without staff actions", async () => {
+    seedResidentToken();
+    const requests = mockPayments({
+      payments,
+      receipts,
+      refunds: [
+        { id: 2, refund_number: "KSM-RFD-0002", amount_minor: 10000, currency: "GHS", status: "requested", requested_at: "2026-09-02T10:00:00Z", payment_reference: "KSM-PAY-0001" },
+        { id: 1, refund_number: "KSM-RFD-0001", amount_minor: 30000, currency: "GHS", status: "paid", requested_at: "2026-09-01T10:00:00Z", paid_at: "2026-09-01T12:00:00Z", payout_method: "mobile_money", payout_reference: "MM-55", payment_reference: "KSM-PAY-0004", credit_note_number: "KSM-CRN-0001" }
+      ],
+      creditNotes: [{ id: 1, credit_note_number: "KSM-CRN-0001", amount_minor: 30000, currency: "GHS", status: "issued", issued_at: "2026-09-01T12:00:00Z", refund_number: "KSM-RFD-0001", payment_reference: "KSM-PAY-0004", receipt_number: "KSM-RCP-0004" }]
+    });
+    render(renderResidentApp(["/payments"]));
+
+    expect(await screen.findByRole("heading", { name: /Refunds and credit notes/ })).toBeInTheDocument();
+    expect(screen.getByText("KSM-RFD-0002")).toBeInTheDocument();
+    expect(screen.getByText(/ref MM-55/)).toBeInTheDocument();
+    expect(screen.getByText(/against receipt KSM-RCP-0004/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /approve|payout|request refund/i })).not.toBeInTheDocument();
+    expect(requests.every((r) => !r.url.includes("/refund") || r.method === "GET")).toBe(true);
+  });
+
+  it("keeps payments visible when refund history fails to load", async () => {
+    seedResidentToken();
+    mockPayments({ payments, receipts, failRefunds: true });
+    render(renderResidentApp(["/payments"]));
+
+    expect(await screen.findByText("KSM-BKG-0001")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Refunds and credit notes/ })).not.toBeInTheDocument();
+  });
 });

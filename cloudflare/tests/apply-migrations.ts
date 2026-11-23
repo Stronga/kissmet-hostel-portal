@@ -135,7 +135,19 @@ export function createSqlJsD1(db: Database): D1Database {
     prepare(sql: string) {
       return wrap(sql) as unknown as D1PreparedStatement;
     },
-    batch: async () => [],
+    // D1 runs a batch as one SQL transaction: all statements commit together or none do.
+    batch: async (statements: Array<{ run(): Promise<unknown> }>) => {
+      db.run("BEGIN");
+      try {
+        const results = [];
+        for (const statement of statements) results.push(await statement.run());
+        db.run("COMMIT");
+        return results;
+      } catch (error) {
+        db.run("ROLLBACK");
+        throw error;
+      }
+    },
     exec: async () => ({ count: 0, duration: 0 }),
   } as unknown as D1Database;
 }

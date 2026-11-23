@@ -14,7 +14,12 @@ All routes are mounted under `/admin` and require an authenticated staff session
 - `PATCH /admin/payments/:id/status`
 - `POST /admin/payments/:id/verify`
 - `POST /admin/payments/:id/reject`
-- `POST /admin/payments/:id/refund`
+- `POST /admin/payments/:id/refund` (creates a refund **request**; see Refunds)
+- `GET /admin/payments/:id/refunds`
+- `GET /admin/refunds`, `GET /admin/refunds/:id`
+- `POST /admin/refunds/:id/approve|reject|cancel|payout`
+- `GET /admin/credit-notes`, `GET /admin/credit-notes/:id`
+- `GET /admin/reports/refunds`
 - `POST /admin/payments/:id/slip`
 - `GET /admin/bookings/:id/payment-summary`
 - `POST /admin/payments/:id/receipt`
@@ -37,13 +42,16 @@ Allowed transitions:
 
 - `pending -> submitted/cancelled/archived`
 - `submitted -> verified/rejected/cancelled`
-- `verified -> refunded` only through `POST /admin/payments/:id/refund` (see Refunds)
+- `verified -> refunded` only by paying out refund records that reach the full payment amount (see Refunds)
 - `verified -> archived` only when the payment has no booking, or its booking is no longer active
   (not `pending`/`confirmed`). While the booking is active the request is refused with
   `Payment is verified and linked to an active booking; refund it or end the booking before archiving` (400), nothing
   changes, and `admin.payment.archive_blocked` is audited with `{ bookingId, bookingStatus }`. The same condition is
   repeated inside the conditional `UPDATE`, so a race cannot archive it. The admin UI never offered Archive for verified
   payments; this closes the API path.
+- `verified -> archived` is also refused while the payment has an open (`requested`/`approved`) refund:
+  `Payment has an open refund; finish or cancel it before archiving` (400). After a verified payment with a booking is
+  archived, the booking's payment-attention flag is recalculated on NET verified payments (cause `archive`).
 - terminal states may archive where appropriate.
 
 Verification is performed only through the verify endpoint. Clients cannot submit a trusted verified status.
@@ -61,7 +69,7 @@ This protects the known race where two submitted payments for the same booking a
 
 Multiple payments may be recorded for one booking. Calculated values are derived from payment records:
 
-- `verified_paid_minor = SUM(payments.amount_minor WHERE status = 'verified')`
+- `verified_paid_minor = SUM(payments.amount_minor - payments.refunded_amount_minor WHERE status = 'verified')` (NET of paid refunds)
 - `balance_minor = bookings.total_amount_minor - verified_paid_minor`
 
 Refunded payments no longer count toward verified totals. Overpayment is rejected in Phase 6.
@@ -134,37 +142,94 @@ Receipts are voided rather than deleted. The schema keeps `payment_id` unique, s
 
 ## Refunds
 
-Only verified payments may be refunded. Refunded payments stop counting toward `verified_paid_minor`.
+Refund milestone 1 (`fix/refund-integrity`, PR #19) made `POST /admin/payments/:id/refund` the single refund entry point.
+Milestone 2 (migration **0022**, branch `feat/refund-milestone-2`) replaces the immediate whole-payment refund with refund
+records, partial refunds, maker/checker approval, payout references and credit notes.
 
-`POST /admin/payments/:id/refund` (`AdminService.refundPayment`) is the **only** way to mark a payment `refunded`
-(refund redesign milestone 1, PR `fix/refund-integrity`):
+### Money model
 
-- `PATCH /admin/payments/:id/status` with `status: "refunded"` is refused with
-  `Invalid workflow transition: refunds must use POST /admin/payments/:id/refund` (400) and changes nothing. Callers
-  without `payment:verify` still get 403 first.
-- A non-empty refund reason is required (`reason`; legacy `notes` is accepted). It is stored on `payments.notes` only,
-  never in audit metadata.
-- The refund is claimed with a conditional `verified → refunded` update, so a second or concurrent refund of the same
-  payment changes zero rows and fails without repeating side effects.
-- The payment's active receipt is voided (`receipts.status = 'voided'`, `voided_at`, fixed `void_reason = 'Payment refunded'`)
-  and `admin.receipt.voided` is audited with `{ paymentId, cause: "payment_refunded" }`. A refunded payment cannot be issued a
-  new receipt (receipts require `verified`).
-- If the refund causes an already confirmed booking to fall below the active confirmation threshold, the booking status is
-  not silently changed. The booking is flagged with `payment_attention_required = 1` and
-  `payment_attention_reason = 'Refund reduced verified payments below confirmation threshold'`, and
-  `admin.booking.payment_deficiency_after_refund` is audited. The response summary reflects the flag.
-- `admin.payment.refunded` metadata is `{ bookingId, amountMinor, receiptVoidedId }` — ids and amounts only.
-- Finance reports are unchanged: `refunded_totals` sums `refunded` payments and `verified_payments` excludes them.
+- `payments.refunded_amount_minor` = sum of **paid** refunds against the payment (DB trigger: never decreases, never exceeds
+  `amount_minor`). `payments.refund_status` is `none | partially_refunded | fully_refunded`.
+- A partial refund keeps the payment `verified` (`refund_status = partially_refunded`). A refund that brings the paid total to
+  the full amount sets `status = refunded`, `refund_status = fully_refunded`.
+- Net verified = `SUM(amount_minor - refunded_amount_minor)` over `status = 'verified'`. All booking summaries, confirmation,
+  overpayment guards, outstanding balances, resident totals and finance reports use NET verified.
+- Money only moves at payout. Open requests (`requested`/`approved`) **reserve** the amount: refundable =
+  `amount_minor - refunded_amount_minor - open requests` and 0 unless the payment is `verified`. A DB trigger enforces
+  `open + paid + new <= amount_minor` on insert (`refund exceeds refundable amount`).
+- Legacy milestone-1 refunds are backfilled by 0022 (`refunded_amount_minor = amount_minor`, `fully_refunded`); they have no
+  refund record or credit note.
 
-Not yet supported (milestone 2, migration **0022** — 0021 is reserved for staff password rotation, PR #24): partial refunds, separate requester/approver, refund payout method and
-reference, credit notes, refund-status reporting and a resident refund view.
+### Lifecycle
+
+`requested -> approved | rejected | cancelled`, `approved -> paid | cancelled`. Terminal states are immutable (DB triggers
+for forward-only transitions, immutable identity/amount fields, and no deletes on `refunds` or `credit_notes`).
+
+| Step | Route | Permission | Rules |
+| --- | --- | --- | --- |
+| Request | `POST /admin/payments/:id/refund` `{ amountMinor?, reason }` → 201 | `refund:request` | Payment verified; `reason` required (legacy `notes` accepted); amount defaults to the remaining refundable amount; positive integer within refundable, else 409 `Refund amount exceeds refundable amount`. |
+| Approve | `POST /admin/refunds/:id/approve` `{ note? }` | `refund:approve` | A **different** staff user than the requester; self-approval → 403 `Refund approval by the requester is forbidden` and audited `admin.refund.self_approval_blocked`. Also a DB CHECK. |
+| Reject | `POST /admin/refunds/:id/reject` `{ note? }` | `refund:approve` | Different user than the requester (the requester cancels instead). Releases the reservation. |
+| Cancel | `POST /admin/refunds/:id/cancel` `{ note? }` | `refund:request` | From `requested`/`approved`, by the requester or any `refund:approve` holder. Releases the reservation. |
+| Payout | `POST /admin/refunds/:id/payout` `{ method, reference }` | `refund:payout` | From `approved`. `method` ∈ `cash, bank_transfer, mobile_money, card, other`; `reference` required and unique per method (409 `Payout reference conflict: ...`). |
+
+`PATCH /admin/payments/:id/status` with `status: "refunded"` is still refused
+(`Invalid workflow transition: refunds must use POST /admin/payments/:id/refund`).
+
+### Atomicity
+
+Every write is one D1 `batch` (a single SQL transaction). The first statement is a conditional claim that stamps a fresh
+`op_token` on the refund row (e.g. `WHERE status = 'approved'` and the payment still verified and within amount); every
+following statement is guarded by `op_token = ?`, so a lost race turns the whole batch into a no-op and the service reports
+the conflict. Concurrent approvals, approve-vs-cancel, and double payouts therefore cannot both succeed, and sequence numbers
+are only consumed by the winner (a payout-reference conflict rolls back with no number gap).
+
+The payout batch: claims `approved -> paid`, updates `refunded_amount_minor` / `refund_status` / `status`, voids the issued
+receipt when the payment becomes fully refunded (`void_reason = 'Payment refunded'`, same as milestone 1; partial refunds keep
+the receipt), inserts the numbered credit note, bumps the sequence and writes the audit rows.
+
+### Credit notes
+
+`KSM-CRN-0001`… issued at payout, one per refund (`credit_notes.refund_id` unique), linked to the refund, payment, booking,
+resident and the payment's receipt (`receipt_id`). Credit notes are never deleted.
+
+### Payment attention
+
+After a payout, a payment verification or the archive of a verified payment, `AdminService.recalculatePaymentAttention`
+recomputes the booking's NET verified total against the confirmation requirement (the same rule booking confirmation
+enforces):
+
+- not flagged, booking `confirmed`, requirement unmet, cause `refund`/`archive` → flag set (conditional update) with reason
+  `Refund reduced verified payments below confirmation threshold` (or the archive equivalent); audited
+  `admin.booking.payment_deficiency_after_refund|archive` with `{ paymentId, netVerifiedPaidMinor, requiredConfirmationAmountMinor }`.
+- flagged and requirement met on NET → flag cleared (conditional update); audited `admin.booking.payment_attention_cleared`
+  with `{ cause, paymentId, netVerifiedPaidMinor, requiredConfirmationAmountMinor }`. A gross total that only reaches the
+  requirement because refunds are ignored never clears it.
+
+Historical financial events are never deleted or rewritten; the audit trail keeps every step.
+
+### Reporting
+
+`GET /admin/reports/refunds?dateFrom&dateTo&status` (`report:finance`): `byStatus` (by `requested_at`), `paid` (count, amount,
+partial amount by `paid_at`), `byPayoutMethod`, `net` (`gross_verified_minor`, `refunded_minor`, `net_verified_minor`,
+`credit_notes_issued`) and up to 500 refund rows (resident code only). The finance report adds `gross_verified_payments` and
+`open_refund_totals`; `refunded_totals` is `SUM(refunded_amount_minor)` and `verified_payments` is NET.
+
+### UI
+
+- Admin: Payments → "Request refund" dialog (optional GHS amount, required reason); Finance → **Refunds** page with status
+  filter, approve/reject/cancel/payout dialogs, credit-note list and report totals.
+- Resident: Payments page shows a read-only "Refunds and credit notes" section (`GET /resident/me/refunds`,
+  `GET /resident/me/credit-notes`, own records only, no reasons or staff notes).
 
 ## Permissions
 
 - `super_admin`: full financial access.
 - `manager`: payment/receipt management and booking confirmation through `booking:confirm`.
-- `accounts`: payment verification, rejection, refund, receipt issuance, financial reads, and booking confirmation through `booking:confirm`.
-- `reception`: limited payment intake/read; no verification authority.
+- `accounts`: payment verification, rejection, refund request/approve/payout, receipt issuance, financial reads, and booking confirmation through `booking:confirm`.
+- `reception`: limited payment intake/read; no verification or refund authority.
+- Refund permissions (`refund:read`, `refund:request`, `refund:approve`, `refund:payout`, `credit_note:read`) are granted to
+  `manager` and `accounts` (`super_admin` has `*`). Maker/checker is per user, not per role.
 - `maintenance`: no financial access.
 - `resident`: no `/admin` financial access.
 
@@ -183,6 +248,13 @@ Phase 6 records:
 - `admin.booking.payment_threshold_reached`
 - `admin.booking.confirmed`
 - `admin.booking.payment_deficiency_after_refund`
+- `admin.booking.payment_deficiency_after_archive`
+- `admin.booking.payment_attention_cleared`
+- `admin.refund.requested|approved|rejected|cancelled|paid`, `admin.refund.self_approval_blocked`
+- `admin.credit_note.issued`
+
+Refund audit metadata contains ids, amounts, statuses and payout method only — never reasons, decision notes, payout
+references or resident PII. `admin.payment.refunded` is `{ refundId, bookingId, amountMinor, refundedTotalMinor, refundStatus }`.
 
 Payment-slip contents and authentication secrets are never logged.
 
@@ -190,7 +262,12 @@ Payment-slip contents and authentication secrets are never logged.
 
 ```text
 cloudflare/migrations/0005_payments_receipts_foundation.sql
+cloudflare/migrations/0022_refund_records_credit_notes.sql
 ```
+
+0022 (additive only) adds `payments.refunded_amount_minor`, `payments.refund_status` (+ backfill of legacy refunded
+payments), the `refunds` and `credit_notes` tables, `refund_number_sequence` (`KSM-RFD`) and
+`credit_note_number_sequence` (`KSM-CRN`), and the guard triggers described above.
 
 Adds:
 

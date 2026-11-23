@@ -11,6 +11,7 @@ import {
   ARCHIVE_VERIFIED_ACTIVE_BOOKING_ERROR,
 } from "../src/services/admin.service";
 import { sha256Hex } from "../src/auth/crypto";
+import { RefundService } from "../src/services/refund.service";
 import type { AuthUser } from "../src/auth/context";
 import type { Env } from "../src/types/bindings";
 
@@ -49,7 +50,19 @@ function createSqlJsD1(db: Database): D1Database {
   };
   return {
     prepare: (sql: string) => wrap(sql) as unknown as D1PreparedStatement,
-    batch: async () => [],
+    // D1 runs a batch as one SQL transaction; mirror that so atomicity is actually exercised.
+    batch: async (statements: Array<{ run: () => Promise<unknown> }>) => {
+      db.run("BEGIN");
+      try {
+        const results = [];
+        for (const s of statements) results.push(await s.run());
+        db.run("COMMIT");
+        return results;
+      } catch (error) {
+        db.run("ROLLBACK");
+        throw error;
+      }
+    },
     exec: async () => ({ count: 0, duration: 0 }),
   } as unknown as D1Database;
 }
@@ -70,7 +83,27 @@ type Fixture = {
   residentId: number;
   sessionId: number;
   accounts: AuthUser;
+  manager: AuthUser;
+  refunds: RefundService;
 };
+
+/**
+ * Full refund through the milestone-2 flow: accounts requests, manager approves (maker/checker),
+ * accounts records the payout. Returns the milestone-1 shaped result used by these regressions.
+ */
+async function fullRefund(f: Fixture, paymentId: number, reason?: string | null) {
+  const receiptBefore = get<{ id: number; status: string }>(f.db, "SELECT id, status FROM receipts WHERE payment_id = ?", [paymentId]);
+  const requested = await f.refunds.requestRefund(f.accounts, paymentId, { reason });
+  await f.refunds.approveRefund(f.manager, Number(requested.id));
+  const paid = await f.refunds.payoutRefund(f.accounts, Number(requested.id), { method: "mobile_money", reference: `MM-${paymentId}-${Date.now()}` });
+  const receiptAfter = get<{ id: number; status: string }>(f.db, "SELECT id, status FROM receipts WHERE payment_id = ?", [paymentId]);
+  return {
+    refund: paid.refund,
+    payment: get<Record<string, unknown>>(f.db, "SELECT * FROM payments WHERE id = ?", [paymentId])!,
+    summary: paid.summary,
+    voidedReceiptId: receiptBefore?.status === "issued" && receiptAfter?.status === "voided" ? Number(receiptAfter.id) : null,
+  };
+}
 
 async function seed(): Promise<Fixture> {
   const db = await openMigratedDatabase();
@@ -117,7 +150,11 @@ async function seed(): Promise<Fixture> {
     residentId: null,
     sessionId: 2,
   };
-  return { db, svc: new AdminService(new AdminRepository(createSqlJsD1(db))), residentId, sessionId, accounts };
+  const managerUserId = Number(get<{ id: number }>(db, "SELECT id FROM users WHERE email = 'manager@example.com'")!.id);
+  const manager: AuthUser = { ...accounts, id: managerUserId, displayName: "manager", email: "manager@example.com", role: "manager", staffId: staffIds.manager, sessionId: 1 };
+  const repo = new AdminRepository(createSqlJsD1(db));
+  const svc = new AdminService(repo);
+  return { db, svc, refunds: new RefundService(repo, svc), residentId, sessionId, accounts, manager };
 }
 
 function insertBooking(f: Fixture, number: string, status: "pending" | "confirmed", totalMinor = 250000): number {
@@ -179,12 +216,13 @@ describe("refund integrity — single authoritative refund path (real schema)", 
     expect(Number(before?.verified_payments)).toBe(250000);
     expect(Number(before?.bookings_requiring_payment_attention)).toBe(0);
 
-    const result = await f.svc.refundPayment(f.accounts, paymentId, `  ${REFUND_REASON}  `);
+    const result = await fullRefund(f, paymentId, `  ${REFUND_REASON}  `);
     expect((result.payment as Record<string, unknown>).status).toBe("refunded");
     expect(result.summary).toMatchObject({ verifiedPaidMinor: 0, confirmationRequirementMet: false, paymentAttentionRequired: true });
     expect(result.voidedReceiptId).toBe(Number(receipt.id));
 
-    expect(row(f, "SELECT status, notes FROM payments WHERE id = ?", [paymentId])).toMatchObject({ status: "refunded", notes: REFUND_REASON });
+    expect(row(f, "SELECT status, refunded_amount_minor, refund_status FROM payments WHERE id = ?", [paymentId])).toMatchObject({ status: "refunded", refunded_amount_minor: 250000, refund_status: "fully_refunded" });
+    expect(row(f, "SELECT reason FROM refunds WHERE payment_id = ?", [paymentId]).reason).toBe(REFUND_REASON);
     const rec = row(f, "SELECT status, void_reason, voided_at FROM receipts WHERE id = ?", [Number(receipt.id)]);
     expect(rec).toMatchObject({ status: "voided", void_reason: REFUND_RECEIPT_VOID_REASON });
     expect(rec.voided_at).toBeTruthy();
@@ -208,11 +246,11 @@ describe("refund integrity — single authoritative refund path (real schema)", 
     const bookingId = insertBooking(f, "KSM-BKG-R2", "confirmed");
     const paymentId = insertVerifiedPayment(f, "KSM-PAY-R2", bookingId);
     await f.svc.issueReceipt(f.accounts, paymentId);
-    await f.svc.refundPayment(f.accounts, paymentId, `${REFUND_REASON} call ${RESIDENT_PHONE}`);
+    await fullRefund(f, paymentId, `${REFUND_REASON} call ${RESIDENT_PHONE}`);
     const blob = JSON.stringify(audits(f));
     for (const secret of [REFUND_REASON, RESIDENT_PHONE, RESIDENT_EMAIL, "Abena", "Refundtest"]) expect(blob).not.toContain(secret);
     const refunded = audits(f).find((a) => a.action === "admin.payment.refunded")!;
-    expect(JSON.parse(refunded.metadata_json!)).toEqual({ bookingId, amountMinor: 250000, receiptVoidedId: expect.any(Number) });
+    expect(JSON.parse(refunded.metadata_json!)).toEqual({ refundId: expect.any(Number), bookingId, amountMinor: 250000, refundedTotalMinor: 250000, refundStatus: "fully_refunded" });
   });
 
   it("generic status path refuses `refunded` and changes nothing", async () => {
@@ -240,16 +278,16 @@ describe("refund integrity — single authoritative refund path (real schema)", 
     const bookingId = insertBooking(f, "KSM-BKG-R5", "confirmed");
     const paymentId = insertVerifiedPayment(f, "KSM-PAY-R5", bookingId);
     await f.svc.issueReceipt(f.accounts, paymentId);
-    await f.svc.refundPayment(f.accounts, paymentId, REFUND_REASON);
-    await expect(f.svc.refundPayment(f.accounts, paymentId, REFUND_REASON)).rejects.toThrow("Invalid workflow transition");
+    await fullRefund(f, paymentId, REFUND_REASON);
+    await expect(fullRefund(f, paymentId, REFUND_REASON)).rejects.toThrow("Invalid workflow transition");
     expect(audits(f).filter((a) => a.action === "admin.payment.refunded")).toHaveLength(1);
     expect(audits(f).filter((a) => a.action === "admin.receipt.voided")).toHaveLength(1);
   });
 
   it("requires a refund reason and leaves the payment verified when it is missing", async () => {
     const paymentId = insertVerifiedPayment(f, "KSM-PAY-R6", insertBooking(f, "KSM-BKG-R6", "confirmed"));
-    await expect(f.svc.refundPayment(f.accounts, paymentId, "   ")).rejects.toThrow("Refund reason required");
-    await expect(f.svc.refundPayment(f.accounts, paymentId)).rejects.toThrow("Refund reason required");
+    await expect(fullRefund(f, paymentId, "   ")).rejects.toThrow("Refund reason required");
+    await expect(fullRefund(f, paymentId)).rejects.toThrow("Refund reason required");
     expect(row(f, "SELECT status FROM payments WHERE id = ?", [paymentId]).status).toBe("verified");
   });
 
@@ -258,7 +296,7 @@ describe("refund integrity — single authoritative refund path (real schema)", 
     run(f.db, `INSERT INTO payments (booking_id, resident_id, payment_reference, status, amount_minor, currency, method)
       VALUES (?, ?, 'KSM-PAY-R7', 'submitted', 1000, 'GHS', 'cash')`, [bookingId, f.residentId]);
     const paymentId = Number(row(f, "SELECT id FROM payments WHERE payment_reference = 'KSM-PAY-R7'").id);
-    await expect(f.svc.refundPayment(f.accounts, paymentId, REFUND_REASON)).rejects.toThrow("Invalid workflow transition");
+    await expect(fullRefund(f, paymentId, REFUND_REASON)).rejects.toThrow("Invalid workflow transition");
     expect(row(f, "SELECT status FROM payments WHERE id = ?", [paymentId]).status).toBe("submitted");
   });
 
@@ -266,7 +304,7 @@ describe("refund integrity — single authoritative refund path (real schema)", 
     const bookingId = insertBooking(f, "KSM-BKG-R8", "pending");
     const paymentId = insertVerifiedPayment(f, "KSM-PAY-R8", bookingId, 100000);
     await f.svc.issueReceipt(f.accounts, paymentId);
-    const result = await f.svc.refundPayment(f.accounts, paymentId, REFUND_REASON);
+    const result = await fullRefund(f, paymentId, REFUND_REASON);
     expect(result.summary).toMatchObject({ verifiedPaidMinor: 0, paymentAttentionRequired: false });
     expect(row(f, "SELECT status FROM receipts WHERE payment_id = ?", [paymentId]).status).toBe("voided");
     expect(Number(row(f, "SELECT payment_attention_required AS a FROM bookings WHERE id = ?", [bookingId]).a)).toBe(0);
@@ -274,7 +312,7 @@ describe("refund integrity — single authoritative refund path (real schema)", 
 
   it("refund without a receipt, and a payment detached from its booking, still complete consistently", async () => {
     const paymentId = insertVerifiedPayment(f, "KSM-PAY-R9", null, 5000);
-    const result = await f.svc.refundPayment(f.accounts, paymentId, REFUND_REASON);
+    const result = await fullRefund(f, paymentId, REFUND_REASON);
     expect(result.summary).toBeNull();
     expect(result.voidedReceiptId).toBeNull();
     expect(row(f, "SELECT status FROM payments WHERE id = ?", [paymentId]).status).toBe("refunded");
@@ -283,14 +321,14 @@ describe("refund integrity — single authoritative refund path (real schema)", 
   it("a refunded payment cannot get a new receipt", async () => {
     const paymentId = insertVerifiedPayment(f, "KSM-PAY-R10", insertBooking(f, "KSM-BKG-R10", "confirmed"));
     await f.svc.issueReceipt(f.accounts, paymentId);
-    await f.svc.refundPayment(f.accounts, paymentId, REFUND_REASON);
+    await fullRefund(f, paymentId, REFUND_REASON);
     await expect(f.svc.issueReceipt(f.accounts, paymentId)).rejects.toThrow("Receipt requires verified payment");
   });
 
   it("resident receipt view shows the refunded payment's receipt as voided", async () => {
     const paymentId = insertVerifiedPayment(f, "KSM-PAY-R11", insertBooking(f, "KSM-BKG-R11", "confirmed"));
     await f.svc.issueReceipt(f.accounts, paymentId);
-    await f.svc.refundPayment(f.accounts, paymentId, REFUND_REASON);
+    await fullRefund(f, paymentId, REFUND_REASON);
     const receipts = all<{ status: string; voided_at: string | null }>(
       f.db,
       "SELECT rec.status, rec.voided_at FROM receipts rec JOIN payments p ON p.id = rec.payment_id WHERE p.resident_id = ?",
@@ -313,7 +351,7 @@ describe("refund integrity — single authoritative refund path (real schema)", 
       expect(row(f, "SELECT status FROM receipts WHERE payment_id = ?", [paymentId]).status).toBe("issued");
     });
 
-    it("roles without payment:verify cannot refund through either route", async () => {
+    it("roles without refund permissions cannot refund through either route", async () => {
       const paymentId = insertVerifiedPayment(f, "KSM-PAY-H2", insertBooking(f, "KSM-BKG-H2", "confirmed"));
       expect((await api(f.db, TOKENS.reception, "PATCH", `/admin/payments/${paymentId}/status`, { status: "refunded" })).status).toBe(403);
       expect((await api(f.db, TOKENS.reception, "POST", `/admin/payments/${paymentId}/refund`, { reason: REFUND_REASON })).status).toBe(403);
@@ -329,9 +367,18 @@ describe("refund integrity — single authoritative refund path (real schema)", 
       expect(missing.status).toBe(400);
       expect(missing.json.error.message).toBe("Refund reason required");
 
-      const ok = await api(f.db, TOKENS.accounts, "POST", `/admin/payments/${paymentId}/refund`, { reason: REFUND_REASON });
+      const requested = await api(f.db, TOKENS.accounts, "POST", `/admin/payments/${paymentId}/refund`, { reason: REFUND_REASON });
+      expect(requested.status).toBe(201);
+      expect(requested.json.data).toMatchObject({ status: "requested", amount_minor: 250000 });
+      // Nothing moves until a different user approves and the payout is recorded.
+      expect(row(f, "SELECT status FROM payments WHERE id = ?", [paymentId]).status).toBe("verified");
+      const refundId = Number(requested.json.data.id);
+      expect((await api(f.db, TOKENS.accounts, "POST", `/admin/refunds/${refundId}/approve`, {})).status).toBe(403);
+      expect((await api(f.db, TOKENS.manager, "POST", `/admin/refunds/${refundId}/approve`, {})).status).toBe(200);
+      const ok = await api(f.db, TOKENS.accounts, "POST", `/admin/refunds/${refundId}/payout`, { method: "bank_transfer", reference: "BT-H3-1" });
       expect(ok.status).toBe(200);
-      expect(ok.json.data.payment.status).toBe("refunded");
+      expect(ok.json.data.refund).toMatchObject({ status: "paid", payment_status: "refunded", payout_reference: "BT-H3-1" });
+      expect(ok.json.data.refund.credit_note_number).toMatch(/^KSM-CRN-\d{4}$/);
       expect(ok.json.data.summary.paymentAttentionRequired).toBe(true);
       expect(row(f, "SELECT status FROM receipts WHERE payment_id = ?", [paymentId]).status).toBe("voided");
       expect(Number(row(f, "SELECT payment_attention_required AS a FROM bookings WHERE id = ?", [bookingId]).a)).toBe(1);
@@ -343,8 +390,8 @@ describe("refund integrity — single authoritative refund path (real schema)", 
     it("legacy `notes` field is still accepted as the refund reason", async () => {
       const paymentId = insertVerifiedPayment(f, "KSM-PAY-H4", insertBooking(f, "KSM-BKG-H4", "confirmed"));
       const res = await api(f.db, TOKENS.manager, "POST", `/admin/payments/${paymentId}/refund`, { notes: REFUND_REASON });
-      expect(res.status).toBe(200);
-      expect(row(f, "SELECT notes FROM payments WHERE id = ?", [paymentId]).notes).toBe(REFUND_REASON);
+      expect(res.status).toBe(201);
+      expect(row(f, "SELECT reason FROM refunds WHERE payment_id = ?", [paymentId]).reason).toBe(REFUND_REASON);
     });
   });
 });
@@ -388,7 +435,7 @@ describe("archiving verified payments linked to active bookings is blocked (real
     expect((await f.svc.updatePaymentStatus(f.accounts, detached, "archived") as Record<string, unknown>).status).toBe("archived");
     const bookingId = insertBooking(f, "KSM-BKG-C2", "confirmed");
     const paymentId = insertVerifiedPayment(f, "KSM-PAY-C2", bookingId);
-    await f.svc.refundPayment(f.accounts, paymentId, REFUND_REASON);
+    await fullRefund(f, paymentId, REFUND_REASON);
     expect((await f.svc.updatePaymentStatus(f.accounts, paymentId, "archived") as Record<string, unknown>).status).toBe("archived");
   });
 

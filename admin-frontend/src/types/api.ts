@@ -304,8 +304,63 @@ export interface Payment {
   verified_by_staff_id?: number | null;
   verified_at?: string | null;
   notes?: string | null;
+  refunded_amount_minor?: number;
+  refund_status?: PaymentRefundStatus;
   created_at?: string;
   updated_at?: string;
+}
+
+export type PaymentRefundStatus = "none" | "partially_refunded" | "fully_refunded";
+export type RefundStatus = "requested" | "approved" | "rejected" | "cancelled" | "paid";
+export type RefundPayoutMethod = "cash" | "bank_transfer" | "mobile_money" | "card" | "other";
+
+export interface Refund {
+  id: number;
+  refund_number: string;
+  payment_id: number;
+  booking_id: number | null;
+  amount_minor: number;
+  currency: string;
+  status: RefundStatus;
+  reason?: string;
+  decision_note?: string | null;
+  requested_by_staff_id: number;
+  requested_at: string;
+  approved_by_staff_id?: number | null;
+  approved_at?: string | null;
+  paid_at?: string | null;
+  payout_method?: RefundPayoutMethod | null;
+  payout_reference?: string | null;
+  payment_reference?: string;
+  booking_number?: string | null;
+  resident_code?: string;
+  credit_note_number?: string | null;
+  payment_status?: PaymentStatus;
+  payment_refund_status?: PaymentRefundStatus;
+}
+
+export interface CreditNote {
+  id: number;
+  credit_note_number: string;
+  refund_id: number;
+  payment_id: number;
+  amount_minor: number;
+  currency: string;
+  status: "issued" | "voided";
+  issued_at: string;
+  refund_number?: string;
+  payment_reference?: string;
+  booking_number?: string | null;
+  resident_code?: string;
+  receipt_number?: string | null;
+}
+
+export interface RefundReport {
+  byStatus: Array<{ status: RefundStatus; count: number; amount_minor: number }>;
+  paid: { paid_count: number; paid_amount_minor: number; partial_paid_amount_minor: number };
+  byPayoutMethod: Array<{ payout_method: RefundPayoutMethod; count: number; amount_minor: number }>;
+  net: { gross_verified_minor?: number; refunded_minor?: number; net_verified_minor?: number; credit_notes_issued?: number };
+  refunds: Refund[];
 }
 
 export type ReceiptStatus = "issued" | "voided" | "archived";

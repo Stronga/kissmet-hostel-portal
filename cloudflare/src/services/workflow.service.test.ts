@@ -126,6 +126,16 @@ class WorkflowRepo {
       this.rows.bookings.push({ id, resident_id: binds[0], academic_session_id: binds[1], application_id: binds[2], booking_number: binds[3], status: "pending", total_amount_minor: binds[4], currency: binds[5], priced_room_id: binds[7], priced_room_rate_id: binds[8] });
       return { meta: { last_row_id: id, changes: 1 } };
     }
+    if (sql.startsWith("UPDATE bookings SET payment_attention_required = 1")) {
+      const row = this.rows.bookings.find((b) => b.id === binds[1] && !b.payment_attention_required);
+      if (row) Object.assign(row, { payment_attention_required: 1, payment_attention_reason: binds[0] });
+      return { meta: { changes: row ? 1 : 0 } };
+    }
+    if (sql.startsWith("UPDATE bookings SET payment_attention_required = 0")) {
+      const row = this.rows.bookings.find((b) => b.id === binds[0] && b.payment_attention_required);
+      if (row) Object.assign(row, { payment_attention_required: 0, payment_attention_reason: null });
+      return { meta: { changes: row ? 1 : 0 } };
+    }
     if (sql.startsWith("UPDATE bookings")) {
       const row = this.rows.bookings.find((b) => b.id === binds[3]);
       if (row) Object.assign(row, { status: binds[0] });
@@ -546,8 +556,11 @@ describe("phase 5 workflows", () => {
     await svc.updatePaymentStatus(manager, 1, "submitted");
     await svc.verifyPayment(manager, 1);
     await svc.updateBookingStatus(manager, bookingId, "confirmed");
-    await svc.refundPayment(manager, 1, "Resident withdrew");
-    expect(await svc.bookingPaymentSummary(bookingId)).toMatchObject({ verifiedPaidMinor: 0, confirmationRequirementMet: false });
+    // A paid full refund (RefundService, covered end-to-end in tests/refund-milestone-2.test.ts) leaves the
+    // payment refunded; the attention recalculation then flags the confirmed booking.
+    Object.assign(repo.rows.payments[0], { status: "refunded", refunded_amount_minor: 250000, refund_status: "fully_refunded" });
+    await svc.recalculatePaymentAttention(manager, bookingId, "refund", 1);
+    expect(await svc.bookingPaymentSummary(bookingId)).toMatchObject({ verifiedPaidMinor: 0, confirmationRequirementMet: false, paymentAttentionRequired: true });
     expect(repo.rows.bookings[0].status).toBe("confirmed");
     expect(repo.audits).toContain("admin.booking.payment_deficiency_after_refund");
   });

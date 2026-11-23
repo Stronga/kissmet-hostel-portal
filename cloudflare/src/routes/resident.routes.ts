@@ -168,6 +168,8 @@ residentRoutes.post("/me/payments/:id/slip", async (c) => {
     return c.json(ok(await service(c).uploadPaymentSlip(c.get("authUser"), Number(c.req.param("id")), file)), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
+residentRoutes.get("/me/refunds", async (c) => c.json(ok((await service(c).refunds(c.get("authUser"))).results ?? [])));
+residentRoutes.get("/me/credit-notes", async (c) => c.json(ok((await service(c).creditNotes(c.get("authUser"))).results ?? [])));
 residentRoutes.get("/me/receipts", async (c) => c.json(ok((await service(c).receipts(c.get("authUser"))).results ?? [])));
 residentRoutes.get("/me/receipts/:id", async (c) => {
   try { return c.json(ok(await service(c).receipt(c.get("authUser"), Number(c.req.param("id"))))); }

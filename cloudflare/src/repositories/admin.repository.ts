@@ -38,6 +38,14 @@ export class AdminRepository {
     return this.db.prepare(sql).bind(...binds).run();
   }
 
+  /**
+   * Runs statements as one D1 batch. D1 executes a batch as a single SQL transaction: if any
+   * statement fails, the whole batch is rolled back.
+   */
+  batch(statements: Array<{ sql: string; binds: unknown[] }>) {
+    return this.db.batch(statements.map((s) => this.db.prepare(s.sql).bind(...s.binds)));
+  }
+
   first<T>(sql: string, ...binds: unknown[]) {
     return this.db.prepare(sql).bind(...binds).first<T>();
   }
