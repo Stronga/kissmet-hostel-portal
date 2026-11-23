@@ -10,7 +10,9 @@ export function connectorPresence(ageSeconds: number | null | undefined, staleAf
 }
 
 export function primaryConnector(status: ConnectorStatus | null): ConnectorStatusEntry | null {
-  return status?.connectors[0] ?? null;
+  // Defensive: a malformed or partial payload (no `connectors` array) must render "offline", not crash the page.
+  const list: unknown = status?.connectors;
+  return Array.isArray(list) ? (list[0] as ConnectorStatusEntry | undefined) ?? null : null;
 }
 
 export function formatAge(ageSeconds: number): string {
