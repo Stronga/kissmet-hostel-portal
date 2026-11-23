@@ -585,10 +585,10 @@ export class ResidentService {
     if (!booking) return null;
     const totals = await this.repo.first<{ verified_minor: number; submitted_minor: number; pending_minor: number; refunded_minor: number }>(`
       SELECT
-        COALESCE(SUM(CASE WHEN status = 'verified' THEN amount_minor ELSE 0 END), 0) AS verified_minor,
+        COALESCE(SUM(CASE WHEN status = 'verified' THEN amount_minor - refunded_amount_minor ELSE 0 END), 0) AS verified_minor,
         COALESCE(SUM(CASE WHEN status = 'submitted' THEN amount_minor ELSE 0 END), 0) AS submitted_minor,
         COALESCE(SUM(CASE WHEN status = 'pending' THEN amount_minor ELSE 0 END), 0) AS pending_minor,
-        COALESCE(SUM(CASE WHEN status = 'refunded' THEN amount_minor ELSE 0 END), 0) AS refunded_minor
+        COALESCE(SUM(refunded_amount_minor), 0) AS refunded_minor
       FROM payments
       WHERE booking_id = ? AND resident_id = ?
     `, booking.id, actor.residentId);
@@ -637,7 +637,7 @@ export class ResidentService {
     const booking = await this.repo.first<Record<string, unknown>>("SELECT * FROM bookings WHERE id = ? AND resident_id = ? AND status IN ('pending', 'confirmed')", data.bookingId, actor.residentId);
     if (!booking) throw new Error("Booking not found");
     if (String(data.currency).toUpperCase() !== String(booking.currency).toUpperCase()) throw new Error("Payment currency must match booking currency");
-    const totals = await this.repo.first<{ verified_minor: number }>("SELECT COALESCE(SUM(amount_minor), 0) AS verified_minor FROM payments WHERE booking_id = ? AND resident_id = ? AND status = 'verified'", data.bookingId, actor.residentId);
+    const totals = await this.repo.first<{ verified_minor: number }>("SELECT COALESCE(SUM(amount_minor), 0) - COALESCE(SUM(refunded_amount_minor), 0) AS verified_minor FROM payments WHERE booking_id = ? AND resident_id = ? AND status = 'verified'", data.bookingId, actor.residentId);
     const verified = Number(totals?.verified_minor ?? 0);
     const obligation = agreementObligationMinor(booking);
     const outstandingMinor = Math.max(obligation - verified, 0);
@@ -713,6 +713,36 @@ export class ResidentService {
     );
     await this.repo.audit(actor.id, null, "resident.payment.slip_uploaded", "document", res.meta.last_row_id, { paymentId });
     return this.ownDocument(actor, Number(res.meta.last_row_id));
+  }
+
+  /** Resident read-only refund view (own refunds only; staff reasons/notes are never exposed). */
+  refunds(actor: AuthUser) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    return this.repo.all(`
+      SELECT r.id, r.refund_number, r.amount_minor, r.currency, r.status, r.requested_at, r.approved_at, r.paid_at,
+             r.payout_method, r.payout_reference, p.payment_reference, b.booking_number, cn.credit_note_number
+      FROM refunds r
+      JOIN payments p ON p.id = r.payment_id
+      LEFT JOIN bookings b ON b.id = r.booking_id
+      LEFT JOIN credit_notes cn ON cn.refund_id = r.id
+      WHERE r.resident_id = ?
+      ORDER BY r.id DESC
+    `, actor.residentId);
+  }
+
+  creditNotes(actor: AuthUser) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    return this.repo.all(`
+      SELECT cn.id, cn.credit_note_number, cn.amount_minor, cn.currency, cn.status, cn.issued_at,
+             r.refund_number, p.payment_reference, b.booking_number, rec.receipt_number
+      FROM credit_notes cn
+      JOIN refunds r ON r.id = cn.refund_id
+      JOIN payments p ON p.id = cn.payment_id
+      LEFT JOIN bookings b ON b.id = cn.booking_id
+      LEFT JOIN receipts rec ON rec.id = cn.receipt_id
+      WHERE cn.resident_id = ?
+      ORDER BY cn.id DESC
+    `, actor.residentId);
   }
 
   receipts(actor: AuthUser) {

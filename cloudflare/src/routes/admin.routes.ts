@@ -6,6 +6,7 @@ import { requireAuth, requirePermission, requireRole, requireStaff } from "../mi
 import { hasPermission } from "../auth/permissions";
 import { AdminRepository } from "../repositories/admin.repository";
 import { AdminService } from "../services/admin.service";
+import { RefundService } from "../services/refund.service";
 import { asObject, intField, pagination, stringField } from "../http/input";
 import { error, listOk, ok } from "../http/responses";
 import { routeError } from "../http/safe-error";
@@ -21,6 +22,11 @@ routes.use("*", adminWriteAbuseMiddleware);
 
 function service(c: { env: Env }) {
   return new AdminService(new AdminRepository(c.env.DB), c.env.DOCUMENTS);
+}
+
+function refunds(c: { env: Env }) {
+  const repo = new AdminRepository(c.env.DB);
+  return new RefundService(repo, new AdminService(repo, c.env.DOCUMENTS));
 }
 
 async function body(c: { req: { json: () => Promise<unknown> } }) {
@@ -671,14 +677,66 @@ routes.post("/payments/:id/reject", requirePermission("payment:verify"), async (
   try { const input = await body(c); return c.json(ok(await service(c).updatePaymentStatus(c.get("authUser"), Number(c.req.param("id")), "rejected", stringField(input, "notes", false, 2000)))); }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
-routes.post("/payments/:id/refund", requirePermission("payment:verify"), async (c) => {
+// Refund redesign milestone 2. Creating a refund is only possible here (the status endpoint refuses
+// `refunded`); approval/rejection/cancellation/payout live under /refunds/:id/*.
+routes.post("/payments/:id/refund", requirePermission("refund:request"), async (c) => {
   try {
     const input = await body(c);
     // `reason` is preferred; `notes` is accepted for backward compatibility with existing clients.
     const reason = stringField(input, "reason", false, 2000) ?? stringField(input, "notes", false, 2000);
-    return c.json(ok(await service(c).refundPayment(c.get("authUser"), Number(c.req.param("id")), reason)));
-  }
+    const refund = await refunds(c).requestRefund(c.get("authUser"), Number(c.req.param("id")), { amountMinor: intField(input, "amountMinor", false), reason });
+    return c.json(ok(refund), 201);
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/payments/:id/refunds", requirePermission("refund:read"), async (c) => {
+  try {
+    const paymentId = Number(c.req.param("id"));
+    const svc = refunds(c);
+    return c.json(ok({ refundable: await svc.refundable(paymentId), refunds: await svc.listRefunds({ paymentId, limit: 200 }) }));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/refunds", requirePermission("refund:read"), async (c) => {
+  try {
+    const url = new URL(c.req.url);
+    const p = pagination(url);
+    return c.json(ok(await refunds(c).listRefunds({ status: url.searchParams.get("status"), limit: p.limit, offset: p.offset })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/refunds/:id", requirePermission("refund:read"), async (c) => {
+  try { return c.json(ok(await refunds(c).refund(Number(c.req.param("id"))))); }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.post("/refunds/:id/approve", requirePermission("refund:approve"), async (c) => {
+  try { const input = await body(c); return c.json(ok(await refunds(c).approveRefund(c.get("authUser"), Number(c.req.param("id")), stringField(input, "note", false, 2000)))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.post("/refunds/:id/reject", requirePermission("refund:approve"), async (c) => {
+  try { const input = await body(c); return c.json(ok(await refunds(c).rejectRefund(c.get("authUser"), Number(c.req.param("id")), stringField(input, "note", false, 2000)))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.post("/refunds/:id/cancel", requirePermission("refund:request"), async (c) => {
+  try { const input = await body(c); return c.json(ok(await refunds(c).cancelRefund(c.get("authUser"), Number(c.req.param("id")), stringField(input, "note", false, 2000)))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.post("/refunds/:id/payout", requirePermission("refund:payout"), async (c) => {
+  try {
+    const input = await body(c);
+    return c.json(ok(await refunds(c).payoutRefund(c.get("authUser"), Number(c.req.param("id")), { method: stringField(input, "method", false, 32), reference: stringField(input, "reference", false, 120) })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/credit-notes", requirePermission("credit_note:read"), async (c) => {
+  const p = pagination(new URL(c.req.url));
+  return c.json(ok(await refunds(c).listCreditNotes({ limit: p.limit, offset: p.offset })));
+});
+routes.get("/credit-notes/:id", requirePermission("credit_note:read"), async (c) => {
+  try { return c.json(ok(await refunds(c).creditNote(Number(c.req.param("id"))))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/reports/refunds", requirePermission("report:finance"), async (c) => {
+  try {
+    const url = new URL(c.req.url);
+    return c.json(ok(await refunds(c).reportRefunds({ dateFrom: url.searchParams.get("dateFrom"), dateTo: url.searchParams.get("dateTo"), status: url.searchParams.get("status") })));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/payments/:id/slip", requirePermission("payment:write"), async (c) => {
   try {

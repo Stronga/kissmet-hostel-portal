@@ -513,8 +513,11 @@ describe("Stage 2L-G-R repaired 0018 booking rebuild", () => {
       expect(summary.verifiedPaidMinor).toBe(100000);
       expect(summary.balanceMinor).toBe(150000);
 
-      const refunded = await svc.refundPayment(actor, paymentId, "test refund");
-      expect(refunded.summary?.verifiedPaidMinor).toBe(0);
+      // A paid full refund (RefundService; see tests/refund-milestone-2.test.ts) moves the payment to
+      // refunded with refunded_amount_minor = amount; the attention recalculation then flags the booking.
+      run(db, `UPDATE payments SET status = 'refunded', refunded_amount_minor = amount_minor, refund_status = 'fully_refunded' WHERE id = ?`, [paymentId]);
+      const refundedSummary = await svc.recalculatePaymentAttention(actor, bookingId, "refund", paymentId);
+      expect(refundedSummary?.verifiedPaidMinor).toBe(0);
 
       const afterRefund = get<Record<string, unknown>>(db, `SELECT payment_attention_required, payment_attention_reason FROM bookings WHERE id = ?`, [
         bookingId,

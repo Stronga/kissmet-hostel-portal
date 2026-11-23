@@ -49,6 +49,7 @@ const EXPECTED_MIGRATIONS = [
   "0020_connector_heartbeats.sql",
   // Staff password rotation: additive users columns (local only until approved).
   "0021_staff_password_rotation.sql",
+  "0022_refund_records_credit_notes.sql",
 ];
 
 const BOOKING_REQUIRED_COLS = [
@@ -184,11 +185,12 @@ function seedCore(db: Database) {
 }
 
 describe("Stage 2L-L migration chain & schema consistency", () => {
-  it("applies exactly 0001→0021 (0020/0021 = additive heartbeat table / users columns only) and preserves critical columns", async () => {
+  it("applies exactly 0001→0022 (0020/0021/0022 = additive heartbeat table / users columns / refund records only) and preserves critical columns", async () => {
     const files = listMigrationFiles();
     expect(files).toEqual(EXPECTED_MIGRATIONS);
-    // After the 2L-L chain: the pre-Pi additive heartbeat table and the additive password-rotation columns.
-    expect(files.filter((f) => f > "0019_agreement_aware_allocations.sql")).toEqual(["0020_connector_heartbeats.sql", "0021_staff_password_rotation.sql"]);
+    // After the 2L-L chain: the pre-Pi additive heartbeat table, the additive password-rotation columns,
+    // and the additive refund-records/credit-notes tables (refund milestone 2).
+    expect(files.filter((f) => f > "0019_agreement_aware_allocations.sql")).toEqual(["0020_connector_heartbeats.sql", "0021_staff_password_rotation.sql", "0022_refund_records_credit_notes.sql"]);
 
     const db = await openMigratedDatabase();
     const bookingCols = all<{ name: string }>(db, `PRAGMA table_info(bookings)`).map((c) => String(c.name));

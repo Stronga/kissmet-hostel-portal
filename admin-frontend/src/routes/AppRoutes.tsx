@@ -17,6 +17,7 @@ const InternetAccessPage = lazy(() => import("../pages/InternetAccess/InternetAc
 const MaintenancePage = lazy(() => import("../pages/Maintenance/MaintenancePage").then((m) => ({ default: m.MaintenancePage })));
 const MessagesPage = lazy(() => import("../pages/Messages/MessagesPage").then((m) => ({ default: m.MessagesPage })));
 const PaymentsPage = lazy(() => import("../pages/Payments/PaymentsPage").then((m) => ({ default: m.PaymentsPage })));
+const RefundsPage = lazy(() => import("../pages/Refunds/RefundsPage").then((m) => ({ default: m.RefundsPage })));
 const ReceiptsPage = lazy(() => import("../pages/Receipts/ReceiptsPage").then((m) => ({ default: m.ReceiptsPage })));
 const ReportsPage = lazy(() => import("../pages/Reports/ReportsPage").then((m) => ({ default: m.ReportsPage })));
 const ResidentsPage = lazy(() => import("../pages/Residents/ResidentsPage").then((m) => ({ default: m.ResidentsPage })));
@@ -42,6 +43,7 @@ export function AppRoutes() {
             <Route path="/allocations" element={<AllocationsPage />} />
             <Route path="/payments" element={<PaymentsPage />} />
             <Route path="/receipts" element={<ReceiptsPage />} />
+            <Route path="/refunds" element={<RefundsPage />} />
             <Route path="/internet-access" element={<InternetAccessPage />} />
             <Route path="/maintenance" element={<MaintenancePage />} />
             <Route path="/announcements" element={<AnnouncementsPage />} />
