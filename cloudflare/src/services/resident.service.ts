@@ -715,6 +715,36 @@ export class ResidentService {
     return this.ownDocument(actor, Number(res.meta.last_row_id));
   }
 
+  /** Resident read-only refund view (own refunds only; staff reasons/notes are never exposed). */
+  refunds(actor: AuthUser) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    return this.repo.all(`
+      SELECT r.id, r.refund_number, r.amount_minor, r.currency, r.status, r.requested_at, r.approved_at, r.paid_at,
+             r.payout_method, r.payout_reference, p.payment_reference, b.booking_number, cn.credit_note_number
+      FROM refunds r
+      JOIN payments p ON p.id = r.payment_id
+      LEFT JOIN bookings b ON b.id = r.booking_id
+      LEFT JOIN credit_notes cn ON cn.refund_id = r.id
+      WHERE r.resident_id = ?
+      ORDER BY r.id DESC
+    `, actor.residentId);
+  }
+
+  creditNotes(actor: AuthUser) {
+    if (!actor.residentId) throw new Error("Resident session required");
+    return this.repo.all(`
+      SELECT cn.id, cn.credit_note_number, cn.amount_minor, cn.currency, cn.status, cn.issued_at,
+             r.refund_number, p.payment_reference, b.booking_number, rec.receipt_number
+      FROM credit_notes cn
+      JOIN refunds r ON r.id = cn.refund_id
+      JOIN payments p ON p.id = cn.payment_id
+      LEFT JOIN bookings b ON b.id = cn.booking_id
+      LEFT JOIN receipts rec ON rec.id = cn.receipt_id
+      WHERE cn.resident_id = ?
+      ORDER BY cn.id DESC
+    `, actor.residentId);
+  }
+
   receipts(actor: AuthUser) {
     if (!actor.residentId) throw new Error("Resident session required");
     return this.repo.all(`
