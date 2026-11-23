@@ -34,6 +34,12 @@ type ApplicationStatus = "draft" | "submitted" | "under_review" | "approved" | "
 type BookingStatus = "pending" | "confirmed" | "cancelled" | "expired" | "completed" | "archived";
 type AllocationStatus = "active" | "ended" | "cancelled" | "transferred" | "archived";
 type PaymentStatus = "pending" | "submitted" | "verified" | "rejected" | "refunded" | "cancelled" | "archived";
+export const REFUND_VIA_STATUS_ERROR = "Invalid workflow transition: refunds must use POST /admin/payments/:id/refund";
+export const REFUND_RECEIPT_VOID_REASON = "Payment refunded";
+export const REFUND_ATTENTION_REASON = "Refund reduced verified payments below confirmation threshold";
+/** Booking statuses that count as "active" for payment archiving (same set as duplicate-booking checks). */
+export const ACTIVE_BOOKING_STATUSES = ["pending", "confirmed"] as const;
+export const ARCHIVE_VERIFIED_ACTIVE_BOOKING_ERROR = "Payment is verified and linked to an active booking; refund it or end the booking before archiving";
 type MaintenanceStatus = "open" | "assigned" | "in_progress" | "resolved" | "closed" | "cancelled" | "archived";
 type AnnouncementStatus = "draft" | "published" | "expired" | "archived";
 type AnnouncementAudience = "all" | "residents" | "staff";
@@ -2207,20 +2213,37 @@ export class AdminService {
   }
 
   async updatePaymentStatus(actor: AuthUser, id: number, status: PaymentStatus, notes?: string | null) {
+    // Refunds have side effects (receipt void, booking payment-attention, audit) that live only in
+    // refundPayment. The generic status path must never mark a payment refunded.
+    if (status === "refunded") throw new Error(REFUND_VIA_STATUS_ERROR);
     const payment = await this.get("payments", id) as Record<string, unknown> | null;
     if (!payment) throw new Error("Payment not found");
     const current = payment.status as PaymentStatus;
     const allowed: Record<PaymentStatus, PaymentStatus[]> = {
       pending: ["submitted", "cancelled", "archived"],
       submitted: ["rejected", "cancelled"],
-      verified: ["refunded", "archived"],
+      verified: ["archived"],
       rejected: ["archived"],
       refunded: ["archived"],
       cancelled: ["archived"],
       archived: []
     };
     if (!allowed[current]?.includes(status)) throw new Error("Invalid workflow transition");
-    await this.repo.run("UPDATE payments SET status = ?, notes = COALESCE(?, notes), submitted_at = CASE WHEN ? = 'submitted' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE submitted_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", status, notes ?? null, status, id);
+    // Archiving a verified payment drops it from verified totals without voiding its receipt or
+    // re-evaluating the booking. While the booking is active (pending/confirmed) that would silently
+    // under-count what the resident paid, so it is refused; refund (POST /payments/:id/refund) or end
+    // the booking first. The guard is repeated inside the UPDATE so a booking that becomes active
+    // between the read and the write cannot slip through.
+    if (status === "archived" && current === "verified" && payment.booking_id != null) {
+      const booking = await this.repo.first<{ status: string }>("SELECT status FROM bookings WHERE id = ?", Number(payment.booking_id));
+      if (booking && (ACTIVE_BOOKING_STATUSES as readonly string[]).includes(booking.status)) {
+        await this.repo.audit(actor.id, actor.staffId, "admin.payment.archive_blocked", "payment", id, { bookingId: Number(payment.booking_id), bookingStatus: booking.status });
+        throw new Error(ARCHIVE_VERIFIED_ACTIVE_BOOKING_ERROR);
+      }
+    }
+    const transition = await this.repo.run(`UPDATE payments SET status = ?, notes = COALESCE(?, notes), submitted_at = CASE WHEN ? = 'submitted' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE submitted_at END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = ?
+      AND NOT (? = 'archived' AND status = 'verified' AND EXISTS (SELECT 1 FROM bookings b WHERE b.id = payments.booking_id AND b.status IN ('pending', 'confirmed')))`, status, notes ?? null, status, id, current, status);
+    if (Number(transition?.meta?.changes ?? 0) !== 1) throw new Error("Invalid workflow transition");
     await this.repo.audit(actor.id, actor.staffId, `admin.payment.${status}`, "payment", id, { from: current, to: status });
     return this.get("payments", id);
   }
@@ -2261,19 +2284,66 @@ export class AdminService {
     return { payment: await this.get("payments", id), summary: after };
   }
 
-  async refundPayment(actor: AuthUser, id: number, notes?: string | null) {
+  /**
+   * Single authoritative refund path (milestone 1 of the refund redesign).
+   *
+   * Every way of moving a payment to `refunded` must go through here: the generic
+   * `updatePaymentStatus` refuses `refunded` and the admin route directs callers to
+   * `POST /admin/payments/:id/refund`. In one place this:
+   *  - claims the refund with a conditional `verified -> refunded` update (double/concurrent
+   *    refunds change zero rows and fail),
+   *  - voids the payment's active receipt (receipts.status = 'voided' with a fixed, PII-free
+   *    reason) so no issued receipt remains for money that was returned,
+   *  - re-evaluates the booking and sets payment_attention_required / payment_attention_reason
+   *    when a confirmed booking drops below its confirmation threshold,
+   *  - writes PII-free audit events (the free-text reason is stored on the payment only).
+   */
+  async refundPayment(actor: AuthUser, id: number, reason?: string | null) {
+    const trimmedReason = typeof reason === "string" ? reason.trim() : "";
+    if (!trimmedReason) throw new Error("Refund reason required");
     const payment = await this.get("payments", id) as Record<string, unknown> | null;
     if (!payment) throw new Error("Payment not found");
     if (payment.status !== "verified") throw new Error("Invalid workflow transition");
-    await this.repo.run("UPDATE payments SET status = 'refunded', notes = COALESCE(?, notes), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", notes ?? null, id);
-    const summary = await this.bookingPaymentSummary(Number(payment.booking_id));
-    const booking = await this.get("bookings", Number(payment.booking_id)) as Record<string, unknown> | null;
-    if (booking?.status === "confirmed" && !summary.confirmationRequirementMet) {
-      await this.repo.run("UPDATE bookings SET payment_attention_required = 1, payment_attention_reason = 'Refund reduced verified payments below confirmation threshold', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", payment.booking_id);
-      await this.repo.audit(actor.id, actor.staffId, "admin.booking.payment_deficiency_after_refund", "booking", Number(payment.booking_id), { paymentId: id });
+    const claim = await this.repo.run(
+      "UPDATE payments SET status = 'refunded', notes = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = 'verified'",
+      trimmedReason,
+      id
+    );
+    if (Number(claim?.meta?.changes ?? 0) !== 1) throw new Error("Invalid workflow transition");
+
+    const receipt = await this.repo.first<{ id: number }>("SELECT id FROM receipts WHERE payment_id = ? AND status = 'issued'", id);
+    let voidedReceiptId: number | null = null;
+    if (receipt) {
+      const voided = await this.repo.run(
+        "UPDATE receipts SET status = 'voided', voided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), void_reason = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = 'issued'",
+        REFUND_RECEIPT_VOID_REASON,
+        Number(receipt.id)
+      );
+      if (Number(voided?.meta?.changes ?? 0) === 1) {
+        voidedReceiptId = Number(receipt.id);
+        await this.repo.audit(actor.id, actor.staffId, "admin.receipt.voided", "receipt", voidedReceiptId, { paymentId: id, cause: "payment_refunded" });
+      }
     }
-    await this.repo.audit(actor.id, actor.staffId, "admin.payment.refunded", "payment", id, { bookingId: payment.booking_id });
-    return { payment: await this.get("payments", id), summary };
+
+    const bookingId = payment.booking_id == null ? null : Number(payment.booking_id);
+    let summary: Awaited<ReturnType<AdminService["bookingPaymentSummary"]>> | null = null;
+    if (bookingId != null && Number.isInteger(bookingId)) {
+      const booking = await this.get("bookings", bookingId) as Record<string, unknown> | null;
+      if (booking) {
+        summary = await this.bookingPaymentSummary(bookingId);
+        if (booking.status === "confirmed" && !summary.confirmationRequirementMet) {
+          await this.repo.run("UPDATE bookings SET payment_attention_required = 1, payment_attention_reason = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", REFUND_ATTENTION_REASON, bookingId);
+          await this.repo.audit(actor.id, actor.staffId, "admin.booking.payment_deficiency_after_refund", "booking", bookingId, { paymentId: id });
+          summary = await this.bookingPaymentSummary(bookingId);
+        }
+      }
+    }
+    await this.repo.audit(actor.id, actor.staffId, "admin.payment.refunded", "payment", id, {
+      bookingId: bookingId ?? null,
+      amountMinor: Number(payment.amount_minor),
+      receiptVoidedId: voidedReceiptId
+    });
+    return { payment: await this.get("payments", id), summary, voidedReceiptId };
   }
 
   async uploadPaymentSlip(actor: AuthUser, paymentId: number, file: File) {

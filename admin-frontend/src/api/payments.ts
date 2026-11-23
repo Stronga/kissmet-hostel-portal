@@ -28,8 +28,8 @@ export async function rejectPayment(id: number, notes?: string) {
   return (await apiRequest<DataEnvelope<Payment>>(`/admin/payments/${id}/reject`, { method: "POST", body: JSON.stringify({ notes: notes || undefined }) })).data;
 }
 
-export async function refundPayment(id: number, notes?: string) {
-  return (await apiRequest<DataEnvelope<{ payment: Payment; summary: BookingPaymentSummary }>>(`/admin/payments/${id}/refund`, { method: "POST", body: JSON.stringify({ notes: notes || undefined }) })).data;
+export async function refundPayment(id: number, reason?: string) {
+  return (await apiRequest<DataEnvelope<{ payment: Payment; summary: BookingPaymentSummary | null; voidedReceiptId?: number | null }>>(`/admin/payments/${id}/refund`, { method: "POST", body: JSON.stringify({ reason: reason || undefined }) })).data;
 }
 
 export async function uploadPaymentSlip(id: number, file: File) {
