@@ -227,7 +227,7 @@ describe("production config and wrangler staging guards", () => {
     expect(issues).toEqual([]);
   });
 
-  it("keeps staging on mock SMS, placeholder D1, private R2, no connector URL, no DEV_OTP_LOG", () => {
+  it("keeps staging on mock SMS, wired staging D1, private R2, no connector URL, no DEV_OTP_LOG", () => {
     const stagingVars = wranglerToml.split("[env.staging.vars]")[1].split("[[env.staging")[0];
     const stagingD1 = wranglerToml.split("[[env.staging.d1_databases]]")[1].split("[[")[0];
     const stagingR2 = wranglerToml.split("[[env.staging.r2_buckets]]")[1].split("# --- production")[0];
@@ -238,7 +238,8 @@ describe("production config and wrangler staging guards", () => {
     expect(stagingVars).not.toMatch(/^STAGING_OTP_TEST_KEY\s*=/m);
     expect(stagingVars).not.toMatch(/^DEV_OTP_LOG\s*=/m);
     expect(stagingD1).toContain("kissmet-hostel-staging");
-    expect(stagingD1).toContain("replace-with-staging-d1-database-id");
+    expect(stagingD1).toContain("958f10b6-a7a6-4943-8c20-afe9b97e6388");
+    expect(stagingD1).not.toContain("replace-with-staging-d1-database-id");
     expect(stagingR2).toContain("kissmet-hostel-staging-documents");
     expect(wranglerToml).toMatch(/Private bucket/);
   });

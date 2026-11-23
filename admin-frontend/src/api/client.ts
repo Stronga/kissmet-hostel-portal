@@ -30,7 +30,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers, credentials: "include" });
   const text = await response.text();
   const payload = text ? JSON.parse(text) as unknown : null;
 
@@ -55,7 +55,7 @@ export async function apiDownload(path: string): Promise<{ blob: Blob; filename:
   const headers = new Headers();
   headers.set("Accept", "*/*");
   if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
-  const response = await fetch(`${API_BASE_URL}${path}`, { headers });
+  const response = await fetch(`${API_BASE_URL}${path}`, { headers, credentials: "include" });
   if (!response.ok) {
     if (response.status === 401) unauthorizedHandler?.();
     let message = "Download failed";

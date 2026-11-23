@@ -173,6 +173,8 @@ Frontends (HTTPS API URL is mandatory; the production-mode build guard refuses m
 ```bash
 cd admin-frontend
 npm run build:staging
+# build:staging copies headers/staging/_headers over dist/_headers so connect-src
+# allows https://staging-api.kissmetgroup.org. Production public/_headers is unchanged.
 # After the Pages project exists (approval):
 # npx wrangler pages deploy dist --project-name=kissmet-admin-staging
 

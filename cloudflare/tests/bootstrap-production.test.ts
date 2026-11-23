@@ -246,7 +246,12 @@ describe("bootstrap CLI guards (no wrangler, no network)", () => {
   });
 
   it("--apply refuses staging while its D1 id is a placeholder", async () => {
-    const h = harness(files);
+    const placeholderToml = wrangler.replace(
+      /database_id = "958f10b6-a7a6-4943-8c20-afe9b97e6388"/,
+      'database_id = "replace-with-staging-d1-database-id"'
+    );
+    expect(placeholderToml).toContain("replace-with-staging-d1-database-id");
+    const h = harness({ ...files, "wrangler.toml": placeholderToml });
     expect(await boot.main(["--env", "staging", "--config", "cfg.json", "--apply", "--confirm", "kissmet-hostel-staging", "--out", "s.sql"], h.deps)).toBe(2);
     expect(h.err.join("")).toMatch(/placeholder/);
     expect(h.spawned).toEqual([]);

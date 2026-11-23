@@ -49,3 +49,47 @@ describe("CORS origins", () => {
     expect(origins).toEqual(["https://admin.kissmetgroup.org"]);
   });
 });
+
+describe("CORS credentials", () => {
+  it("sets Allow-Credentials for an allowlisted origin, never a wildcard", async () => {
+    const { app, env } = appWith({
+      APP_ENV: "staging",
+      ADMIN_ALLOWED_ORIGINS: "https://staging-admin.kissmetgroup.org,https://staging-portal.kissmetgroup.org"
+    });
+    const res = await app.fetch(new Request("http://localhost/ping", {
+      headers: { Origin: "https://staging-admin.kissmetgroup.org" }
+    }), env);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://staging-admin.kissmetgroup.org");
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+    expect(res.headers.get("Access-Control-Allow-Origin")).not.toBe("*");
+  });
+
+  it("sets Allow-Credentials on OPTIONS preflight for an allowlisted origin", async () => {
+    const { app, env } = appWith({
+      APP_ENV: "staging",
+      ADMIN_ALLOWED_ORIGINS: "https://staging-admin.kissmetgroup.org,https://staging-portal.kissmetgroup.org"
+    });
+    const res = await app.fetch(new Request("http://localhost/ping", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://staging-portal.kissmetgroup.org",
+        "Access-Control-Request-Method": "POST"
+      }
+    }), env);
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://staging-portal.kissmetgroup.org");
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+  });
+
+  it("omits Allow-Credentials and ACAO when the origin is not allowlisted", async () => {
+    const { app, env } = appWith({
+      APP_ENV: "staging",
+      ADMIN_ALLOWED_ORIGINS: "https://staging-admin.kissmetgroup.org"
+    });
+    const res = await app.fetch(new Request("http://localhost/ping", {
+      headers: { Origin: "https://evil.example" }
+    }), env);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+  });
+});
