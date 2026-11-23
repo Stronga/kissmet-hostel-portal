@@ -2,6 +2,8 @@ import type { Env } from "../types/bindings";
 import { AuthRepository, type PendingOtpRecord, type ResidentLoginRecord } from "../repositories/auth.repository";
 import { hashPassword, randomOtp, randomToken, sha256Hex, verifyPassword } from "../auth/crypto";
 import { checkRateLimit, rateLimitKey } from "../auth/rate-limit";
+import { PASSWORD_ERROR_CODES, PASSWORD_MAX_LENGTH, passwordProblems } from "../auth/password-policy";
+import type { AuthUser } from "../auth/context";
 import {
   authMethodAuditCategory,
   parseResidentAuthIdentity,
@@ -24,6 +26,21 @@ const OTP_VERIFY_IP_WINDOW_MS = 15 * 60_000;
 /** Isolate-local IP ceiling for staff login across identifiers. */
 const STAFF_LOGIN_IP_LIMIT = 30;
 const STAFF_LOGIN_IP_WINDOW_MS = 15 * 60_000;
+/**
+ * Self-service password change attempts per staff user, counted in D1 (`auth_rate_limits`,
+ * migration 0021) so the limit is shared by every isolate/POP rather than per instance.
+ */
+export const PASSWORD_CHANGE_LIMIT = 5;
+export const PASSWORD_CHANGE_WINDOW_MS = 15 * 60_000;
+
+/** PII-free D1 bucket key: numeric user id only. */
+export function passwordChangeRateLimitKey(userId: number): string {
+  return `staff-password-change:user:${userId}`;
+}
+
+function passwordError(status: number, code: string, message: string, extra: Record<string, unknown> = {}) {
+  return { ok: false as const, status, body: { ok: false as const, error: { code, message, ...extra } } };
+}
 
 const GENERIC_OTP_REQUEST = {
   ok: true as const,
@@ -109,9 +126,63 @@ export class AuthService {
     const tokenHash = await sha256Hex(token);
     const expiresAt = futureIso(SESSION_HOURS * 60);
     await this.repo.createSession(staff.user_id, tokenHash, expiresAt, ctx.userAgent);
-    await this.repo.writeAudit(staff.user_id, staff.staff_id, "auth.staff.login_succeeded", "user", staff.user_id);
+    const mustChangePassword = Number(staff.must_change_password ?? 0) === 1;
+    await this.repo.writeAudit(staff.user_id, staff.staff_id, "auth.staff.login_succeeded", "user", staff.user_id, mustChangePassword ? { mustChangePassword: true } : undefined);
 
-    return { ok: true as const, status: 200, body: { token, expiresAt, user: { id: staff.user_id, name: staff.display_name, role: staff.role_code } } };
+    return {
+      ok: true as const,
+      status: 200,
+      body: { token, expiresAt, mustChangePassword, user: { id: staff.user_id, name: staff.display_name, role: staff.role_code, mustChangePassword } }
+    };
+  }
+
+  /**
+   * Self-service staff password change.
+   * - current password required (verified against the stored PBKDF2 hash)
+   * - new password must satisfy the policy in password-policy.ts and differ from the current one
+   * - on success: new hash, must_change_password cleared, password_changed_at set, and every OTHER
+   *   active session of the user revoked (the calling session stays valid)
+   * - audited without any password material
+   */
+  async changeStaffPassword(user: AuthUser, currentPassword: string, newPassword: string) {
+    if (user.userType !== "staff" || !user.staffId) return passwordError(403, "forbidden", "Forbidden");
+
+    const nowMs = Date.now();
+    const attempt = await this.repo.hitRateLimit(
+      passwordChangeRateLimitKey(user.id),
+      new Date(nowMs).toISOString(),
+      new Date(nowMs - PASSWORD_CHANGE_WINDOW_MS).toISOString()
+    );
+    if (attempt > PASSWORD_CHANGE_LIMIT) {
+      await this.repo.writeAudit(user.id, user.staffId, "auth.staff.password_change_rate_limited", "user", user.id);
+      return passwordError(429, PASSWORD_ERROR_CODES.rateLimited, "Too many password change attempts. Try again later.");
+    }
+
+    const record = await this.repo.findStaffPasswordRecord(user.id);
+    if (!record) return passwordError(403, "forbidden", "Forbidden");
+
+    if (typeof currentPassword !== "string" || currentPassword.length > PASSWORD_MAX_LENGTH || !(await verifyPassword(currentPassword, record.password_hash))) {
+      await this.repo.writeAudit(user.id, user.staffId, "auth.staff.password_change_failed", "user", user.id, { reason: "current_invalid" });
+      return passwordError(400, PASSWORD_ERROR_CODES.currentInvalid, "Current password is incorrect");
+    }
+
+    const problems = passwordProblems(newPassword, { username: record.username, email: record.email });
+    if (problems.length) {
+      await this.repo.writeAudit(user.id, user.staffId, "auth.staff.password_change_failed", "user", user.id, { reason: "policy" });
+      return passwordError(400, PASSWORD_ERROR_CODES.tooWeak, "New password does not meet the password policy", { requirements: problems });
+    }
+
+    if (newPassword === currentPassword || await verifyPassword(newPassword, record.password_hash)) {
+      await this.repo.writeAudit(user.id, user.staffId, "auth.staff.password_change_failed", "user", user.id, { reason: "reused" });
+      return passwordError(400, PASSWORD_ERROR_CODES.reused, "New password must be different from the current password");
+    }
+
+    const wasForced = Number(record.must_change_password ?? 0) === 1;
+    await this.repo.updateStaffPassword(user.id, await hashPassword(newPassword));
+    const revokedOtherSessions = await this.repo.revokeOtherSessions(user.id, user.sessionId, "password_changed");
+    await this.repo.writeAudit(user.id, user.staffId, "auth.staff.password_changed", "user", user.id, { wasForced, revokedOtherSessions });
+
+    return { ok: true as const, status: 200, body: { ok: true as const, data: { mustChangePassword: false, revokedOtherSessions } } };
   }
 
   /**

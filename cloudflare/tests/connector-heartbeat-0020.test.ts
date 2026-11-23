@@ -76,7 +76,7 @@ afterEach(() => db.close());
 describe("migration 0020", () => {
   it("is the next forward migration after 0019 and is additive", () => {
     const files = listMigrationFiles();
-    expect(files.at(-1)).toBe("0020_connector_heartbeats.sql");
+    expect(files).toContain("0020_connector_heartbeats.sql");
     expect(files.indexOf("0020_connector_heartbeats.sql")).toBe(files.indexOf("0019_agreement_aware_allocations.sql") + 1);
     const sql = readMigrationSql("0020_connector_heartbeats.sql");
     expect(sql).not.toMatch(/\b(DROP|ALTER|DELETE|UPDATE)\b/i);

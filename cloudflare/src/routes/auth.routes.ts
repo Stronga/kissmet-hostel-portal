@@ -102,6 +102,18 @@ authRoutes.post("/resident/verify-otp", async (c) => {
   return c.json(result.body, result.status as ContentfulStatusCode);
 });
 
+authRoutes.post("/staff/change-password", requireAuth, async (c) => {
+  const user = c.get("authUser");
+  if (!user || user.userType !== "staff") return c.json({ ok: false, error: { code: "forbidden", message: "Forbidden" } }, 403);
+  const input = parseJsonObject(await c.req.json().catch(() => null));
+  if (!input) return c.json({ ok: false, error: { code: "bad_request", message: "Invalid request body" } }, 400);
+  // Passwords are not trimmed: whitespace is significant.
+  const currentPassword = typeof input.currentPassword === "string" ? input.currentPassword : "";
+  const newPassword = typeof input.newPassword === "string" ? input.newPassword : "";
+  const result = await service(c).changeStaffPassword(user, currentPassword, newPassword);
+  return c.json(result.body, result.status as ContentfulStatusCode);
+});
+
 authRoutes.post("/logout", requireAuth, async (c) => {
   const token = c.req.header("Authorization")?.slice("Bearer ".length).trim();
   if (token) await service(c).logout(token);

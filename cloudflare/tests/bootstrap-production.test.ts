@@ -96,7 +96,7 @@ describe("bootstrap config validation", () => {
   });
 });
 
-describe("bootstrap SQL against a locally migrated D1 schema (0001-0020)", () => {
+describe("bootstrap SQL against a locally migrated D1 schema (0001-0021)", () => {
   it("creates the reference data, and a second run creates nothing new (idempotent)", async () => {
     const db = await openMigratedDatabase();
     const plan = boot.validateConfig(sampleConfig());
@@ -152,6 +152,16 @@ describe("bootstrap SQL against a locally migrated D1 schema (0001-0020)", () =>
     expect(stored).toMatch(/^pbkdf2-sha256\$100000\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
     expect(await verifyPassword(temp, stored)).toBe(true);
     expect(await verifyPassword("wrong", stored)).toBe(false);
+    // Mandatory rotation: the bootstrap super admin must change the temporary password at first login.
+    expect(get(db, "SELECT must_change_password AS m FROM users WHERE username = 'fixture.admin'")).toEqual({ m: 1 });
+    db.close();
+  });
+
+  it("fails the whole batch on a schema without migration 0021 (password rotation columns)", async () => {
+    const db = await openMigratedDatabase("0020_connector_heartbeats.sql");
+    const sql = boot.generateSql(boot.validateConfig(sampleConfig()), { env: "production" });
+    expect(() => db.exec(sql)).toThrow(/must_change_password/);
+    expect(get(db, "SELECT COUNT(*) AS n FROM roles")).toEqual({ n: 0 });
     db.close();
   });
 
