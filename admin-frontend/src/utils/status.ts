@@ -1,25 +1,33 @@
+const success = "km-badge--success";
+const warning = "km-badge--warning";
+const danger = "km-badge--danger";
+const info = "km-badge--info";
+const neutral = "km-badge--neutral";
+
 export const statusTone: Record<string, string> = {
-  active: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  approved: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  submitted: "bg-blue-50 text-blue-700 border-blue-200",
-  under_review: "bg-amber-50 text-amber-700 border-amber-200",
-  pending: "bg-amber-50 text-amber-700 border-amber-200",
-  normal: "bg-slate-50 text-slate-700 border-slate-200",
-  important: "bg-amber-50 text-amber-700 border-amber-200",
-  high_alert: "bg-red-50 text-red-700 border-red-200",
-  published: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  draft: "bg-slate-50 text-slate-700 border-slate-200",
-  queued: "bg-blue-50 text-blue-700 border-blue-200",
-  sent: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  partially_failed: "bg-amber-50 text-amber-700 border-amber-200",
-  failed: "bg-red-50 text-red-700 border-red-200",
-  expired: "bg-slate-100 text-slate-600 border-slate-200",
-  in_progress: "bg-blue-50 text-blue-700 border-blue-200",
-  resolved: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  rejected: "bg-red-50 text-red-700 border-red-200",
-  archived: "bg-slate-100 text-slate-600 border-slate-200",
-  suspended: "bg-amber-50 text-amber-700 border-amber-200",
-  disabled: "bg-slate-100 text-slate-600 border-slate-200",
-  synced: "bg-emerald-50 text-emerald-700 border-emerald-200"
+  active: success,
+  approved: success,
+  confirmed: success,
+  verified: success,
+  resolved: success,
+  published: success,
+  sent: success,
+  synced: success,
+  submitted: info,
+  under_review: warning,
+  pending: warning,
+  normal: neutral,
+  important: warning,
+  high_alert: danger,
+  draft: neutral,
+  queued: info,
+  partially_failed: warning,
+  failed: danger,
+  expired: neutral,
+  in_progress: info,
+  rejected: danger,
+  cancelled: danger,
+  archived: neutral,
+  suspended: warning,
+  disabled: neutral
 };

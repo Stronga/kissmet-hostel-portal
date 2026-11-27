@@ -1,5 +1,6 @@
 import { Bell, KeyRound, LogOut, Menu } from "lucide-react";
 import { Link } from "react-router-dom";
+import { BrandMark } from "../../design-system/react/BrandMark";
 import { useAuth } from "../../auth/AuthContext";
 import { formatStatus } from "../../utils/format";
 
@@ -11,6 +12,7 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
         <button type="button" className="rounded-md p-2 text-text-secondary hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-primary lg:hidden" onClick={onMenuClick} aria-label="Open navigation">
           <Menu className="h-5 w-5" />
         </button>
+        <BrandMark className="lg:hidden" height={36} alt="" />
         <div>
           <p className="text-sm font-semibold text-text-primary">Admin Portal</p>
           <p className="text-xs text-text-secondary">admin.kissmetgroup.org</p>

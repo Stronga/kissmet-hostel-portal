@@ -1,4 +1,5 @@
 import { LogOut } from "lucide-react";
+import { BrandMark } from "../../../../admin-frontend/src/design-system/react/BrandMark";
 import { Button } from "../common/Button";
 import { portalTitle } from "./navigation";
 
@@ -12,9 +13,12 @@ export function ResidentHeader({ displayName, onLogout }: ResidentHeaderProps) {
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-surface/95 px-4 py-3 backdrop-blur xl:hidden">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-primary">Kissmet</p>
-          <h1 className="text-base font-semibold text-text-primary">{portalTitle}</h1>
+        <div className="flex items-center gap-3">
+          <BrandMark height={40} alt="" />
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary">Kissmet</p>
+            <h1 className="text-base font-semibold text-text-primary">{portalTitle}</h1>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           {displayName ? <span className="hidden text-sm text-text-secondary sm:block">{displayName}</span> : null}

@@ -107,7 +107,7 @@ export function InfoHelp({ label, children }: InfoHelpProps) {
           ref={panelRef}
           id={panelId}
           role="tooltip"
-          className="fixed z-40 rounded-xl border border-[#eaeff2] bg-white p-3 text-left text-[13px] leading-snug text-text-secondary shadow-[0_8px_24px_rgba(20,35,40,0.12)]"
+          className="fixed z-40 rounded-xl border border-border bg-white p-3 text-left text-[13px] leading-snug text-text-secondary shadow-[0_8px_24px_rgba(20,35,40,0.12)]"
           style={{ top: pos.top, left: pos.left, width: pos.width }}
           onMouseLeave={() => {
             if (hoverCapable.current) setOpen(false);

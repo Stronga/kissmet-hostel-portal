@@ -9,7 +9,7 @@ interface ErrorStateProps {
 
 export function ErrorState({ title = "Something went wrong", message, onRetry, retryLabel = "Retry" }: ErrorStateProps) {
   return (
-    <div className="rounded-token border border-danger/30 bg-[#fff5f4] p-4 text-sm text-danger" role="alert">
+    <div className="rounded-token border border-danger/30 bg-[var(--km-color-danger-bg)] p-4 text-sm text-danger" role="alert">
       <p className="font-semibold">{title}</p>
       <p className="mt-1">{message}</p>
       {onRetry ? (

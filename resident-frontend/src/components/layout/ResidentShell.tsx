@@ -1,9 +1,6 @@
 import { ArrowRight, Headset, LogOut, UserRound } from "lucide-react";
-import kissmetSidebarLogoAvif from "../../assets/kissmet-sidebar-logo.avif";
-import kissmetSidebarLogoWebp from "../../assets/kissmet-sidebar-logo.webp";
-import kissmetSidebarLogo from "../../assets/kissmet-sidebar-logo.png";
-import { ResponsiveImage } from "../common/ResponsiveImage";
 import { useCallback, useMemo, useState } from "react";
+import { BrandMark } from "../../../../admin-frontend/src/design-system/react/BrandMark";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { statusLabel } from "../../utils/format";
@@ -53,19 +50,9 @@ export function ResidentShell() {
 
       {/* Full desktop chrome (sidebar) uses xl (~1200px)+; below that keeps mobile/tablet nav. */}
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 py-5 xl:mx-0 xl:max-w-none xl:min-h-screen xl:grid-cols-[280px_minmax(0,1fr)] xl:gap-0 xl:px-0 xl:py-0">
-        <aside className="sticky top-[73px] hidden self-start rounded-token border border-border bg-surface p-3 shadow-token xl:sticky xl:top-0 xl:flex xl:h-screen xl:max-h-screen xl:flex-col xl:overflow-y-auto xl:rounded-none xl:border-0 xl:border-r xl:border-[#eaeff2] xl:bg-white xl:p-8 xl:shadow-none">
+        <aside className="sticky top-[73px] hidden self-start rounded-token border border-border bg-surface p-3 shadow-token xl:sticky xl:top-0 xl:flex xl:h-screen xl:max-h-screen xl:flex-col xl:overflow-y-auto xl:rounded-none xl:border-0 xl:border-r xl:border-border xl:bg-white xl:p-8 xl:shadow-none">
           <div className="mb-10 flex items-center gap-3 px-2">
-            <ResponsiveImage
-              avif={kissmetSidebarLogoAvif}
-              webp={kissmetSidebarLogoWebp}
-              png={kissmetSidebarLogo}
-              alt=""
-              decorative
-              width={234}
-              height={160}
-              loading="eager"
-              imgClassName="h-10 w-auto max-w-[52px] shrink-0 object-contain"
-            />
+            <BrandMark height={56} alt="" />
             <div>
               <p className="text-lg font-bold leading-tight text-text-primary">Kissmet</p>
               <p className="text-[11px] font-semibold tracking-wide text-text-secondary">HOSTEL</p>
@@ -81,7 +68,7 @@ export function ResidentShell() {
                   `flex min-h-11 items-center gap-3 rounded-token px-3 py-2 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary xl:gap-4 xl:rounded-full xl:px-5 xl:py-3.5 xl:text-[15px] ${
                     isActive
                       ? "bg-muted text-primary xl:bg-primary xl:text-white"
-                      : "text-text-secondary hover:bg-muted hover:text-text-primary xl:hover:bg-[#f7f9fa]"
+                      : "text-text-secondary hover:bg-muted hover:text-text-primary xl:hover:bg-muted"
                   }`
                 }
               >
@@ -92,7 +79,7 @@ export function ResidentShell() {
           </nav>
           <Link
             to="/maintenance"
-            className="mt-8 hidden items-center gap-3 rounded-3xl bg-[#f7f9fa] p-4 xl:flex"
+            className="mt-8 hidden items-center gap-3 rounded-3xl bg-muted p-4 xl:flex"
           >
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-primary shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
               <Headset size={18} aria-hidden="true" />
@@ -112,7 +99,7 @@ export function ResidentShell() {
           <div className="mb-6 hidden items-center justify-end gap-2.5 xl:flex">
             {initials ? (
               <span
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-[#d6eae5] bg-[#ebf8f5] text-sm font-semibold text-primary shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-[var(--km-color-primary-subtle)] text-sm font-semibold text-primary shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
                 title={user?.displayName}
                 aria-label={user?.displayName}
               >
@@ -121,7 +108,7 @@ export function ResidentShell() {
             ) : null}
             {statusText ? (
               <span
-                className="inline-flex items-center gap-1.5 rounded-full border border-[#eaeff2] bg-white px-3.5 py-2 text-xs font-semibold text-text-secondary shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-3.5 py-2 text-xs font-semibold text-text-secondary shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
                 aria-label={`Status: ${statusText}`}
               >
                 <UserRound size={14} className="text-primary" aria-hidden="true" />
@@ -132,7 +119,7 @@ export function ResidentShell() {
               type="button"
               onClick={() => void handleLogout()}
               aria-label="Logout"
-              className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[#eaeff2] bg-white px-4 py-2 text-sm font-semibold text-text-secondary shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:bg-[#f7f9fa] hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              className="inline-flex min-h-10 items-center gap-2 rounded-full border border-border bg-white px-4 py-2 text-sm font-semibold text-text-secondary shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:bg-muted hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               <LogOut size={16} aria-hidden="true" />
               <span>Logout</span>

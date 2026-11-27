@@ -44,16 +44,16 @@ function Detail({ label, value }: { label: string; value?: string | number | nul
 
 function statusTone(status?: string | null) {
   if (["approved", "complete", "confirmed", "verified", "assigned", "resident"].includes(String(status))) {
-    return "bg-[#dcf1e9] text-[#127b55]";
+    return "bg-[var(--km-color-success-bg)] text-success";
   }
   if (["pending", "submitted", "under_review", "current", "unread"].includes(String(status))) {
-    return "bg-[#e6f2fb] text-[#1974d2]";
+    return "bg-[var(--km-color-info-bg)] text-info";
   }
   if (["attention", "rejected", "payment_attention"].includes(String(status))) {
     return "bg-red-50 text-danger";
   }
   if (["booking", "confirmed_booking"].includes(String(status))) {
-    return "bg-[#efe9fb] text-[#6e48b9]";
+    return "bg-[var(--km-color-info-bg)] text-info";
   }
   return "bg-muted text-text-secondary";
 }
@@ -100,12 +100,12 @@ function HomeStatusBar({ data }: { data: DashboardData }) {
       detail: application?.status === "approved" ? "You can proceed to booking" : application ? application.application_number : "Start when ready",
       status: application?.status === "approved" ? "complete" : application?.status,
       badge: application?.status === "approved" ? "Complete" : application ? statusLabel(application.status) : "Pending",
-      badgeTone: application?.status === "approved" ? "bg-[#dcf1e9] text-[#127b55]" : undefined,
+      badgeTone: application?.status === "approved" ? "bg-[var(--km-color-success-bg)] text-success" : undefined,
       badgeIcon: application?.status === "approved" ? CheckCircle2 : undefined,
-      labelClass: "text-[#127b55]",
+      labelClass: "text-success",
       showDot: true,
       icon: FileText,
-      iconBg: "bg-[#dcf1e9] text-[#127b55]"
+      iconBg: "bg-[var(--km-color-success-bg)] text-success"
     },
     {
       key: "booking",
@@ -114,11 +114,11 @@ function HomeStatusBar({ data }: { data: DashboardData }) {
       detail: booking ? `Booking ${booking.booking_number}` : "Created after approval",
       status: booking?.status,
       badge: booking ? statusLabel(booking.status) : "Pending",
-      badgeTone: "bg-[#efe9fb] text-[#6e48b9]",
+      badgeTone: "bg-[var(--km-color-info-bg)] text-info",
       labelClass: "text-text-secondary",
       showDot: false,
       icon: CalendarCheck,
-      iconBg: "bg-[#efe9fb] text-[#6e48b9]"
+      iconBg: "bg-[var(--km-color-info-bg)] text-info"
     },
     {
       key: "payment",
@@ -129,11 +129,11 @@ function HomeStatusBar({ data }: { data: DashboardData }) {
       tertiary: payment ? formatMoneyMinor(payment.outstandingMinor, payment.currency) : undefined,
       status: payment?.confirmationRequirementMet ? "verified" : payment ? "pending" : "pending",
       badge: payment?.confirmationRequirementMet ? "Verified" : payment ? "Outstanding" : "Pending",
-      badgeTone: "bg-[#e6f2fb] text-[#1974d2]",
-      labelClass: "text-[#1974d2]",
+      badgeTone: "bg-[var(--km-color-info-bg)] text-info",
+      labelClass: "text-info",
       showDot: false,
       icon: CreditCard,
-      iconBg: "bg-[#e6f2fb] text-[#1974d2]"
+      iconBg: "bg-[var(--km-color-info-bg)] text-info"
     },
     {
       key: "room",
@@ -143,16 +143,16 @@ function HomeStatusBar({ data }: { data: DashboardData }) {
       secondary: allocationBed ?? undefined,
       status: allocation ? "assigned" : "pending",
       badge: allocation ? "Assigned" : "Pending",
-      badgeTone: "bg-[#fdf0e6] text-[#c7691a]",
-      labelClass: "text-[#c7691a]",
+      badgeTone: "bg-[var(--km-color-warning-bg)] text-warning",
+      labelClass: "text-warning",
       showDot: false,
       icon: BedDouble,
-      iconBg: "bg-[#fdf0e6] text-[#c7691a]"
+      iconBg: "bg-[var(--km-color-warning-bg)] text-warning"
     }
   ];
 
   return (
-    <section className="relative z-10 mb-6 overflow-hidden rounded-3xl border border-[#d6eae5] bg-gradient-to-br from-[#ebf8f5] to-[#f6fcfb] p-4 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:p-5 min-[1400px]:mb-16 min-[1400px]:mt-4 min-[1400px]:overflow-visible min-[1400px]:p-[15px]">
+    <section className="relative z-10 mb-6 overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-[var(--km-color-primary-subtle)] to-[var(--color-background)] p-4 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:p-5 min-[1400px]:mb-16 min-[1400px]:mt-4 min-[1400px]:overflow-visible min-[1400px]:p-[15px]">
       <div
         className="pointer-events-none absolute -top-14 right-0 z-0 hidden h-[calc(100%+3.5rem)] w-[40%] min-[1400px]:block"
         aria-hidden="true"
@@ -181,19 +181,19 @@ function HomeStatusBar({ data }: { data: DashboardData }) {
         <div className="grid w-full grid-cols-1 gap-0 sm:grid-cols-2 min-[1400px]:flex min-[1400px]:w-[62%] min-[1400px]:items-stretch min-[1400px]:gap-6">
           {items.map((item, index) => (
             <div key={item.key} className="contents">
-              {index > 0 ? <div className="hidden w-px self-stretch bg-[#d1e6e0] min-[1400px]:my-2 min-[1400px]:block" aria-hidden="true" /> : null}
+              {index > 0 ? <div className="hidden w-px self-stretch bg-border min-[1400px]:my-2 min-[1400px]:block" aria-hidden="true" /> : null}
               <div
                 className={`flex min-w-0 flex-1 flex-col items-start p-4 sm:p-4 min-[1400px]:p-2 ${
                   index > 0
-                    ? "border-t border-[#dce8e4] sm:border-t-0 sm:border-l-0 min-[1400px]:border-0 " +
-                      (index % 2 === 1 ? "sm:border-l sm:border-[#dce8e4] " : "") +
-                      (index >= 2 ? "sm:border-t sm:border-[#dce8e4] " : "")
+                    ? "border-t border-border sm:border-t-0 sm:border-l-0 min-[1400px]:border-0 " +
+                      (index % 2 === 1 ? "sm:border-l sm:border-border " : "") +
+                      (index >= 2 ? "sm:border-t sm:border-border " : "")
                     : ""
                 }`}
               >
                 <div className="mb-3 flex items-center gap-2">
                   {item.showDot ? (
-                    <span className="h-2 w-2 rounded-full bg-[#127b55]" aria-hidden="true" />
+                    <span className="h-2 w-2 rounded-full bg-success" aria-hidden="true" />
                   ) : (
                     <span className={`inline-flex h-7 w-7 items-center justify-center rounded-full ${item.iconBg}`}>
                       <item.icon size={14} aria-hidden="true" />
@@ -228,8 +228,8 @@ const journeyIcons: Record<string, LucideIcon> = {
 };
 
 function stageStatusClass(status: JourneyStage["status"]) {
-  if (status === "complete") return "text-[#127b55]";
-  if (status === "current") return "text-[#1974d2]";
+  if (status === "complete") return "text-success";
+  if (status === "current") return "text-info";
   if (status === "attention") return "text-danger";
   return "text-text-secondary";
 }
@@ -244,7 +244,7 @@ function progressPercent(stages: JourneyStage[]) {
 function AccommodationJourney({ stages }: { stages: JourneyStage[] }) {
   const progress = progressPercent(stages);
   return (
-    <Card className="!rounded-3xl border-[#eaeff2] !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6">
+    <Card className="!rounded-3xl border-border !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-bold text-text-primary">Your Accommodation Journey</h2>
@@ -252,7 +252,7 @@ function AccommodationJourney({ stages }: { stages: JourneyStage[] }) {
         </div>
         <Link
           to="/application"
-          className="inline-flex items-center gap-1.5 rounded-full bg-[#f3f6f8] px-4 py-2 text-[13px] font-semibold text-text-primary hover:bg-[#e8ecef]"
+          className="inline-flex items-center gap-1.5 rounded-full bg-muted px-4 py-2 text-[13px] font-semibold text-text-primary hover:bg-muted"
         >
           View Details
           <ArrowRight size={16} aria-hidden="true" />
@@ -261,7 +261,7 @@ function AccommodationJourney({ stages }: { stages: JourneyStage[] }) {
       {/* Horizontal journey only when labels fit (xl+ with sidebar room, or lg+ full-width tablet). */}
       <div className="relative hidden overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] lg:block xl:hidden min-[1400px]:block [&::-webkit-scrollbar]:hidden">
         <div className="relative min-w-[700px] px-5 py-2.5">
-          <div className="absolute left-[60px] right-[60px] top-8 hidden h-0.5 rounded-full bg-[#e2e8f0] lg:block" aria-hidden="true" />
+          <div className="absolute left-[60px] right-[60px] top-8 hidden h-0.5 rounded-full bg-muted lg:block" aria-hidden="true" />
           <div
             className="absolute left-[60px] top-8 hidden h-0.5 rounded-full bg-primary lg:block"
             style={{ width: `calc((100% - 120px) * ${progress / 100})` }}
@@ -275,7 +275,7 @@ function AccommodationJourney({ stages }: { stages: JourneyStage[] }) {
                 <li key={stage.key} className="flex w-full flex-col items-center text-center">
                   <span
                     className={`mb-3 flex h-12 w-12 items-center justify-center rounded-full shadow-[0_0_0_6px_white] ${
-                      active ? "bg-primary text-white" : stage.status === "attention" ? "bg-danger text-white" : "bg-[#e2e8f0] text-white"
+                      active ? "bg-primary text-white" : stage.status === "attention" ? "bg-danger text-white" : "bg-muted text-white"
                     }`}
                   >
                     <Icon size={22} aria-hidden="true" />
@@ -297,7 +297,7 @@ function AccommodationJourney({ stages }: { stages: JourneyStage[] }) {
             <li key={`m-${stage.key}`} className="flex items-start gap-3 rounded-xl border border-border bg-white p-3">
               <span
                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
-                  active ? "bg-primary text-white" : stage.status === "attention" ? "bg-danger text-white" : "bg-[#e2e8f0] text-white"
+                  active ? "bg-primary text-white" : stage.status === "attention" ? "bg-danger text-white" : "bg-muted text-white"
                 }`}
               >
                 <Icon size={18} aria-hidden="true" />
@@ -316,13 +316,13 @@ function AccommodationJourney({ stages }: { stages: JourneyStage[] }) {
 
 function NextActionCard({ action }: { action: ReturnType<typeof nextAction> }) {
   return (
-    <Card className="!rounded-3xl border-[#eaeff2] !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6">
+    <Card className="!rounded-3xl border-border !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6">
       <div>
         <h2 className="text-lg font-bold text-text-primary">Next Action</h2>
         <p className="mt-1 text-[13px] text-text-secondary">Your next step to complete your accommodation.</p>
       </div>
-      <div className="mt-4 flex items-center gap-4 rounded-xl bg-[#f7f9fa] px-5 py-4">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[10px] bg-[#dcf1e9] text-primary">
+      <div className="mt-4 flex items-center gap-4 rounded-xl bg-muted px-5 py-4">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[10px] bg-[var(--km-color-success-bg)] text-primary">
           <CreditCard size={24} aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
@@ -364,7 +364,7 @@ function recentActivity(data: DashboardData): ActivityItem[] {
           title: `Application ${statusLabel(application.status).toLowerCase()}`,
           detail: application.application_number,
           date: application.reviewed_at ?? application.submitted_at ?? application.created_at,
-          color: "bg-[#dcf1e9] text-[#127b55]",
+          color: "bg-[var(--km-color-success-bg)] text-success",
           icon: FileText
         }
       : null,
@@ -374,7 +374,7 @@ function recentActivity(data: DashboardData): ActivityItem[] {
           title: `Booking ${statusLabel(booking.status).toLowerCase()}`,
           detail: booking.booking_number,
           date: booking.booked_at ?? booking.created_at,
-          color: "bg-[#efe9fb] text-[#6e48b9]",
+          color: "bg-[var(--km-color-info-bg)] text-info",
           icon: CalendarCheck
         }
       : null,
@@ -384,7 +384,7 @@ function recentActivity(data: DashboardData): ActivityItem[] {
           title: "Room assigned",
           detail: `${allocation.room_code} · ${allocation.label ?? allocation.bed_code}`,
           date: allocation.starts_on ?? allocation.assigned_at,
-          color: "bg-[#fdf0e6] text-[#c7691a]",
+          color: "bg-[var(--km-color-warning-bg)] text-warning",
           icon: BedDouble
         }
       : null
@@ -394,7 +394,7 @@ function recentActivity(data: DashboardData): ActivityItem[] {
 function RecentActivity({ data }: { data: DashboardData }) {
   const activity = recentActivity(data);
   return (
-    <Card className="!rounded-3xl border-[#eaeff2] !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6">
+    <Card className="!rounded-3xl border-border !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-bold text-text-primary">Recent activity</h2>
@@ -411,7 +411,7 @@ function RecentActivity({ data }: { data: DashboardData }) {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <p className="break-words text-sm font-semibold text-text-primary">{item.title}</p>
-                  <p className="shrink-0 text-xs text-[#9aa7b1]">{formatDateTime(item.date)}</p>
+                  <p className="shrink-0 text-xs text-text-secondary">{formatDateTime(item.date)}</p>
                 </div>
                 <p className="mt-1 break-words text-[13px] leading-snug text-text-secondary">{item.detail}</p>
               </div>
@@ -439,7 +439,7 @@ function ResidentUpdates({ data }: { data: DashboardData }) {
           unread: message.status === "unread",
           href: "/messages",
           icon: FileText,
-          color: "bg-[#e6f2fb] text-[#1974d2]"
+          color: "bg-[var(--km-color-info-bg)] text-info"
         }
       : null,
     announcement
@@ -451,7 +451,7 @@ function ResidentUpdates({ data }: { data: DashboardData }) {
           unread: false,
           href: "/announcements",
           icon: Megaphone,
-          color: "bg-[#e6f2fb] text-[#1974d2]"
+          color: "bg-[var(--km-color-info-bg)] text-info"
         }
       : null
   ].filter(Boolean) as Array<{
@@ -466,7 +466,7 @@ function ResidentUpdates({ data }: { data: DashboardData }) {
   }>;
 
   return (
-    <Card className="!rounded-3xl border-[#eaeff2] !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6">
+    <Card className="!rounded-3xl border-border !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-text-primary">Updates</h2>
@@ -474,7 +474,7 @@ function ResidentUpdates({ data }: { data: DashboardData }) {
         </div>
         <div className="flex items-center gap-2">
           {unread ? <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold text-primary">{unread} unread</span> : null}
-          <Link to="/messages" className="hidden items-center gap-1 rounded-full bg-[#f3f6f8] px-3 py-2 text-[13px] font-semibold text-text-primary hover:bg-[#e8ecef] xl:inline-flex">
+          <Link to="/messages" className="hidden items-center gap-1 rounded-full bg-muted px-3 py-2 text-[13px] font-semibold text-text-primary hover:bg-muted xl:inline-flex">
             View All
             <ArrowRight size={14} aria-hidden="true" />
           </Link>
@@ -483,14 +483,14 @@ function ResidentUpdates({ data }: { data: DashboardData }) {
       {updates.length ? (
         <div className="flex flex-col gap-4">
           {updates.map((item) => (
-            <Link key={item.key} to={item.href} className="flex items-start gap-3 rounded-xl hover:bg-[#fbfcfd] sm:gap-4">
+            <Link key={item.key} to={item.href} className="flex items-start gap-3 rounded-xl hover:bg-muted sm:gap-4">
               <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${item.color}`}>
                 <item.icon size={18} aria-hidden="true" />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <span className="break-words text-sm font-semibold text-text-primary">{item.title}</span>
-                  <span className="shrink-0 text-xs text-[#9aa7b1]">{formatDateTime(item.date)}</span>
+                  <span className="shrink-0 text-xs text-text-secondary">{formatDateTime(item.date)}</span>
                 </span>
                 <span className="mt-1 block text-[13px] text-text-secondary">{item.description}</span>
               </span>
@@ -582,7 +582,7 @@ export function HomePage() {
           <p className="mt-1.5 text-sm text-text-secondary">Here&apos;s your accommodation overview.</p>
           <p className="mt-1.5 text-xs text-text-secondary sm:text-[13px]">
             {institution}
-            <span className="mx-1.5 text-[#c5d3d0]" aria-hidden="true">
+            <span className="mx-1.5 text-text-secondary" aria-hidden="true">
               •
             </span>
             {studentId}
@@ -614,7 +614,7 @@ export function HomePage() {
         </div>
       </div>
 
-      <Card className="mt-5 !rounded-3xl border-[#eaeff2] !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6 xl:hidden">
+      <Card className="mt-5 !rounded-3xl border-border !p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] sm:!p-6 xl:hidden">
         <h2 className="text-base font-semibold text-text-primary">Resident identity</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <Detail label="Kissmet resident code" value={data.profile.resident_code} />

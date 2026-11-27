@@ -169,7 +169,7 @@ export function RoomPage() {
         <Card>
           <EmptyState title="No active room assignment" message={noAllocationMessage(booking, latest)} />
           {booking ? (
-            <div className="mt-5 rounded-2xl border border-border bg-[#f7f9fa] p-4 text-sm text-text-secondary">
+            <div className="mt-5 rounded-2xl border border-border bg-muted p-4 text-sm text-text-secondary">
               <p><span className="font-semibold text-text-primary">Booking:</span> {booking.booking_number} ({statusLabel(booking.status)})</p>
               {pricedRoomLabel(booking) ? (
                 <p className="mt-2 inline-flex items-start gap-1">

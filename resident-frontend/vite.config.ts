@@ -4,7 +4,7 @@ import { viteApiBaseUrlGuard } from "./src/config/apiBaseUrl";
 
 export default defineConfig({
   plugins: [react(), viteApiBaseUrlGuard()],
-  server: { port: 5174, strictPort: true },
+  server: { port: 5174, strictPort: true, fs: { allow: [".."] } },
   preview: { port: 5174, strictPort: true },
   test: {
     environment: "jsdom",

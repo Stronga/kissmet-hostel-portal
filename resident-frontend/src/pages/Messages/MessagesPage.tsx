@@ -70,12 +70,12 @@ export function MessagesPage() {
                 key={message.id}
                 type="button"
                 onClick={() => void openMessage(message.id)}
-                className={`w-full rounded-2xl border bg-surface p-4 text-left shadow-[0_2px_10px_rgba(0,0,0,0.02)] transition hover:border-primary ${selected?.id === message.id ? "border-primary" : "border-[#eaeff2]"} ${message.status === "unread" ? "border-l-4 border-l-primary" : ""}`}
+                className={`w-full rounded-2xl border bg-surface p-4 text-left shadow-[0_2px_10px_rgba(0,0,0,0.02)] transition hover:border-primary ${selected?.id === message.id ? "border-primary" : "border-border"} ${message.status === "unread" ? "border-l-4 border-l-primary" : ""}`}
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <h2 className="break-words text-base font-semibold text-text-primary">{message.subject}</h2>
                   <span
-                    className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${message.status === "unread" ? "bg-[#e6f2fb] text-[#1974d2]" : "bg-muted text-text-secondary"}`}
+                    className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${message.status === "unread" ? "bg-[var(--km-color-info-bg)] text-info" : "bg-muted text-text-secondary"}`}
                     aria-label={message.status === "unread" ? "Unread message" : "Read message"}
                   >
                     {message.status === "unread" ? "Unread" : "Read"}
@@ -95,7 +95,7 @@ export function MessagesPage() {
                     <p className="text-sm font-semibold text-primary">{selected.sender_label ?? "Kissmet Hostel"}</p>
                     <h2 className="mt-1 break-words text-xl font-bold text-text-primary">{selected.subject}</h2>
                   </div>
-                  <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${selected.status === "unread" ? "bg-[#e6f2fb] text-[#1974d2]" : "bg-muted text-text-secondary"}`}>
+                  <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${selected.status === "unread" ? "bg-[var(--km-color-info-bg)] text-info" : "bg-muted text-text-secondary"}`}>
                     {selected.status === "unread" ? "Unread" : "Read"}
                   </span>
                 </div>
