@@ -596,7 +596,7 @@ Update this table when a PR opens. One line per PR. Phase 0 is the PR that added
 | PR | Branch | Status | Requirement IDs | Migration | Link |
 |---|---|---|---|---|---|
 | P0 | `cursor/staging-review-phase-0-b442` | merged | — | none | https://github.com/Stronga/kissmet-hostel-portal/pull/32 |
-| P1 | `cursor/phase1-design-foundation-5ab8` | open | AUX-13, AUX-14, AUX-22 shell | none | see the pull request opened from this branch |
+| P1 | `cursor/phase1-design-foundation-5ab8` | open | AUX-13, AUX-14, AUX-22 shell | none | https://github.com/Stronga/kissmet-hostel-portal/pull/33 |
 | P1.1–P1.3 | — | combined into P1 | AUX-13, AUX-14 | none | |
 | P2.1 | | not started (shell groups already in P1) | AUX-22 route gates | none | |
 | P2.2 | | not started | AUX-16, AUX-22 | none | |
