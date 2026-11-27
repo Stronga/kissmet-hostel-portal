@@ -1,5 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
-import { approveRefund, cancelRefund, listCreditNotes, listRefunds, payoutRefund, refundReport, rejectRefund } from "../../api/refunds";
+import { useSearchParams } from "react-router-dom";
+import { approveRefund, cancelRefund, getRefund, listCreditNotes, listRefunds, payoutRefund, refundReport, rejectRefund } from "../../api/refunds";
+import { GuidedWorkflow } from "../../components/workflow/GuidedWorkflow";
 import { useAuth } from "../../auth/AuthContext";
 import { hasPermission } from "../../auth/permissions";
 import { ConfirmDialog } from "../../components/common/ConfirmDialog";
@@ -21,7 +23,10 @@ export function RefundsPage() {
   const canRequest = hasPermission(user?.role, "refund:request");
   const canPayout = hasPermission(user?.role, "refund:payout");
   const canReport = hasPermission(user?.role, "report:finance");
-  const [statusFilter, setStatusFilter] = useState<RefundStatus | "all">("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [statusFilter, setStatusFilter] = useState<RefundStatus | "all">((searchParams.get("status") ?? "all") as RefundStatus | "all");
+  const [focused, setFocused] = useState<Refund | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
   const [refunds, setRefunds] = useState<Refund[]>([]);
   const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
   const [report, setReport] = useState<RefundReport | null>(null);
@@ -38,8 +43,8 @@ export function RefundsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [rows, notes, rep] = await Promise.all([listRefunds(status), listCreditNotes(), canReport ? refundReport() : Promise.resolve(null)]);
-      setRefunds(rows);
+      const [page, notes, rep] = await Promise.all([listRefunds(status), listCreditNotes(), canReport ? refundReport() : Promise.resolve(null)]);
+      setRefunds(page.refunds);
       setCreditNotes(notes);
       setReport(rep);
     } catch (err) {
@@ -49,7 +54,15 @@ export function RefundsPage() {
     }
   }
 
-  useEffect(() => { if (user) void load("all"); }, [user?.role]);
+  useEffect(() => { if (user) void load(statusFilter); }, [user?.role, statusFilter]);
+
+  useEffect(() => {
+    const recordId = Number(searchParams.get("record") ?? 0);
+    if (!Number.isInteger(recordId) || recordId <= 0) return;
+    let alive = true;
+    getRefund(recordId).then((refund) => { if (alive) setFocused(refund); }).catch(() => { if (alive) setRecordError("This record is no longer available."); });
+    return () => { alive = false; };
+  }, [searchParams]);
 
   function open(kind: NonNullable<Action>["kind"], refund: Refund) {
     setAction({ kind, refund });
@@ -97,11 +110,15 @@ export function RefundsPage() {
         </div>
       ) : null}
       <label className="block max-w-xs text-sm font-medium">Status
-        <select aria-label="Refund status filter" value={statusFilter} onChange={(e) => { const next = e.target.value as RefundStatus | "all"; setStatusFilter(next); void load(next); }} className="mt-1 w-full rounded-md border border-border px-3 py-2">
+        <select aria-label="Refund status filter" value={statusFilter} onChange={(e) => { const next = e.target.value as RefundStatus | "all"; setStatusFilter(next); const copy = new URLSearchParams(searchParams); if (next === "all") copy.delete("status"); else copy.set("status", next); setSearchParams(copy); }} className="mt-1 w-full rounded-md border border-border px-3 py-2">
           {statuses.map((s) => <option key={s} value={s}>{s === "all" ? "All" : formatStatus(s)}</option>)}
         </select>
       </label>
       {error ? <ErrorState title="Unable to load refunds." message={error} /> : null}
+      {recordError ? <ErrorState title="Record unavailable" message={recordError} /> : null}
+      <ConfirmDialog open={Boolean(focused)} title="Refund details" onClose={() => { setFocused(null); const copy = new URLSearchParams(searchParams); copy.delete("record"); setSearchParams(copy); }}>
+        {focused ? <div className="space-y-3"><GuidedWorkflow subjectType="refund" subjectId={focused.id} /><p className="text-sm">{focused.refund_number} · {formatCurrencyMinor(focused.amount_minor, focused.currency)} · {formatStatus(focused.status)}</p></div> : null}
+      </ConfirmDialog>
       {loading ? <LoadingState label="Loading refunds..." /> : refunds.length ? (
         <div className="overflow-x-auto rounded-token border border-border bg-surface">
           <table className="min-w-full text-sm">

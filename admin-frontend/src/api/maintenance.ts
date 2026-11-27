@@ -1,9 +1,11 @@
 import { apiRequest } from "./client";
 import type { DataEnvelope, ListEnvelope, MaintenanceCategory, MaintenancePriority, MaintenanceReport, MaintenanceRequest, Pagination, Staff } from "../types/api";
 
-export async function listMaintenance(params: { limit?: number; offset?: number; search?: string } = {}): Promise<{ requests: MaintenanceRequest[]; pagination: Pagination }> {
+export async function listMaintenance(params: { limit?: number; offset?: number; search?: string; status?: string; priority?: string } = {}): Promise<{ requests: MaintenanceRequest[]; pagination: Pagination }> {
   const query = new URLSearchParams({ limit: String(params.limit ?? 25), offset: String(params.offset ?? 0) });
   if (params.search) query.set("search", params.search);
+  if (params.status && params.status !== "all") query.set("status", params.status);
+  if (params.priority && params.priority !== "all") query.set("priority", params.priority);
   const response = await apiRequest<ListEnvelope<MaintenanceRequest>>(`/admin/maintenance?${query.toString()}`);
   return { requests: response.data, pagination: response.pagination };
 }

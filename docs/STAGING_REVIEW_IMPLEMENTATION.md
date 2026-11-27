@@ -598,17 +598,13 @@ Update this table when a PR opens. One line per PR. Phase 0 is the PR that added
 | P0 | `cursor/staging-review-phase-0-b442` | merged | — | none | https://github.com/Stronga/kissmet-hostel-portal/pull/32 |
 | P1 | `cursor/phase1-design-foundation-5ab8` | open | AUX-13, AUX-14, AUX-22 shell | none | https://github.com/Stronga/kissmet-hostel-portal/pull/33 |
 | P1.1–P1.3 | — | combined into P1 | AUX-13, AUX-14 | none | |
-| P2.1 | | not started (shell groups already in P1) | AUX-22 route gates | none | |
-| P2.2 | | not started | AUX-16, AUX-22 | none | |
-| P2.3 | | not started | AUX-15, AUX-16 | none | |
-| P2.4 | | not started | AUX-17 | 0023 | |
-| P2.5 | | not started | AUX-18 | none | |
+| P2.1–P2.5, workflow read model | `cursor/phase-2-admin-command-centre-b147` | opened | AUX-15, AUX-16, AUX-17, AUX-18, AUX-19 read model, AUX-22 route gates | **0023** | Phase 2 pull request (not merged, not applied remotely) |
 | P3.1 | | not started | AUX-21 | none | |
 | P3.2 | | not started | AUX-21 | none | |
 | P3.3 | | not started | AUX-20 | none | |
 | P3.4 | | not started | AUX-20 | none | |
 | P3.5 | | not started | AUX-20 | none | |
-| P3.6 | | not started | AUX-19 | none | |
+| P3.6 | | read model opened with Phase 2; modal layout stays P3 | AUX-19 | none | |
 | P4.1 | | not started | AUX-25 | none | |
 | P4.2 | | not started (D5 and D2 recorded) | AUX-26, AUX-27 | 0024 | |
 | P4.3 | | not started | AUX-27 | none | |
@@ -674,14 +670,14 @@ Append captures here. Do not treat files already under `docs/ui-qa/` as evidence
 |---|---|---|
 | K1 | `docs/IMPLEMENTATION_PLAN_NEXT.md` and `docs/STAGING_PLAN.md` disagree with merged #31 / migration 0022 | a later docs PR, not Phase 0 |
 | K2 | “Active Residents” will not match occupied beds until D3 | P5.5 |
-| K3 | Dashboard “Pending Applications” ignores drafts | P2.3 |
-| K4 | List status filters do not survive pagination | P2.2 |
+| K3 | Dashboard “Pending Applications” ignores drafts | Cleared in the Phase 2 command centre: drafts are a separate card and are excluded from awaiting review |
+| K4 | List status filters do not survive pagination | Cleared for the queues the command centre opens: status, queue, session, and offset are in the URL and applied in SQL |
 | K5 | Resident UI blocks reapply after reject/cancel | P4.3 |
 | K6 | Maintenance fee is non-refundable in the obligation model and still refundable in full at payment level until P6.1 | D1 is recorded; P6.1 changes the maths |
-| K7 | No check-in, no corrections status, no withdrawal, no room-type catalog, no enquiry, no staff task table | decisions are recorded; the PRs named above still have to build them |
+| K7 | No check-in, no corrections status, no withdrawal, no room-type catalog, no public enquiry | Staff tasks are migration 0023. `corrections_required`, `withdrawn`, and the room-type catalog stay in later phases. Public enquiries (D8) are deferred |
 | K8 | Capture script does not exercise auth, admin, or modals, and Puppeteer is undeclared | P6.2 |
 | K9 | `www` is a coming-soon page with a third colour palette | P5.1 after D4 and D6 |
-| K10 | Admin route table does not repeat sidebar role gates | P2.1 where a page would otherwise show forbidden data |
+| K10 | Admin route table does not repeat sidebar role gates | Phase 2 gates finance, internet, announcements, messages, reports, staff, setup, audit, and settings on the same permissions as the API |
 
 ## Phase 0 non-actions
 
@@ -690,3 +686,73 @@ This phase did not implement Phases 1–6, did not add a migration, did not call
 ## Phase 1 non-actions
 
 Phase 1 did not add a migration, did not change refund maths, application status, resident status, room types, enquiries, or `staff_tasks`, did not deploy, and did not change Cloudflare, the Pi connector, or MikroTik. The pull request was not merged from this work.
+
+## Phase 2 — command centre, activity, and guided workflows
+
+Local migration head after this pull request: `0023_staff_tasks.sql`. It is not applied to staging or production. 0001–0022 are unchanged.
+
+### Migration 0023
+
+| Table | Purpose |
+|---|---|
+| `staff_tasks` | One operational task per dedupe key. Status is `open`, `completed`, or `unavailable`. Not a copy of `audit_logs`. |
+| `staff_task_reads` | Per-staff `read_at`. Reading a row never changes `staff_tasks.status`. |
+
+Dedupe key examples: `application:{id}:review`, `application:{id}:agreement`, `booking:{id}:allocation`, `payment:{id}:verify`, `refund:{id}:approval`, `maintenance:{id}:work`, `internet:{id}:sync`. Upsert is `ON CONFLICT(dedupe_key)`.
+
+### API
+
+| Method | Path | Behaviour |
+|---|---|---|
+| GET | `/admin/dashboard/command-centre` | Global counts for the signed-in role. Default scope is all periods. `academicSessionId` or `leasePeriodId`, not both. |
+| GET | `/admin/dashboard/occupancy/rooms` | Rooms, beds, and current occupants in one query. |
+| GET | `/admin/activity` | `view=action_required\|all\|completed`, paginated. Reconciles existing open work first. |
+| GET | `/admin/activity/unread-count` | Unread tasks for this staff member. |
+| POST | `/admin/activity/:id/read` | Marks that staff member’s read time. Does not complete the task. |
+| GET | `/admin/workflows/:subjectType/:id` | Stages, next action, responsible role, and blockers from the current row and the existing transition rules. |
+| GET | `/admin/applications`, `/bookings`, `/allocations`, `/payments`, `/receipts`, `/maintenance`, `/refunds` | Server-side status, queue, session, or period filters. `pagination.total` is the filtered set, not the page. |
+
+List links from the cards use those query parameters, including `record=<id>`, and the page opens that record.
+
+### Visibility
+
+Super Admin and Manager see every authorized category. Reception sees applications, bookings, and allocations. Accounts sees payments, receipts, and refunds. Maintenance sees maintenance requests. Internet provisioning failures are Manager and Super Admin. A task never grants the action permission. Refund approval still rejects the requester (`Refund approval by the requester is forbidden`).
+
+Draft applications are counted and labeled separately. They are not review tasks.
+
+### Deferred
+
+| Item | Why |
+|---|---|
+| Public enquiries (D8) | No enquiry table and no public form in this PR. Reception’s enquiry category is reserved and empty. A later PR can add migration 0027 only if a task row is not enough. |
+| `corrections_required`, `withdrawn` | Phase 4 / migration 0024. The workflow payload says they are not shown. No temporary status was added. |
+| Room-type catalog | Phase 5 / migration 0025. |
+| Active-resident status following allocation | Still `residents.status = 'resident'`. Occupancy is the active-allocation count. P5.5 changes the status. |
+| Maintenance-fee refund protection | Phase 6. Maker/checker is unchanged. |
+
+### Tests and checks (local only)
+
+| Check | Result |
+|---|---|
+| `cloudflare` vitest | 41 files, 573 tests passed |
+| `admin-frontend` vitest | 34 files, 275 tests passed |
+| `resident-frontend` vitest | 24 files, 193 tests passed |
+| `tsc --noEmit` in cloudflare, admin, and resident | passed |
+| `vite build` with `VITE_API_BASE_URL=https://api.example.com` | passed for admin and resident. Not a deploy. |
+| `npm audit` in cloudflare, admin-frontend, resident-frontend | 0 vulnerabilities |
+
+### Screenshots
+
+Local Vite preview (`admin-frontend/phase2-preview.html`) with fixture data. Not staging or production.
+
+| Date | Surface | Viewport | File |
+|---|---|---|---|
+| 2026-11-27 | Admin dashboard, activity open | 1440×900 | `/opt/cursor/artifacts/phase2-dashboard-activity-open-1440x900.png` |
+| 2026-11-27 | Admin dashboard, activity collapsed | 1440×900 | `/opt/cursor/artifacts/phase2-dashboard-activity-collapsed-1440x900.png` |
+| 2026-11-27 | Admin dashboard and activity centre | 390×844 | `/opt/cursor/artifacts/phase2-dashboard-activity-mobile-390x844.png` |
+| 2026-11-27 | Exact application with workflow stages | 1440×900 | `/opt/cursor/artifacts/phase2-exact-record-workflow-1440x900.png` |
+| 2026-11-27 | Expanded room and bed occupancy | 1440×900 | `/opt/cursor/artifacts/phase2-dashboard-occupancy-expanded-1440x900.png` |
+
+## Phase 2 non-actions
+
+This phase did not deploy, did not run Wrangler against a remote D1, did not activate SMS, email, or the connector, and did not change Cloudflare, the Pi, or MikroTik. The pull request is not merged.

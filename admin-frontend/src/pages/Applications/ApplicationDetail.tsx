@@ -1,3 +1,4 @@
+import { GuidedWorkflow } from "../../components/workflow/GuidedWorkflow";
 import { ApplicationReviewActions } from "./ApplicationReviewActions";
 import { DocumentReviewSection } from "./DocumentReviewSection";
 import type React from "react";
@@ -72,6 +73,7 @@ export function ApplicationDetail({
     : undefined;
   return (
     <div className="space-y-3">
+      <GuidedWorkflow subjectType="application" subjectId={application.id} />
       <DetailSection title="Application" rows={[
         ["Application number", application.application_number],
         ["Status", formatStatus(application.status)],

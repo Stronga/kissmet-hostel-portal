@@ -1,5 +1,6 @@
 import { FileText, Search } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { getBooking, listBookings } from "../../api/bookings";
 import { getPayment, listPayments } from "../../api/payments";
 import { getResident } from "../../api/residents";
@@ -32,9 +33,11 @@ export function ReceiptsPage() {
   const [selected, setSelected] = useState<ReceiptDetailData | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<Payment | undefined>();
   const [selectedBooking, setSelectedBooking] = useState<Booking | undefined>();
+  const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ReceiptStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<ReceiptStatus | "all">((searchParams.get("status") ?? "all") as ReceiptStatus | "all");
+  const [serverCounts, setServerCounts] = useState<{ issued: number; voided: number; total: number } | null>(null);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,8 +51,8 @@ export function ReceiptsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [{ receipts: receiptRows }, { payments: paymentRows }, { bookings: bookingRows }] = await Promise.all([
-        listReceipts({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined }),
+      const [{ receipts: receiptRows, counts }, { payments: paymentRows }, { bookings: bookingRows }] = await Promise.all([
+        listReceipts({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined, status: statusFilter }),
         listPayments({ limit: 100, offset: 0 }),
         listBookings({ limit: 100, offset: 0 })
       ]);
@@ -64,6 +67,7 @@ export function ReceiptsPage() {
       const residentIds = Array.from(new Set(Array.from(paymentMap.values()).map((payment) => payment.resident_id)));
       const residentEntries = await Promise.all(residentIds.map(async (id) => [id, await getResident(id)] as const));
       setReceipts(receiptRows);
+      setServerCounts(counts ?? null);
       setPayments(paymentRows);
       setPaymentsById(paymentMap);
       setBookingsById(bookingMap);
@@ -75,17 +79,17 @@ export function ReceiptsPage() {
     }
   }
 
-  useEffect(() => { void load(0, ""); }, []);
+  useEffect(() => { void load(0, submittedSearch); }, [statusFilter]);
 
   const visibleReceipts = useMemo(() => receipts.filter((receipt) => statusFilter === "all" || receipt.status === statusFilter), [receipts, statusFilter]);
   const issuedPaymentIds = useMemo(() => new Set(receipts.filter((receipt) => receipt.status === "issued").map((receipt) => receipt.payment_id)), [receipts]);
   const receiptablePayments = useMemo(() => payments.filter((payment) => payment.status === "verified" && !issuedPaymentIds.has(payment.id)), [issuedPaymentIds, payments]);
   const totals = useMemo(() => ({
-    issued: receipts.filter((receipt) => receipt.status === "issued").length,
-    voided: receipts.filter((receipt) => receipt.status === "voided").length,
-    count: receipts.length,
+    issued: serverCounts?.issued ?? receipts.filter((receipt) => receipt.status === "issued").length,
+    voided: serverCounts?.voided ?? receipts.filter((receipt) => receipt.status === "voided").length,
+    count: serverCounts?.total ?? receipts.length,
     value: receipts.reduce((sum, receipt) => sum + Number(paymentsById.get(receipt.payment_id)?.amount_minor ?? 0), 0)
-  }), [paymentsById, receipts]);
+  }), [paymentsById, receipts, serverCounts]);
 
   async function submitSearch(event: FormEvent) {
     event.preventDefault();
@@ -149,7 +153,7 @@ export function ReceiptsPage() {
         <PageHeader title="Receipts" eyebrow="Admin" description="Review payment receipts and preserve financial records." />
         {canWrite ? <button type="button" onClick={() => setIssueOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90"><FileText className="h-4 w-4" /> Issue Receipt</button> : null}
       </div>
-      <div className="grid gap-3 sm:grid-cols-4"><StatCard label="Active Receipts On Page" value={totals.issued} tone="success" /><StatCard label="Voided Receipts On Page" value={totals.voided} tone="danger" /><StatCard label="Receipts on Page" value={totals.count} /><StatCard label="Total Value on Page" value={formatCurrencyMinor(totals.value, "GHS")} /></div>
+      <div className="grid gap-3 sm:grid-cols-4"><StatCard label="Issued receipts" value={totals.issued} tone="success" /><StatCard label="Voided receipts" value={totals.voided} tone="danger" /><StatCard label="Receipts" value={totals.count} /><StatCard label="Listed value" value={formatCurrencyMinor(totals.value, "GHS")} /></div>
       <section className="rounded-token border border-border bg-surface p-4">
         <form onSubmit={(event) => void submitSearch(event)} className="flex flex-col gap-3 xl:flex-row xl:items-end">
           <div className="flex-1"><label htmlFor="receipt-search" className="block text-sm font-medium">Search receipts</label><div className="mt-1 flex rounded-md border border-border bg-white"><Search className="ml-3 mt-2.5 h-4 w-4 text-text-secondary" /><input id="receipt-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Receipt number or status" className="min-w-0 flex-1 rounded-md px-3 py-2 text-sm outline-none" /></div></div>

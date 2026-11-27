@@ -1,5 +1,6 @@
 import { Plus, Search } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { bookingPaymentSummary, createPayment, getBooking, getPayment, listPayments, rejectPayment, updatePaymentStatus, uploadPaymentSlip, verifyPayment } from "../../api/payments";
 import { requestRefund } from "../../api/refunds";
 import { RefundRequestDialog } from "./RefundRequestDialog";
@@ -36,10 +37,14 @@ export function PaymentsPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [summary, setSummary] = useState<BookingPaymentSummary | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [submittedSearch, setSubmittedSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<PaymentStatus | "all">("all");
-  const [methodFilter, setMethodFilter] = useState("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get("search") ?? "");
+  const [submittedSearch, setSubmittedSearch] = useState(searchParams.get("search") ?? "");
+  const [statusFilter, setStatusFilter] = useState<PaymentStatus | "all">((searchParams.get("status") ?? "all") as PaymentStatus | "all");
+  const [queue] = useState(searchParams.get("queue") ?? "");
+  const [methodFilter, setMethodFilter] = useState(searchParams.get("method") ?? "all");
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,8 +60,8 @@ export function PaymentsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [{ payments: paymentRows }, { bookings: bookingRows }, institutionRows, roomRows] = await Promise.all([
-        listPayments({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined }),
+      const [{ payments: paymentRows, counts: nextCounts }, { bookings: bookingRows }, institutionRows, roomRows] = await Promise.all([
+        listPayments({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined, status: statusFilter, queue: queue || undefined, method: methodFilter, academicSessionId: searchParams.get("academicSessionId") ?? undefined, leasePeriodId: searchParams.get("leasePeriodId") ?? undefined }),
         listBookings({ limit: 100, offset: 0 }),
         listInstitutions(),
         listRooms()
@@ -68,6 +73,7 @@ export function PaymentsPage() {
       const residentIds = Array.from(new Set([...paymentRows.map((payment) => payment.resident_id), ...Array.from(bookingMap.values()).map((booking) => booking.resident_id)]));
       const residentEntries = await Promise.all(residentIds.map(async (id) => [id, await getResident(id)] as const));
       setPayments(paymentRows);
+      setCounts(nextCounts ?? null);
       setBookings(bookingRows);
       setBookingsById(bookingMap);
       setResidentsById(new Map(residentEntries));
@@ -80,15 +86,15 @@ export function PaymentsPage() {
     }
   }
 
-  useEffect(() => { void load(0, ""); }, []);
+  useEffect(() => { void load(0, submittedSearch); }, [statusFilter, methodFilter, queue]);
 
-  const visiblePayments = useMemo(() => payments.filter((payment) => (statusFilter === "all" || payment.status === statusFilter) && (methodFilter === "all" || payment.method === methodFilter)), [methodFilter, payments, statusFilter]);
-  const totals = useMemo(() => ({
-    submitted: payments.filter((payment) => payment.status === "submitted").length,
-    verified: payments.filter((payment) => payment.status === "verified").length,
-    rejected: payments.filter((payment) => payment.status === "rejected").length,
-    attention: Array.from(bookingsById.values()).filter((booking) => Boolean(booking.payment_attention_required)).length
-  }), [bookingsById, payments]);
+  useEffect(() => {
+    const recordId = Number(searchParams.get("record") ?? 0);
+    if (!Number.isInteger(recordId) || recordId <= 0) return;
+    let alive = true;
+    getPayment(recordId).then((payment) => { if (alive) void openDetail(payment); }).catch(() => { if (alive) setRecordError("This record is no longer available."); });
+    return () => { alive = false; };
+  }, [searchParams]);
 
   async function submitSearch(event: FormEvent) {
     event.preventDefault();
@@ -158,18 +164,19 @@ export function PaymentsPage() {
         <PageHeader title="Payments" eyebrow="Admin" description="Review resident payments, verify transactions and track booking balances." />
         {canWrite ? <button type="button" onClick={() => setCreateOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90"><Plus className="h-4 w-4" /> Add Payment</button> : null}
       </div>
-      <div className="grid gap-3 sm:grid-cols-4"><StatCard label="Submitted On Page" value={totals.submitted} tone="warning" /><StatCard label="Verified On Page" value={totals.verified} tone="success" /><StatCard label="Rejected On Page" value={totals.rejected} /><StatCard label="Payment Attention" value={totals.attention} tone="warning" /></div>
+      <div className="grid gap-3 sm:grid-cols-4"><StatCard label="Submitted" value={counts?.submitted ?? "—"} tone="warning" /><StatCard label="Verified" value={counts?.verified ?? "—"} tone="success" /><StatCard label="Rejected" value={counts?.rejected ?? "—"} /><StatCard label="Awaiting verification" value={counts?.awaitingVerification ?? "—"} tone="warning" /></div>
       <section className="rounded-token border border-border bg-surface p-4">
         <form onSubmit={(event) => void submitSearch(event)} className="flex flex-col gap-3 xl:flex-row xl:items-end">
           <div className="flex-1"><label htmlFor="payment-search" className="block text-sm font-medium">Search payments</label><div className="mt-1 flex rounded-md border border-border bg-white"><Search className="ml-3 mt-2.5 h-4 w-4 text-text-secondary" /><input id="payment-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Payment reference or status" className="min-w-0 flex-1 rounded-md px-3 py-2 text-sm outline-none" /></div></div>
-          <label className="text-sm font-medium">Status<select aria-label="Payment status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as PaymentStatus | "all")} className="mt-1 rounded-md border border-border bg-white px-3 py-2">{statuses.map((status) => <option key={status} value={status}>{status === "all" ? "All statuses" : formatStatus(status)}</option>)}</select></label>
+          <label className="text-sm font-medium">Status<select aria-label="Payment status filter" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as PaymentStatus | "all"); const copy = new URLSearchParams(searchParams); if (event.target.value === "all") copy.delete("status"); else copy.set("status", event.target.value); copy.delete("queue"); setSearchParams(copy); }} className="mt-1 rounded-md border border-border bg-white px-3 py-2">{statuses.map((status) => <option key={status} value={status}>{status === "all" ? "All statuses" : formatStatus(status)}</option>)}</select></label>
           <label className="text-sm font-medium">Method<select aria-label="Payment method filter" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)} className="mt-1 rounded-md border border-border bg-white px-3 py-2"><option value="all">All methods</option><option value="cash">Cash</option><option value="bank_transfer">Bank Transfer</option><option value="mobile_money">Mobile Money</option><option value="card">Card</option><option value="other">Other</option></select></label>
           <button type="submit" className="rounded-md border border-border bg-muted px-4 py-2 text-sm font-semibold">Search</button>
         </form>
-        <p className="mt-2 text-xs text-text-secondary">Server search covers payment reference and status. Booking, resident, and method filters are based on loaded page lookups.</p>
+        <p className="mt-2 text-xs text-text-secondary">Status, method, and verification queue run on the server across the full authorized set.{queue ? " Queue: awaiting verification." : ""}</p>
       </section>
       {error ? <ErrorState message={error} /> : null}
-      {loading ? <LoadingState label="Loading payments..." /> : visiblePayments.length ? <PaymentsTable payments={visiblePayments} residentsById={residentsById} bookingsById={bookingsById} onView={(payment) => void openDetail(payment)} /> : <EmptyState title={submittedSearch || statusFilter !== "all" || methodFilter !== "all" ? "No matching payments" : "No payments"} message="Payments will appear after staff record them against bookings." />}
+      {recordError ? <ErrorState title="Record unavailable" message={recordError} /> : null}
+      {loading ? <LoadingState label="Loading payments..." /> : payments.length ? <PaymentsTable payments={payments} residentsById={residentsById} bookingsById={bookingsById} onView={(payment) => void openDetail(payment)} /> : <EmptyState title={submittedSearch || statusFilter !== "all" || methodFilter !== "all" || queue ? "No matching payments" : "No payments"} message="Payments will appear after staff record them against bookings." />}
       <div className="flex items-center justify-between"><button type="button" disabled={offset === 0 || loading} onClick={() => { const next = Math.max(0, offset - pageSize); setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Previous</button><p className="text-sm text-text-secondary">Showing {offset + 1}-{offset + payments.length}</p><button type="button" disabled={payments.length < pageSize || loading} onClick={() => { const next = offset + pageSize; setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Next</button></div>
       <ConfirmDialog open={Boolean(selected)} title="Payment Details" onClose={() => { setSelected(null); setAction(null); }}>{selected ? <PaymentDetail payment={selected} resident={selectedResident} institution={selectedInstitution} booking={selectedBooking} pricedRoom={selectedRoom} summary={summary} summaryError={summaryError} canWrite={canWrite} canVerifyPayment={canVerifyPayment} saving={saving} uploading={uploading} uploadError={uploadError} onSubmitPayment={() => setAction("submit")} onVerify={() => setAction("verify")} onReject={() => setAction("reject")} onRefund={() => setAction("refund")} onCancel={() => setAction("cancel")} onArchive={() => setAction("archive")} onUpload={(file) => void submitUpload(file)} /> : null}</ConfirmDialog>
       <CreatePaymentDialog open={createOpen} bookings={bookings} residentsById={residentsById} saving={saving} error={mutationError} onClose={() => { if (!saving) { setCreateOpen(false); setMutationError(null); } }} onCreate={(input) => void mutate(() => createPayment(input), (payment) => { setCreateOpen(false); void openDetail(payment); })} />

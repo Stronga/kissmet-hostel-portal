@@ -124,6 +124,18 @@ export class RefundService {
     return rows.results ?? [];
   }
 
+  async countRefunds(filters: { status?: string | null } = {}) {
+    const where: string[] = [];
+    const binds: unknown[] = [];
+    if (filters.status) {
+      if (!["requested", "approved", "rejected", "cancelled", "paid"].includes(filters.status)) throw new Error("Invalid refund status");
+      where.push("status = ?");
+      binds.push(filters.status);
+    }
+    const row = await this.repo.first<{ total: number }>(`SELECT COUNT(*) AS total FROM refunds ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`, ...binds);
+    return Number(row?.total ?? 0);
+  }
+
   /** Refundable remainder = amount - paid refunds - open (requested/approved) refunds. */
   async refundable(paymentId: number) {
     const payment = await this.repo.first<Record<string, unknown>>("SELECT id, status, amount_minor, refunded_amount_minor, currency FROM payments WHERE id = ?", paymentId);

@@ -1,3 +1,4 @@
+import { GuidedWorkflow } from "../../components/workflow/GuidedWorkflow";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import type { Booking, BookingPaymentSummary, Institution, Payment, Resident, Room } from "../../types/api";
 import { formatCurrencyMinor, formatDateTime, formatStatus } from "../../utils/format";
@@ -9,6 +10,7 @@ export function PaymentDetail({ payment, resident, institution, booking, pricedR
   const attention = Boolean(booking?.payment_attention_required || summary?.paymentAttentionRequired);
   return (
     <div className="space-y-3">
+      <GuidedWorkflow subjectType="payment" subjectId={payment.id} />
       {attention ? <section className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><h3 className="font-semibold">Payment attention required</h3><p>{booking?.payment_attention_reason || "This booking has a payment change that requires staff review."}</p></section> : null}
       <Section title="Payment" rows={[["Payment reference", payment.payment_reference], ["Status", <StatusBadge status={payment.status} />], ["Amount", formatCurrencyMinor(payment.amount_minor, payment.currency)], ["Payment method", methodLabel(payment.method)], ["Paid date", formatDateTime(payment.paid_at)], ["Submitted date", formatDateTime(payment.submitted_at ?? payment.created_at)], ["Verified date", formatDateTime(payment.verified_at)], ["Notes", payment.notes || "Not available"]]} />
       <Section title="Resident" rows={[["Resident code", resident?.resident_code ?? "Not available"], ["Full name", residentName(resident)], ["Student ID", resident?.student_id ?? "Not available"], ["Institution", institution?.name ?? "Not available"]]} />

@@ -6,7 +6,9 @@ import { requireAuth, requirePermission, requireRole, requireStaff } from "../mi
 import { hasPermission } from "../auth/permissions";
 import { AdminRepository } from "../repositories/admin.repository";
 import { AdminService } from "../services/admin.service";
+import { CommandCentreService, readScope } from "../services/command-centre.service";
 import { RefundService } from "../services/refund.service";
+import { StaffTaskService, type ActivityView, type TaskSubjectType } from "../services/staff-tasks.service";
 import { asObject, intField, pagination, stringField } from "../http/input";
 import { error, listOk, ok } from "../http/responses";
 import { routeError } from "../http/safe-error";
@@ -27,6 +29,22 @@ function service(c: { env: Env }) {
 function refunds(c: { env: Env }) {
   const repo = new AdminRepository(c.env.DB);
   return new RefundService(repo, new AdminService(repo, c.env.DOCUMENTS));
+}
+
+function centre(c: { env: Env }) {
+  return new CommandCentreService(new AdminRepository(c.env.DB));
+}
+
+function taskService(c: { env: Env }) {
+  return new StaffTaskService(new AdminRepository(c.env.DB));
+}
+
+async function touch(c: { env: Env }, subjects: Array<{ type: TaskSubjectType; id: number }>) {
+  await taskService(c).syncMany(subjects);
+}
+
+function paged(result: { results: unknown[]; total: number; counts?: unknown }, p: { limit: number; offset: number }) {
+  return { ok: true as const, data: result.results, pagination: { ...p, total: result.total }, ...(result.counts ? { counts: result.counts } : {}) };
 }
 
 async function body(c: { req: { json: () => Promise<unknown> } }) {
@@ -60,13 +78,83 @@ routes.get("/residents", requirePermission("resident:read"), async (c) => {
 });
 // Staff uses joined users/staff/roles responses below.
 listRoute("/roles", "roles");
-listRoute("/applications", "applications", "application:read");
-listRoute("/bookings", "bookings", "booking:read");
-listRoute("/allocations", "allocations", "allocation:read");
-listRoute("/payments", "payments", "payment:read");
-listRoute("/receipts", "receipts", "receipt:read");
+routes.get("/applications", requirePermission("application:read"), async (c) => {
+  try {
+    const url = new URL(c.req.url);
+    const p = pagination(url);
+    const result = await centre(c).listApplications({ ...readScope(url), status: url.searchParams.get("status"), queue: url.searchParams.get("queue"), search: url.searchParams.get("search"), ...p });
+    return c.json(paged(result, p));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/bookings", requirePermission("booking:read"), async (c) => {
+  try {
+    const url = new URL(c.req.url);
+    const p = pagination(url);
+    const result = await centre(c).listBookings({ ...readScope(url), status: url.searchParams.get("status"), queue: url.searchParams.get("queue"), search: url.searchParams.get("search"), ...p });
+    return c.json(paged(result, p));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/allocations", requirePermission("allocation:read"), async (c) => {
+  try {
+    const url = new URL(c.req.url);
+    const p = pagination(url);
+    const result = await centre(c).listAllocations({ ...readScope(url), status: url.searchParams.get("status"), search: url.searchParams.get("search"), ...p });
+    return c.json(paged(result, p));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/payments", requirePermission("payment:read"), async (c) => {
+  try {
+    const url = new URL(c.req.url);
+    const p = pagination(url);
+    const result = await centre(c).listPayments({ ...readScope(url), status: url.searchParams.get("status"), queue: url.searchParams.get("queue"), method: url.searchParams.get("method"), search: url.searchParams.get("search"), ...p });
+    return c.json(paged(result, p));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/receipts", requirePermission("receipt:read"), async (c) => {
+  try {
+    const url = new URL(c.req.url);
+    const p = pagination(url);
+    const result = await centre(c).listReceipts({ status: url.searchParams.get("status"), search: url.searchParams.get("search"), ...p });
+    return c.json(paged(result, p));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
 
 routes.get("/dashboard", requirePermission("admin:read"), async (c) => c.json(ok(await service(c).dashboard())));
+routes.get("/dashboard/command-centre", async (c) => {
+  try { return c.json(ok(await centre(c).commandCentre(c.get("authUser"), readScope(new URL(c.req.url))))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/dashboard/occupancy/rooms", async (c) => {
+  const role = c.get("authUser").role;
+  if (!hasPermission(role, "allocation:read") && !hasPermission(role, "admin:read")) return c.json(error("Forbidden", "forbidden"), 403);
+  try { return c.json(ok(await centre(c).occupancyRooms(readScope(new URL(c.req.url))))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/activity/unread-count", async (c) => {
+  try {
+    await taskService(c).reconcile();
+    return c.json(ok({ unreadCount: await taskService(c).unreadCount(c.get("authUser")) }));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/activity", async (c) => {
+  try {
+    const url = new URL(c.req.url);
+    const view = (url.searchParams.get("view") ?? "action_required") as ActivityView;
+    if (!["action_required", "all", "completed"].includes(view)) throw new Error("Invalid activity view");
+    const p = pagination(url);
+    await taskService(c).reconcile();
+    const result = await taskService(c).list(c.get("authUser"), view, p.limit, p.offset);
+    return c.json({ ok: true, data: result.results, pagination: { ...p, total: result.total }, unreadCount: result.unreadCount });
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.post("/activity/:id/read", async (c) => {
+  try { return c.json(ok(await taskService(c).markRead(c.get("authUser"), Number(c.req.param("id"))))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
+routes.get("/workflows/:subjectType/:id", async (c) => {
+  try { return c.json(ok(await centre(c).workflow(c.get("authUser"), c.req.param("subjectType"), Number(c.req.param("id"))))); }
+  catch (e) { const h = handle(e); return c.json(h.body, h.status); }
+});
 routes.get("/dashboard/overview", requirePermission("admin:read"), async (c) => c.json(ok(await service(c).operationalOverview())));
 routes.get("/dashboard/occupancy", requirePermission("admin:read"), async (c) => {
   const id = new URL(c.req.url).searchParams.get("academicSessionId");
@@ -435,24 +523,29 @@ routes.get("/applications/:id", requirePermission("application:read"), async (c)
 routes.patch("/applications/:id/status", requirePermission("application:write"), async (c) => {
   try {
     const input = await body(c);
-    return c.json(ok(await service(c).updateApplicationStatus(c.get("authUser"), Number(c.req.param("id")), stringField(input, "status")! as never, stringField(input, "notes", false, 2000))));
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).updateApplicationStatus(c.get("authUser"), id, stringField(input, "status")! as never, stringField(input, "notes", false, 2000));
+    await touch(c, [{ type: "application", id }]);
+    return c.json(ok(updated));
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 
 routes.post("/bookings", requirePermission("booking:write"), async (c) => {
   try {
     const input = await body(c);
-    return c.json(ok(await service(c).createBooking(c.get("authUser"), {
+    const created = await service(c).createBooking(c.get("authUser"), {
       applicationId: intField(input, "applicationId")!,
       roomId: intField(input, "roomId")!,
       expiresAt: stringField(input, "expiresAt", false, 64)
-    })), 201);
+    }) as { id?: number } | null;
+    if (created?.id) await touch(c, [{ type: "booking", id: Number(created.id) }]);
+    return c.json(ok(created), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/bookings/from-rate-card", requirePermission("admin:write"), async (c) => {
   try {
     const input = await body(c);
-    return c.json(ok(await service(c).createBookingFromRateCard(c.get("authUser"), {
+    const created = await service(c).createBookingFromRateCard(c.get("authUser"), {
       applicationId: intField(input, "applicationId")!,
       roomId: intField(input, "roomId")!,
       leasePeriodId: intField(input, "leasePeriodId")!,
@@ -467,7 +560,10 @@ routes.post("/bookings/from-rate-card", requirePermission("admin:write"), async 
       paymentFixedAmountMinor: intField(input, "paymentFixedAmountMinor", false),
       paymentPercentageBasisPoints: intField(input, "paymentPercentageBasisPoints", false),
       priorBookingId: intField(input, "priorBookingId", false)
-    })), 201);
+    });
+    const bookingId = Number((created as { booking?: { id?: number } }).booking?.id);
+    if (bookingId) await touch(c, [{ type: "booking", id: bookingId }]);
+    return c.json(ok(created), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.get("/bookings/:id", requirePermission("booking:read"), async (c) => c.json(ok(await service(c).get("bookings", Number(c.req.param("id"))))));
@@ -563,7 +659,10 @@ routes.patch("/bookings/:id/status", async (c) => {
     const status = stringField(input, "status")!;
     const permission = status === "confirmed" ? "booking:confirm" : "booking:write";
     if (!hasPermission(c.get("authUser").role, permission)) return c.json(error("Forbidden", "forbidden"), 403);
-    return c.json(ok(await service(c).updateBookingStatus(c.get("authUser"), Number(c.req.param("id")), status as never)));
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).updateBookingStatus(c.get("authUser"), id, status as never);
+    await touch(c, [{ type: "booking", id }]);
+    return c.json(ok(updated));
   }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
@@ -597,7 +696,7 @@ routes.get("/availability", requirePermission("allocation:read"), async (c) => {
 routes.post("/allocations", requirePermission("allocation:write"), async (c) => {
   try {
     const input = await body(c);
-    return c.json(ok(await service(c).createAllocation(c.get("authUser"), {
+    const created = await service(c).createAllocation(c.get("authUser"), {
       bookingId: intField(input, "bookingId")!,
       bedId: intField(input, "bedId")!,
       startsOn: stringField(input, "startsOn", true, 32)!,
@@ -605,7 +704,12 @@ routes.post("/allocations", requirePermission("allocation:write"), async (c) => 
       notes: stringField(input, "notes", false, 2000),
       residentId: intField(input, "residentId", false),
       academicSessionId: intField(input, "academicSessionId", false),
-    })), 201);
+    }) as { id?: number; booking_id?: number } | null;
+    const subjects: Array<{ type: TaskSubjectType; id: number }> = [];
+    if (created?.id) subjects.push({ type: "allocation", id: Number(created.id) });
+    if (created?.booking_id) subjects.push({ type: "booking", id: Number(created.booking_id) });
+    if (subjects.length) await touch(c, subjects);
+    return c.json(ok(created), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.get("/allocations/:id", requirePermission("allocation:read"), async (c) => c.json(ok(await service(c).get("allocations", Number(c.req.param("id"))))));
@@ -638,14 +742,20 @@ routes.post("/allocations/:id/cross-room-transfer", requirePermission("admin:wri
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.patch("/allocations/:id/status", requirePermission("allocation:write"), async (c) => {
-  try { const input = await body(c); return c.json(ok(await service(c).updateAllocationStatus(c.get("authUser"), Number(c.req.param("id")), stringField(input, "status")! as never))); }
+  try {
+    const input = await body(c);
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).updateAllocationStatus(c.get("authUser"), id, stringField(input, "status")! as never);
+    await touch(c, [{ type: "allocation", id }]);
+    return c.json(ok(updated));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 
 routes.post("/payments", requirePermission("payment:write"), async (c) => {
   try {
     const input = await body(c);
-    return c.json(ok(await service(c).createPayment(c.get("authUser"), {
+    const created = await service(c).createPayment(c.get("authUser"), {
       bookingId: intField(input, "bookingId")!,
       residentId: intField(input, "residentId")!,
       amountMinor: intField(input, "amountMinor")!,
@@ -653,7 +763,9 @@ routes.post("/payments", requirePermission("payment:write"), async (c) => {
       method: stringField(input, "method")!,
       paidAt: stringField(input, "paidAt", false, 64),
       notes: stringField(input, "notes", false, 2000)
-    })), 201);
+    }) as { id?: number } | null;
+    if (created?.id) await touch(c, [{ type: "payment", id: Number(created.id) }]);
+    return c.json(ok(created), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.get("/payments/:id", requirePermission("payment:read"), async (c) => c.json(ok(await service(c).get("payments", Number(c.req.param("id"))))));
@@ -666,15 +778,30 @@ routes.patch("/payments/:id/status", async (c) => {
     // the single authoritative refund path (receipt void + booking payment-attention + audit).
     const permission = status === "rejected" || status === "refunded" ? "payment:verify" : "payment:write";
     if (!hasPermission(c.get("authUser").role, permission)) return c.json(error("Forbidden", "forbidden"), 403);
-    return c.json(ok(await service(c).updatePaymentStatus(c.get("authUser"), Number(c.req.param("id")), status as never, stringField(input, "notes", false, 2000))));
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).updatePaymentStatus(c.get("authUser"), id, status as never, stringField(input, "notes", false, 2000));
+    await touch(c, [{ type: "payment", id }]);
+    return c.json(ok(updated));
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/payments/:id/verify", requirePermission("payment:verify"), async (c) => {
-  try { const input = await body(c); return c.json(ok(await service(c).verifyPayment(c.get("authUser"), Number(c.req.param("id")), stringField(input, "notes", false, 2000)))); }
+  try {
+    const input = await body(c);
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).verifyPayment(c.get("authUser"), id, stringField(input, "notes", false, 2000));
+    await touch(c, [{ type: "payment", id }]);
+    return c.json(ok(updated));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/payments/:id/reject", requirePermission("payment:verify"), async (c) => {
-  try { const input = await body(c); return c.json(ok(await service(c).updatePaymentStatus(c.get("authUser"), Number(c.req.param("id")), "rejected", stringField(input, "notes", false, 2000)))); }
+  try {
+    const input = await body(c);
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).updatePaymentStatus(c.get("authUser"), id, "rejected", stringField(input, "notes", false, 2000));
+    await touch(c, [{ type: "payment", id }]);
+    return c.json(ok(updated));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 // Refund redesign milestone 2. Creating a refund is only possible here (the status endpoint refuses
@@ -684,7 +811,9 @@ routes.post("/payments/:id/refund", requirePermission("refund:request"), async (
     const input = await body(c);
     // `reason` is preferred; `notes` is accepted for backward compatibility with existing clients.
     const reason = stringField(input, "reason", false, 2000) ?? stringField(input, "notes", false, 2000);
-    const refund = await refunds(c).requestRefund(c.get("authUser"), Number(c.req.param("id")), { amountMinor: intField(input, "amountMinor", false), reason });
+    const paymentId = Number(c.req.param("id"));
+    const refund = await refunds(c).requestRefund(c.get("authUser"), paymentId, { amountMinor: intField(input, "amountMinor", false), reason }) as { id?: number };
+    await touch(c, [{ type: "payment", id: paymentId }, ...(refund?.id ? [{ type: "refund" as const, id: Number(refund.id) }] : [])]);
     return c.json(ok(refund), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
@@ -699,7 +828,10 @@ routes.get("/refunds", requirePermission("refund:read"), async (c) => {
   try {
     const url = new URL(c.req.url);
     const p = pagination(url);
-    return c.json(ok(await refunds(c).listRefunds({ status: url.searchParams.get("status"), limit: p.limit, offset: p.offset })));
+    const status = url.searchParams.get("status");
+    const rows = await refunds(c).listRefunds({ status, limit: p.limit, offset: p.offset });
+    const total = await refunds(c).countRefunds({ status });
+    return c.json({ ok: true, data: rows, pagination: { ...p, total } });
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.get("/refunds/:id", requirePermission("refund:read"), async (c) => {
@@ -707,21 +839,42 @@ routes.get("/refunds/:id", requirePermission("refund:read"), async (c) => {
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/refunds/:id/approve", requirePermission("refund:approve"), async (c) => {
-  try { const input = await body(c); return c.json(ok(await refunds(c).approveRefund(c.get("authUser"), Number(c.req.param("id")), stringField(input, "note", false, 2000)))); }
+  try {
+    const input = await body(c);
+    const id = Number(c.req.param("id"));
+    const updated = await refunds(c).approveRefund(c.get("authUser"), id, stringField(input, "note", false, 2000));
+    await touch(c, [{ type: "refund", id }]);
+    return c.json(ok(updated));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/refunds/:id/reject", requirePermission("refund:approve"), async (c) => {
-  try { const input = await body(c); return c.json(ok(await refunds(c).rejectRefund(c.get("authUser"), Number(c.req.param("id")), stringField(input, "note", false, 2000)))); }
+  try {
+    const input = await body(c);
+    const id = Number(c.req.param("id"));
+    const updated = await refunds(c).rejectRefund(c.get("authUser"), id, stringField(input, "note", false, 2000));
+    await touch(c, [{ type: "refund", id }]);
+    return c.json(ok(updated));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/refunds/:id/cancel", requirePermission("refund:request"), async (c) => {
-  try { const input = await body(c); return c.json(ok(await refunds(c).cancelRefund(c.get("authUser"), Number(c.req.param("id")), stringField(input, "note", false, 2000)))); }
+  try {
+    const input = await body(c);
+    const id = Number(c.req.param("id"));
+    const updated = await refunds(c).cancelRefund(c.get("authUser"), id, stringField(input, "note", false, 2000));
+    await touch(c, [{ type: "refund", id }]);
+    return c.json(ok(updated));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/refunds/:id/payout", requirePermission("refund:payout"), async (c) => {
   try {
     const input = await body(c);
-    return c.json(ok(await refunds(c).payoutRefund(c.get("authUser"), Number(c.req.param("id")), { method: stringField(input, "method", false, 32), reference: stringField(input, "reference", false, 120) })));
+    const id = Number(c.req.param("id"));
+    const updated = await refunds(c).payoutRefund(c.get("authUser"), id, { method: stringField(input, "method", false, 32), reference: stringField(input, "reference", false, 120) });
+    await touch(c, [{ type: "refund", id }]);
+    return c.json(ok(updated));
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.get("/credit-notes", requirePermission("credit_note:read"), async (c) => {
@@ -800,15 +953,18 @@ routes.post("/documents/:id/reject", requirePermission("document:write"), async 
 });
 
 routes.get("/maintenance", requirePermission("maintenance:read"), async (c) => {
-  const p = pagination(new URL(c.req.url));
-  const result = await service(c).list("maintenance_requests", p.limit, p.offset, new URL(c.req.url).searchParams.get("search") ?? undefined);
-  return c.json(listOk((result.results ?? []) as unknown[], p));
+  try {
+    const url = new URL(c.req.url);
+    const p = pagination(url);
+    const result = await centre(c).listMaintenance({ status: url.searchParams.get("status"), priority: url.searchParams.get("priority"), search: url.searchParams.get("search"), ...p });
+    return c.json(paged(result, p));
+  } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.get("/maintenance/:id", requirePermission("maintenance:read"), async (c) => c.json(ok(await service(c).get("maintenance_requests", Number(c.req.param("id"))))));
 routes.post("/maintenance", requirePermission("maintenance:create"), async (c) => {
   try {
     const input = await body(c);
-    return c.json(ok(await service(c).createMaintenance(c.get("authUser"), {
+    const created = await service(c).createMaintenance(c.get("authUser"), {
       residentId: intField(input, "residentId", false),
       roomId: intField(input, "roomId", false),
       bedId: intField(input, "bedId", false),
@@ -816,27 +972,55 @@ routes.post("/maintenance", requirePermission("maintenance:create"), async (c) =
       priority: stringField(input, "priority", false) ?? undefined,
       title: stringField(input, "title")!,
       description: stringField(input, "description", false, 2000)
-    })), 201);
+    }) as { id?: number } | null;
+    if (created?.id) await touch(c, [{ type: "maintenance", id: Number(created.id) }]);
+    return c.json(ok(created), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/maintenance/:id/assign", requirePermission("maintenance:assign"), async (c) => {
-  try { const input = await body(c); return c.json(ok(await service(c).assignMaintenance(c.get("authUser"), Number(c.req.param("id")), intField(input, "staffId")!))); }
+  try {
+    const input = await body(c);
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).assignMaintenance(c.get("authUser"), id, intField(input, "staffId")!);
+    await touch(c, [{ type: "maintenance", id }]);
+    return c.json(ok(updated));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/maintenance/:id/start", requirePermission("maintenance:update"), async (c) => {
-  try { return c.json(ok(await service(c).updateMaintenanceStatus(c.get("authUser"), Number(c.req.param("id")), "in_progress"))); }
+  try {
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).updateMaintenanceStatus(c.get("authUser"), id, "in_progress");
+    await touch(c, [{ type: "maintenance", id }]);
+    return c.json(ok(updated));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/maintenance/:id/resolve", requirePermission("maintenance:resolve"), async (c) => {
-  try { return c.json(ok(await service(c).updateMaintenanceStatus(c.get("authUser"), Number(c.req.param("id")), "resolved"))); }
+  try {
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).updateMaintenanceStatus(c.get("authUser"), id, "resolved");
+    await touch(c, [{ type: "maintenance", id }]);
+    return c.json(ok(updated));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/maintenance/:id/close", requirePermission("maintenance:close"), async (c) => {
-  try { return c.json(ok(await service(c).updateMaintenanceStatus(c.get("authUser"), Number(c.req.param("id")), "closed"))); }
+  try {
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).updateMaintenanceStatus(c.get("authUser"), id, "closed");
+    await touch(c, [{ type: "maintenance", id }]);
+    return c.json(ok(updated));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 routes.post("/maintenance/:id/cancel", requirePermission("maintenance:update"), async (c) => {
-  try { return c.json(ok(await service(c).updateMaintenanceStatus(c.get("authUser"), Number(c.req.param("id")), "cancelled"))); }
+  try {
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).updateMaintenanceStatus(c.get("authUser"), id, "cancelled");
+    await touch(c, [{ type: "maintenance", id }]);
+    return c.json(ok(updated));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 

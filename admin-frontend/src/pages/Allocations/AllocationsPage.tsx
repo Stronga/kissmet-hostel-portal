@@ -1,5 +1,6 @@
 import { Plus, Search } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { createAllocation, crossRoomTransferAllocation, getAllocation, getBooking, listAllocations, listAgreementAvailability, listAvailability, listRoomBeds, transferAllocation, updateAllocationStatus } from "../../api/allocations";
 import { listAcademicSessions } from "../../api/applications";
 import { listBookings, listRoomRates, listRooms } from "../../api/bookings";
@@ -38,10 +39,13 @@ export function AllocationsPage() {
   const [bedsByRoom, setBedsByRoom] = useState<Map<number, Bed[]>>(new Map());
   const [availability, setAvailability] = useState<AvailabilityBed[]>([]);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
-  const [search, setSearch] = useState("");
-  const [submittedSearch, setSubmittedSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [sessionFilter, setSessionFilter] = useState("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get("search") ?? "");
+  const [submittedSearch, setSubmittedSearch] = useState(searchParams.get("search") ?? "");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "all");
+  const [sessionFilter, setSessionFilter] = useState(searchParams.get("academicSessionId") ?? "all");
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,8 +60,8 @@ export function AllocationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [{ allocations: allocationRows }, { bookings: bookingRows }, sessionRows, institutionRows, roomRows, rateRows] = await Promise.all([
-        listAllocations({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined }),
+      const [{ allocations: allocationRows, counts: nextCounts }, { bookings: bookingRows }, sessionRows, institutionRows, roomRows, rateRows] = await Promise.all([
+        listAllocations({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined, status: statusFilter, academicSessionId: sessionFilter !== "none" ? sessionFilter : undefined }),
         listBookings({ limit: 100, offset: 0 }),
         listAcademicSessions(),
         listInstitutions(),
@@ -72,6 +76,7 @@ export function AllocationsPage() {
       const residentEntries = await Promise.all(residentIds.map(async (id) => [id, await getResident(id)] as const));
       const bedEntries = await Promise.all(roomRows.map(async (room) => [room.id, await listRoomBeds(room.id)] as const));
       setAllocations(allocationRows);
+      setCounts(nextCounts ?? null);
       setBookings(bookingRows);
       setBookingsById(bookingMap);
       setResidentsById(new Map(residentEntries));
@@ -87,7 +92,15 @@ export function AllocationsPage() {
     }
   }
 
-  useEffect(() => { void load(0, ""); }, []);
+  useEffect(() => { void load(0, submittedSearch); }, [statusFilter, sessionFilter]);
+
+  useEffect(() => {
+    const recordId = Number(searchParams.get("record") ?? 0);
+    if (!Number.isInteger(recordId) || recordId <= 0) return;
+    let alive = true;
+    getAllocation(recordId).then((allocation) => { if (alive) setSelected(allocation); }).catch(() => { if (alive) setRecordError("This record is no longer available."); });
+    return () => { alive = false; };
+  }, [searchParams]);
 
   const visibleAllocations = useMemo(() => allocations.filter((allocation) => (statusFilter === "all" || allocation.status === statusFilter) && (sessionFilter === "all" || (sessionFilter === "none" ? allocation.academic_session_id == null : allocation.academic_session_id === Number(sessionFilter)))), [allocations, sessionFilter, statusFilter]);
   const totals = useMemo(() => ({
@@ -166,17 +179,18 @@ export function AllocationsPage() {
         <PageHeader title="Allocations" eyebrow="Admin" description="Assign residents to beds and manage placement history." />
         {canWrite ? <button type="button" onClick={() => setCreateOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90"><Plus className="h-4 w-4" /> Allocate Bed</button> : null}
       </div>
-      <div className="grid gap-3 sm:grid-cols-4"><StatCard label="Active On Page" value={totals.active} tone="success" /><StatCard label="Available Beds" value={totals.availableBeds} /><StatCard label="Ready On Loaded Bookings" value={totals.ready} /><StatCard label="Transfers On Page" value={totals.transfers} /></div>
+      <div className="grid gap-3 sm:grid-cols-4"><StatCard label="Active allocations" value={counts?.active ?? totals.active} tone="success" /><StatCard label="Available Beds" value={totals.availableBeds} /><StatCard label="Transfers" value={counts?.transferred ?? totals.transfers} /></div>
       <section className="rounded-token border border-border bg-surface p-4">
         <form onSubmit={(event) => void submitSearch(event)} className="flex flex-col gap-3 xl:flex-row xl:items-end">
           <div className="flex-1"><label htmlFor="allocation-search" className="block text-sm font-medium">Search allocations</label><div className="mt-1 flex rounded-md border border-border bg-white"><Search className="ml-3 mt-2.5 h-4 w-4 text-text-secondary" /><input id="allocation-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Backend search supports allocation status" className="min-w-0 flex-1 rounded-md px-3 py-2 text-sm outline-none" /></div></div>
-          <label className="text-sm font-medium">Status<select aria-label="Allocation status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="mt-1 rounded-md border border-border bg-white px-3 py-2">{statuses.map((status) => <option key={status} value={status}>{status === "all" ? "All statuses" : formatStatus(status)}</option>)}</select></label>
-          <label className="text-sm font-medium">Academic session<select aria-label="Allocation session filter" value={sessionFilter} onChange={(event) => setSessionFilter(event.target.value)} className="mt-1 rounded-md border border-border bg-white px-3 py-2"><option value="all">All sessions</option><option value="none">No session (CY/ST)</option>{sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}</select></label>
+          <label className="text-sm font-medium">Status<select aria-label="Allocation status filter" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); const copy = new URLSearchParams(searchParams); if (event.target.value === "all") copy.delete("status"); else copy.set("status", event.target.value); setSearchParams(copy); }} className="mt-1 rounded-md border border-border bg-white px-3 py-2">{statuses.map((status) => <option key={status} value={status}>{status === "all" ? "All statuses" : formatStatus(status)}</option>)}</select></label>
+          <label className="text-sm font-medium">Academic session<select aria-label="Allocation session filter" value={sessionFilter} onChange={(event) => { setSessionFilter(event.target.value); const copy = new URLSearchParams(searchParams); if (event.target.value === "all") copy.delete("academicSessionId"); else copy.set("academicSessionId", event.target.value); setSearchParams(copy); }} className="mt-1 rounded-md border border-border bg-white px-3 py-2"><option value="all">All sessions</option><option value="none">No session (CY/ST)</option>{sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}</select></label>
           <button type="submit" className="rounded-md border border-border bg-muted px-4 py-2 text-sm font-semibold">Search</button>
         </form>
-        <p className="mt-2 text-xs text-text-secondary">Server search covers allocation status. Resident, booking, room, and session filters are based on loaded page lookups.</p>
+        <p className="mt-2 text-xs text-text-secondary">Status and academic session filters run on the server. Active and transfer totals cover the full authorized set.</p>
       </section>
       {error ? <ErrorState message={error} /> : null}
+      {recordError ? <ErrorState title="Record unavailable" message={recordError} /> : null}
       {loading ? <LoadingState label="Loading allocations..." /> : visibleAllocations.length ? <AllocationsTable allocations={visibleAllocations} residentsById={residentsById} bookingsById={bookingsById} sessions={sessions} rooms={rooms} bedsByRoom={bedsByRoom} onView={(allocation) => void openDetail(allocation)} /> : <EmptyState title={submittedSearch || statusFilter !== "all" || sessionFilter !== "all" ? "No matching allocations" : "No allocations"} message="Allocations will appear after confirmed bookings are explicitly assigned to beds." />}
       <div className="flex items-center justify-between"><button type="button" disabled={offset === 0 || loading} onClick={() => { const next = Math.max(0, offset - pageSize); setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Previous</button><p className="text-sm text-text-secondary">Showing {offset + 1}-{offset + allocations.length}</p><button type="button" disabled={allocations.length < pageSize || loading} onClick={() => { const next = offset + pageSize; setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Next</button></div>
       <ConfirmDialog open={Boolean(selected)} title="Allocation Details" onClose={() => { setSelected(null); setDecisionStatus(null); setMutationError(null); }}>{selected ? <AllocationDetail allocation={selected} allocations={allocations} resident={selectedResident} institution={selectedInstitution} booking={selectedBooking} sessions={sessions} rooms={rooms} bedsByRoom={bedsByRoom} rates={rates} canWrite={canWrite} pending={saving} onTransfer={() => { setTransferOpen(true); void loadAvailabilityFor(selectedBooking ?? null); }} onStatus={setDecisionStatus} /> : null}</ConfirmDialog>

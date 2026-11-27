@@ -138,7 +138,14 @@ residentRoutes.patch("/me/applications/:id", async (c) => {
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 residentRoutes.post("/me/applications/:id/submit", async (c) => {
-  try { return c.json(ok(await service(c).submitApplication(c.get("authUser"), Number(c.req.param("id"))))); }
+  try {
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).submitApplication(c.get("authUser"), id);
+    const { AdminRepository } = await import("../repositories/admin.repository");
+    const { StaffTaskService } = await import("../services/staff-tasks.service");
+    await new StaffTaskService(new AdminRepository(c.env.DB)).syncSubject("application", id);
+    return c.json(ok(updated));
+  }
   catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 residentRoutes.get("/me/bookings", async (c) => c.json(ok((await service(c).bookings(c.get("authUser"))).results ?? [])));
@@ -181,12 +188,18 @@ residentRoutes.get("/me/maintenance", async (c) => c.json(ok((await service(c).m
 residentRoutes.post("/me/maintenance", async (c) => {
   try {
     const input = await body(c);
-    return c.json(ok(await service(c).createMaintenance(c.get("authUser"), {
+    const created = await service(c).createMaintenance(c.get("authUser"), {
       category: stringField(input, "category")!,
       priority: stringField(input, "priority", false) ?? undefined,
       title: stringField(input, "title")!,
       description: stringField(input, "description", false, 2000)
-    })), 201);
+    }) as { id?: number } | null;
+    if (created?.id) {
+      const { AdminRepository } = await import("../repositories/admin.repository");
+      const { StaffTaskService } = await import("../services/staff-tasks.service");
+      await new StaffTaskService(new AdminRepository(c.env.DB)).syncSubject("maintenance", Number(created.id));
+    }
+    return c.json(ok(created), 201);
   } catch (e) { const h = handle(e); return c.json(h.body, h.status); }
 });
 residentRoutes.get("/me/maintenance/:id", async (c) => {

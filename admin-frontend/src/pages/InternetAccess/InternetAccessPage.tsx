@@ -1,5 +1,6 @@
 import { Copy, Plus, Search } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   disconnectInternetSessions,
   enableInternet,
@@ -57,7 +58,9 @@ export function InternetAccessPage() {
   const [search, setSearch] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<(typeof statusOptions)[number]>("all");
-  const [syncFilter, setSyncFilter] = useState<(typeof syncOptions)[number]>("all");
+  const [searchParams] = useSearchParams();
+  const initialSync = searchParams.get("sync_status");
+  const [syncFilter, setSyncFilter] = useState<(typeof syncOptions)[number]>(syncOptions.includes(initialSync as (typeof syncOptions)[number]) ? initialSync as (typeof syncOptions)[number] : "all");
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -103,8 +106,16 @@ export function InternetAccessPage() {
 
   useEffect(() => {
     if (!canRead) return;
-    void load(0, "");
+    void load(0, "", statusFilter, syncFilter);
   }, [canRead]);
+
+  useEffect(() => {
+    const recordId = Number(searchParams.get("record") ?? 0);
+    if (!canRead || !Number.isInteger(recordId) || recordId <= 0) return;
+    let alive = true;
+    getInternetAccount(recordId).then((account) => { if (alive) void openDetail(account); }).catch(() => { if (alive) setError("This record is no longer available."); });
+    return () => { alive = false; };
+  }, [canRead, searchParams]);
 
   async function submitSearch(event: FormEvent) {
     event.preventDefault();

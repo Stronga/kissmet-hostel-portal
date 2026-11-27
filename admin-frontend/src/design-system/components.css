@@ -477,6 +477,48 @@ textarea.km-field__control {
   font-size: var(--km-font-size-xs);
 }
 
+.km-command {
+  display: flex;
+  flex-direction: column;
+  gap: var(--km-space-4);
+}
+
+.km-command--open {
+  display: grid;
+  gap: var(--km-space-4);
+  align-items: start;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "head"
+    "activity"
+    "main";
+}
+
+.km-command__head { grid-area: head; }
+.km-command__main { grid-area: main; }
+.km-command__aside { grid-area: activity; }
+
+@media (min-width: 1100px) {
+  .km-command--open {
+    grid-template-columns: minmax(0, 1fr) 22rem;
+    grid-template-areas:
+      "head activity"
+      "main activity";
+  }
+
+  .km-command__aside {
+    position: sticky;
+    top: var(--km-space-4);
+  }
+}
+
+.km-command__aside {
+  border: 1px solid var(--km-color-border);
+  border-radius: var(--km-radius-md);
+  background: var(--km-color-surface);
+  padding: var(--km-space-3);
+}
+
 .km-activity__flags {
   display: flex;
   flex-wrap: wrap;

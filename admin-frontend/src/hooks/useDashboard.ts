@@ -1,43 +1,21 @@
 import { useEffect, useState } from "react";
-import { getApplicationBookingReport, getDashboardOverview, getFinancialReport, getMaintenanceReport, getOccupancyReport } from "../api/dashboard";
-import type { ApplicationBookingReport, DashboardOverview, FinancialReport, MaintenanceReport, OccupancyReport } from "../types/api";
+import { getCommandCentre, type CommandCentre } from "../api/dashboard";
 
-export interface DashboardData {
-  overview: DashboardOverview;
-  occupancy: OccupancyReport;
-  finance: FinancialReport;
-  applications: ApplicationBookingReport;
-  maintenance: MaintenanceReport;
-}
-
-export function useDashboard() {
-  const [data, setData] = useState<DashboardData | null>(null);
+export function useDashboard(scope: { academicSessionId?: string; leasePeriodId?: string } = {}) {
+  const [data, setData] = useState<CommandCentre | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const [overview, occupancy, finance, applications, maintenance] = await Promise.all([
-          getDashboardOverview(),
-          getOccupancyReport(),
-          getFinancialReport(),
-          getApplicationBookingReport(),
-          getMaintenanceReport()
-        ]);
-        if (alive) setData({ overview, occupancy, finance, applications, maintenance });
-      } catch (err) {
-        if (alive) setError(err instanceof Error ? err.message : "Unable to load dashboard.");
-      } finally {
-        if (alive) setLoading(false);
-      }
-    }
-    void load();
+    setLoading(true);
+    setError(null);
+    getCommandCentre(scope)
+      .then((centre) => { if (alive) setData(centre); })
+      .catch((err: unknown) => { if (alive) setError(err instanceof Error ? err.message : "Unable to load dashboard."); })
+      .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, []);
+  }, [scope.academicSessionId, scope.leasePeriodId]);
 
   return { data, loading, error };
 }

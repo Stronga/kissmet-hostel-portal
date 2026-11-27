@@ -1,11 +1,14 @@
 import { apiRequest } from "./client";
 import type { Allocation, AvailabilityBed, Bed, Booking, BookingAgreementResponse, DataEnvelope, ListEnvelope, Pagination } from "../types/api";
 
-export async function listAllocations(params: { limit?: number; offset?: number; search?: string } = {}): Promise<{ allocations: Allocation[]; pagination: Pagination }> {
+export async function listAllocations(params: { limit?: number; offset?: number; search?: string; status?: string; academicSessionId?: string; leasePeriodId?: string } = {}): Promise<{ allocations: Allocation[]; pagination: Pagination; counts?: Record<string, number> }> {
   const query = new URLSearchParams({ limit: String(params.limit ?? 25), offset: String(params.offset ?? 0) });
   if (params.search) query.set("search", params.search);
-  const response = await apiRequest<ListEnvelope<Allocation>>(`/admin/allocations?${query.toString()}`);
-  return { allocations: response.data, pagination: response.pagination };
+  if (params.status && params.status !== "all" && params.status !== "none") query.set("status", params.status);
+  if (params.academicSessionId && params.academicSessionId !== "all" && params.academicSessionId !== "none") query.set("academicSessionId", params.academicSessionId);
+  if (params.leasePeriodId) query.set("leasePeriodId", params.leasePeriodId);
+  const response = await apiRequest<ListEnvelope<Allocation> & { counts?: Record<string, number> }>(`/admin/allocations?${query.toString()}`);
+  return { allocations: response.data, pagination: response.pagination, counts: response.counts };
 }
 
 export async function getAllocation(id: number) {

@@ -1,3 +1,4 @@
+import { GuidedWorkflow } from "../../components/workflow/GuidedWorkflow";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import type { AcademicSession, Allocation, Bed, Booking, Institution, Resident, Room, RoomRate } from "../../types/api";
 import { formatCurrencyMinor, formatDateTime, formatStatus } from "../../utils/format";
@@ -11,6 +12,7 @@ export function AllocationDetail({ allocation, allocations, resident, institutio
   const pricedRate = booking?.priced_room_rate_id ? rates.find((rate) => rate.id === booking.priced_room_rate_id) : (booking?.priced_room_id != null && booking.academic_session_id != null) ? activeRateFor(booking.priced_room_id, booking.academic_session_id, rates) : undefined;
   return (
     <div className="space-y-3">
+      <GuidedWorkflow subjectType="allocation" subjectId={allocation.id} />
       <Section title="Allocation" rows={[["Status", <StatusBadge status={allocation.status} />], ["Assigned date", formatDateTime(allocation.starts_on ?? allocation.created_at)], ["Ended/released", formatDateTime(allocation.ends_on ?? allocation.released_at)], ["Assigning staff", allocation.assigned_by_staff_id ? `Staff #${allocation.assigned_by_staff_id}` : "Not available"]]} />
       <Section title="Resident" rows={[["Resident code", resident?.resident_code ?? "Not available"], ["Full name", residentName(resident)], ["Student ID", resident?.student_id ?? "Not available"], ["Institution", institution?.name ?? "Not available"]]} />
       <Section title="Booking" rows={[["Booking number", booking?.booking_number ?? `Booking #${allocation.booking_id}`], ["Booking status", booking ? formatStatus(booking.status) : "Not available"], ["Approved term", leaseTermLabel(booking?.lease_kind) ?? (allocation.academic_session_id != null ? "Academic Calendar" : "—")], ["Agreement period", agreementPeriodLabel(booking)], ["Academic session", allocation.academic_session_id == null ? "Not applicable" : sessionName(allocation.academic_session_id, sessions)], ["Captured booking total", booking ? formatCurrencyMinor(booking.total_amount_minor, booking.currency) : "Not available"], ["Priced room", pricedRoom ? `${pricedRoom.room_code} ${pricedRoom.room_name ?? ""}` : `Room #${booking?.priced_room_id ?? "unknown"}`], ["Priced rate", pricedRate ? `${pricedRate.rate_code} ${formatCurrencyMinor(pricedRate.amount_minor, pricedRate.currency)}` : (booking?.lease_period_id ? "Rate card / agreement" : `Rate #${booking?.priced_room_rate_id ?? "unknown"}`)]]} />

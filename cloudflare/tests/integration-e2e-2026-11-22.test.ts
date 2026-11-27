@@ -87,10 +87,11 @@ describe("integration E2E — auth, booking, payment, refund, allocation, gender
     S.inst = one("SELECT id FROM institutions").id;
   });
 
-  it("migration chain is exactly 0001–0022 and includes the shared rate-limit table", () => {
+  it("migration chain is exactly 0001–0023 and includes the shared rate-limit table", () => {
     const files = listMigrationFiles();
-    expect(files).toHaveLength(22);
+    expect(files).toHaveLength(23);
     expect(files[20]).toBe("0021_staff_password_rotation.sql");
+    expect(files[22]).toBe("0023_staff_tasks.sql");
     expect(one("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'auth_rate_limits'").n).toBe(1);
   });
 
