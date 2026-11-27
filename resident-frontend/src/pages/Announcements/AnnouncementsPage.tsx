@@ -63,9 +63,9 @@ export function AnnouncementsPage() {
                 key={announcement.id}
                 type="button"
                 onClick={() => void openAnnouncement(announcement.id)}
-                className={`flex w-full items-start gap-3 rounded-2xl border bg-surface p-4 text-left shadow-[0_2px_10px_rgba(0,0,0,0.02)] transition hover:bg-[#fbfcfd] ${selected?.id === announcement.id ? "border-primary" : "border-[#eaeff2]"}`}
+                className={`flex w-full items-start gap-3 rounded-2xl border bg-surface p-4 text-left shadow-[0_2px_10px_rgba(0,0,0,0.02)] transition hover:bg-muted ${selected?.id === announcement.id ? "border-primary" : "border-border"}`}
               >
-                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e6f2fb] text-[#1974d2]">
+                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--km-color-info-bg)] text-info">
                   <Megaphone size={18} aria-hidden="true" />
                 </span>
                 <span className="min-w-0 flex-1">
@@ -76,7 +76,7 @@ export function AnnouncementsPage() {
                     </span>
                   </span>
                   <span className="mt-2 block text-sm text-text-secondary">{messagePreview({ body: announcement.body ?? "" }, 110) || "No announcement details provided."}</span>
-                  <span className="mt-3 block text-xs font-semibold text-[#9aa7b1]">Published {formatDateTime(announcement.published_at ?? announcement.starts_at)}</span>
+                  <span className="mt-3 block text-xs font-semibold text-text-secondary">Published {formatDateTime(announcement.published_at ?? announcement.starts_at)}</span>
                 </span>
               </button>
             ))}

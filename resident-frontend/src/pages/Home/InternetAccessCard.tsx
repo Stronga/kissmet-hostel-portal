@@ -10,15 +10,15 @@ function statusLabel(status: string | null | undefined) {
 }
 
 function statusTone(status: string | null | undefined) {
-  if (status === "active") return "bg-[#dcf1e9] text-[#127b55]";
+  if (status === "active") return "bg-[var(--km-color-success-bg)] text-success";
   if (status === "suspended" || status === "disabled") return "bg-red-50 text-danger";
-  if (status === "pending" || status === "failed") return "bg-[#e6f2fb] text-[#1974d2]";
+  if (status === "pending" || status === "failed") return "bg-[var(--km-color-info-bg)] text-info";
   return "bg-muted text-text-secondary";
 }
 
 function ConnectionInstructions() {
   return (
-    <div className="mt-4 rounded-xl border border-border bg-[#f7f9fa] px-4 py-3">
+    <div className="mt-4 rounded-xl border border-border bg-muted px-4 py-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">How to connect</p>
       <ol className="mt-2 list-decimal space-y-1.5 pl-4 text-[13px] leading-snug text-text-secondary">
         <li>Connect your device to the hostel Wi-Fi.</li>
@@ -48,7 +48,7 @@ export function InternetAccessCard() {
 
   if (accountLoading) {
     return (
-      <Card className="!rounded-3xl border-[#eaeff2] !p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+      <Card className="!rounded-3xl border-border !p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
         <LoadingState label="Loading internet access" />
       </Card>
     );
@@ -56,7 +56,7 @@ export function InternetAccessCard() {
 
   if (accountError || !account) {
     return (
-      <Card className="!rounded-3xl border-[#eaeff2] !p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+      <Card className="!rounded-3xl border-border !p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
         <ErrorState
           title="Internet access unavailable"
           message={accountError ?? "Unable to load internet access."}
@@ -85,10 +85,10 @@ export function InternetAccessCard() {
   const atLimit = activeCount !== null && activeCount >= deviceLimit;
 
   return (
-    <Card className="!rounded-3xl border-[#eaeff2] !p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]" data-testid="internet-access-card">
+    <Card className="!rounded-3xl border-border !p-6 shadow-[0_2px_10px_rgba(0,0,0,0.02)]" data-testid="internet-access-card">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#e6f2fb] text-[#1974d2]">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--km-color-info-bg)] text-info">
             <Wifi size={20} aria-hidden="true" />
           </span>
           <div>
@@ -173,7 +173,7 @@ export function InternetAccessCard() {
             </div>
           </div>
           {atLimit ? (
-            <p className="rounded-xl bg-[#fdf0e6] px-3 py-2 text-[13px] leading-snug text-[#c7691a]">
+            <p className="rounded-xl bg-[var(--km-color-warning-bg)] px-3 py-2 text-[13px] leading-snug text-warning">
               Your 3-device limit is currently in use. Disconnect one device from Wi-Fi before connecting another.
             </p>
           ) : null}

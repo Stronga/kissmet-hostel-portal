@@ -10,32 +10,55 @@ export interface NavItem {
 }
 
 export const navGroups: { label: string; items: NavItem[] }[] = [
-  { label: "Overview", items: [{ label: "Dashboard", to: "/dashboard", icon: LayoutDashboard }] },
-  { label: "Residents", items: [
-    { label: "Residents", to: "/residents", icon: Users },
-    { label: "Applications", to: "/applications", icon: ClipboardList },
-    { label: "Bookings", to: "/bookings", icon: BookOpenCheck }
-  ] },
-  { label: "Rooms", items: [
-    { label: "Rooms & Beds", to: "/rooms", icon: BedDouble },
-    { label: "Allocations", to: "/allocations", icon: Building2 }
-  ] },
-  { label: "Finance", items: [
-    { label: "Payments", to: "/payments", icon: CreditCard, roles: ["super_admin", "manager", "accounts"] },
-    { label: "Receipts", to: "/receipts", icon: ReceiptText, roles: ["super_admin", "manager", "accounts"] },
-    { label: "Refunds", to: "/refunds", icon: Undo2, roles: ["super_admin", "manager", "accounts"] }
-  ] },
-  { label: "Operations", items: [
-    { label: "Maintenance", to: "/maintenance", icon: Wrench },
-    { label: "Internet Access", to: "/internet-access", icon: Wifi, roles: ["super_admin", "manager"] },
-    { label: "Announcements", to: "/announcements", icon: Bell, roles: ["super_admin", "manager", "reception"] },
-    { label: "Messaging", to: "/messages", icon: MessageSquare, roles: ["super_admin", "manager", "reception", "accounts", "maintenance"] },
-    { label: "Reports", to: "/reports", icon: BarChart3 }
-  ] },
-  { label: "Administration", items: [
-    { label: "Staff", to: "/staff", icon: ShieldCheck, roles: ["super_admin", "manager"] },
-    { label: "Setup", to: "/setup", icon: School, roles: ["super_admin", "manager"] },
-    { label: "Audit Logs", to: "/audit-logs", icon: FileText, roles: ["super_admin", "manager"] },
-    { label: "Settings", to: "/settings", icon: Settings, roles: ["super_admin", "manager"] }
-  ] }
+  {
+    label: "Overview",
+    items: [{ label: "Dashboard", to: "/dashboard", icon: LayoutDashboard }]
+  },
+  {
+    label: "Residents & Admissions",
+    items: [
+      { label: "Residents", to: "/residents", icon: Users },
+      { label: "Applications", to: "/applications", icon: ClipboardList }
+    ]
+  },
+  {
+    label: "Accommodation",
+    items: [
+      { label: "Rooms & Beds", to: "/rooms", icon: BedDouble },
+      { label: "Allocations", to: "/allocations", icon: Building2 },
+      { label: "Bookings", to: "/bookings", icon: BookOpenCheck }
+    ]
+  },
+  {
+    label: "Finance",
+    items: [
+      { label: "Payments", to: "/payments", icon: CreditCard, roles: ["super_admin", "manager", "accounts"] },
+      { label: "Receipts", to: "/receipts", icon: ReceiptText, roles: ["super_admin", "manager", "accounts"] },
+      { label: "Refunds", to: "/refunds", icon: Undo2, roles: ["super_admin", "manager", "accounts"] },
+      { label: "Reports", to: "/reports", icon: BarChart3 }
+    ]
+  },
+  {
+    label: "Operations",
+    items: [
+      { label: "Maintenance", to: "/maintenance", icon: Wrench },
+      { label: "Internet Access", to: "/internet-access", icon: Wifi, roles: ["super_admin", "manager"] }
+    ]
+  },
+  {
+    label: "Communications",
+    items: [
+      { label: "Announcements", to: "/announcements", icon: Bell, roles: ["super_admin", "manager", "reception"] },
+      { label: "Messaging", to: "/messages", icon: MessageSquare, roles: ["super_admin", "manager", "reception", "accounts", "maintenance"] }
+    ]
+  },
+  {
+    label: "Administration & Configuration",
+    items: [
+      { label: "Staff", to: "/staff", icon: ShieldCheck, roles: ["super_admin", "manager"] },
+      { label: "Setup", to: "/setup", icon: School, roles: ["super_admin", "manager"] },
+      { label: "Audit Logs", to: "/audit-logs", icon: FileText, roles: ["super_admin", "manager"] },
+      { label: "Settings", to: "/settings", icon: Settings, roles: ["super_admin", "manager"] }
+    ]
+  }
 ];

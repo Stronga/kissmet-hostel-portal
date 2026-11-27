@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss";
 
 export default {
-  content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  content: ["./index.html", "./src/**/*.{ts,tsx}", "../admin-frontend/src/design-system/**/*.{ts,tsx}"],
   theme: {
     extend: {
       screens: {
@@ -19,6 +19,7 @@ export default {
         success: "var(--color-success)",
         warning: "var(--color-warning)",
         danger: "var(--color-danger)",
+        info: "var(--color-info)",
         "text-primary": "var(--color-text-primary)",
         "text-secondary": "var(--color-text-secondary)"
       },

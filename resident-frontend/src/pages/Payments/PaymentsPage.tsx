@@ -34,7 +34,7 @@ function SummaryMetric({
   helpLabel?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-[#f7f9fa] p-4">
+    <div className="rounded-2xl border border-border bg-muted p-4">
       <p className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-text-secondary">
         <span>{label}</span>
         {help && helpLabel ? <InfoHelp label={helpLabel}>{help}</InfoHelp> : null}
@@ -275,7 +275,7 @@ export function PaymentsPage() {
                     <Detail label="Submitted" value={formatDateTime(payment.submitted_at)} />
                     <Detail label="Verified" value={formatDateTime(payment.verified_at)} />
                   </div>
-                  <div className="mt-4 rounded-xl border border-border bg-[#f7f9fa] p-3 text-sm text-text-secondary">
+                  <div className="mt-4 rounded-xl border border-border bg-muted p-3 text-sm text-text-secondary">
                     <p><span className="font-semibold text-text-primary">Payment slip:</span> {payment.slip_filename ?? "Not uploaded"}</p>
                     <p className="mt-1 inline-flex items-center gap-1">
                       Private slip viewing is not exposed by the current resident backend.
@@ -352,7 +352,7 @@ export function PaymentsPage() {
               </div>
             ))}
             {data.creditNotes.map((note) => (
-              <div key={`credit-note-${note.id}`} className="rounded-xl border border-border bg-[#f7f9fa] p-4">
+              <div key={`credit-note-${note.id}`} className="rounded-xl border border-border bg-muted p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <p className="break-words text-sm font-semibold text-text-primary">{note.credit_note_number}</p>

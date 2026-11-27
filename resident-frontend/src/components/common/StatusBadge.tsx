@@ -25,7 +25,7 @@ function toneFor(status?: string | null) {
       "synced"
     ].includes(value)
   ) {
-    return "bg-[#dcf1e9] text-[#127b55]";
+    return "bg-[var(--km-color-success-bg)] text-success";
   }
   if (
     [
@@ -43,7 +43,7 @@ function toneFor(status?: string | null) {
       "not_uploaded"
     ].includes(value)
   ) {
-    return "bg-[#e6f2fb] text-[#1974d2]";
+    return "bg-[var(--km-color-info-bg)] text-info";
   }
   if (
     [
@@ -62,7 +62,7 @@ function toneFor(status?: string | null) {
     return "bg-red-50 text-danger";
   }
   if (["booking", "confirmed_booking", "refunded", "transferred", "archived"].includes(value)) {
-    return "bg-[#efe9fb] text-[#6e48b9]";
+    return "bg-[var(--km-color-info-bg)] text-info";
   }
   return "bg-muted text-text-secondary";
 }

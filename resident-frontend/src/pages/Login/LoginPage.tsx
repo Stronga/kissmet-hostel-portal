@@ -14,9 +14,7 @@ import { safeAuthError } from "../../utils/errors";
 import hostelIllustrationAvif from "../../assets/hostel-illustration.avif";
 import hostelIllustrationWebp from "../../assets/hostel-illustration.webp";
 import hostelIllustration from "../../assets/hostel-illustration.png";
-import kissmetLogoAvif from "../../assets/kissmet-logo.avif";
-import kissmetLogoWebp from "../../assets/kissmet-logo.webp";
-import kissmetLogo from "../../assets/kissmet-logo.png";
+import { BrandMark } from "../../../../admin-frontend/src/design-system/react/BrandMark";
 import { ResponsiveImage } from "../../components/common/ResponsiveImage";
 
 export function LoginPage() {
@@ -114,17 +112,7 @@ export function LoginPage() {
         />
       </div>
       <div className="relative z-10 flex w-full max-w-md flex-col items-center gap-4">
-        <ResponsiveImage
-          avif={kissmetLogoAvif}
-          webp={kissmetLogoWebp}
-          png={kissmetLogo}
-          alt="Kissmet Hostel"
-          width={316}
-          height={240}
-          loading="eager"
-          fetchPriority="high"
-          imgClassName="h-16 w-auto object-contain sm:h-20"
-        />
+        <BrandMark height={72} alt="Kissmet Hostel" />
         <Card className="w-full">
         <h1 className="text-2xl font-semibold text-text-primary">Resident Portal</h1>
         <p className="mt-2 text-sm text-text-secondary">

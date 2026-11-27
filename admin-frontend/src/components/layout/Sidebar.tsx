@@ -1,41 +1,63 @@
 import { NavLink } from "react-router-dom";
-import { navGroups } from "./navigation";
+import { BrandMark } from "../../design-system/react/BrandMark";
+import { NavShell, type NavShellGroup } from "../../design-system/react/NavShell";
 import type { RoleCode } from "../../types/api";
+import { navGroups } from "./navigation";
 
-export function Sidebar({ role, onNavigate }: { role: RoleCode; onNavigate?: () => void }) {
+export function Sidebar({
+  role,
+  collapsed = false,
+  onToggleCollapsed,
+  onNavigate
+}: {
+  role: RoleCode;
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+  onNavigate?: () => void;
+}) {
+  const groups: NavShellGroup[] = navGroups
+    .map((group) => ({
+      id: group.label.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      label: group.label,
+      items: group.items
+        .filter((item) => !item.roles || item.roles.includes(role))
+        .map((item) => ({
+          id: item.to,
+          label: item.label,
+          href: item.to,
+          icon: <item.icon className="h-4 w-4 shrink-0" aria-hidden />
+        }))
+    }))
+    .filter((group) => group.items.length > 0);
+
   return (
-    <aside className="flex h-full w-64 flex-col border-r border-border bg-surface">
-      <div className="border-b border-border px-5 py-4">
-        <p className="text-lg font-semibold text-text-primary">Kissmet</p>
-        <p className="text-xs text-text-secondary">Hostel Admin Portal</p>
-      </div>
-      <nav aria-label="Admin navigation" className="flex-1 overflow-y-auto px-3 py-4">
-        {navGroups.map((group) => {
-          const items = group.items.filter((item) => !item.roles || item.roles.includes(role));
-          if (!items.length) return null;
-          return (
-            <div key={group.label} className="mb-5">
-              <p className="px-2 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">{group.label}</p>
-              <div className="mt-2 space-y-1">
-                {items.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      onClick={onNavigate}
-                      className={({ isActive }) => `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-primary ${isActive ? "bg-primary text-white" : "text-text-secondary hover:bg-muted hover:text-text-primary"}`}
-                    >
-                      <Icon className="h-4 w-4" aria-hidden />
-                      {item.label}
-                    </NavLink>
-                  );
-                })}
-              </div>
+    <NavShell
+      label="Admin navigation"
+      groups={groups}
+      collapsed={collapsed}
+      onToggleCollapsed={onToggleCollapsed}
+      onNavigate={onNavigate}
+      brand={
+        <div className={collapsed ? "flex justify-center" : "flex items-center gap-3"}>
+          <BrandMark height={collapsed ? 36 : 56} alt={collapsed ? "Kissmet" : ""} />
+          {collapsed ? null : (
+            <div>
+              <p className="text-base font-semibold leading-tight text-text-primary">Kissmet</p>
+              <p className="text-xs text-text-secondary">Hostel Admin</p>
             </div>
-          );
-        })}
-      </nav>
-    </aside>
+          )}
+        </div>
+      }
+      renderItem={(item) => (
+        <NavLink
+          to={item.href}
+          title={item.label}
+          className={({ isActive }) => `km-nav__link${isActive ? " km-nav__link--active" : ""}`}
+        >
+          {item.icon}
+          <span className={collapsed ? "km-sr-only" : undefined}>{item.label}</span>
+        </NavLink>
+      )}
+    />
   );
 }

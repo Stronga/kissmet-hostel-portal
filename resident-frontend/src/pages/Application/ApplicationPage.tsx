@@ -60,7 +60,7 @@ function Timeline({ application }: { application: ResidentApplication }) {
           {events.map((event, index) => (
             <li key={`${event.label}-${event.at}`} className="relative flex gap-4 pb-5 last:pb-0">
               {index < events.length - 1 ? (
-                <span className="absolute left-[11px] top-6 bottom-0 w-0.5 bg-[#e2e8f0]" aria-hidden="true" />
+                <span className="absolute left-[11px] top-6 bottom-0 w-0.5 bg-muted" aria-hidden="true" />
               ) : null}
               <span className="relative z-[1] mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-white" aria-hidden="true">
                 {index + 1}
@@ -289,7 +289,7 @@ export function ApplicationPage() {
           )}
 
           {currentApplication ? (
-            <div className="mt-5 rounded-2xl border border-border bg-[#f7f9fa] p-4">
+            <div className="mt-5 rounded-2xl border border-border bg-muted p-4">
               <p className="text-sm font-semibold text-text-primary">{shortStatus}</p>
               {showRejectedNotes ? (
                 <p className="mt-2 text-sm text-text-secondary">
@@ -328,7 +328,7 @@ export function ApplicationPage() {
             {readiness.map((item) => (
               <li key={item.key} className="flex items-start gap-3 rounded-xl border border-border bg-white p-3">
                 <span
-                  className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-sm font-bold ${item.ready ? "bg-[#dcf1e9] text-[#127b55]" : "bg-red-50 text-danger"}`}
+                  className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-sm font-bold ${item.ready ? "bg-[var(--km-color-success-bg)] text-success" : "bg-red-50 text-danger"}`}
                   aria-hidden="true"
                 >
                   {item.ready ? "✓" : "!"}

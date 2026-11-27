@@ -59,11 +59,29 @@ Section 16 (screen inventory and capture) is delivery work `P6.2`, not a product
 
 ---
 
-## Decisions requiring confirmation
+## Decisions
 
-These are business or policy choices. Implementation of the blocked phase waits for an answer. Proposed defaults are what `main` already does, so “keep current behaviour” is always an explicit option.
+D1–D10 were confirmed on 2026-11-27. The notes under each heading are the Phase 0 investigation. The recorded choice replaces the open question. Later phases implement these choices; this Phase 1 pull request does not.
 
-### D1. Maintenance fee on refunds — blocks Phase 6 refund maths (not Phases 1–5)
+| ID | Recorded choice |
+|---|---|
+| D1 | Protect the non-refundable maintenance fee once per booking where the agreed terms support it. Refundable balance is verified payments, minus the protected maintenance fee, minus previous finalized refunds, minus pending refund commitments. Concurrent requests must not exceed that balance. An authorized exception uses a separate audited process. Phase 6 updates the PR #31 maths and does not weaken maker/checker. |
+| D2 | Add `withdrawn`, distinct from staff cancel and reject. An applicant may withdraw from `draft`, `submitted`, `under_review`, and `corrections_required` when no contractual or financial commitment prevents it. Management may cancel `under_review` with permission, a mandatory reason, and an audit row. History stays. Reapplication uses a new reference and may reuse a valid account and documents. Never auto-cancel a booking, delete a payment, or issue a refund. |
+| D3 | On a qualifying room allocation, `residents.status` moves `applicant` → `resident`. It moves to `past_resident` when the final active allocation ends and no other active accommodation remains. Renewals, future-dated allocations, cancellations, and overlaps stay consistent. No mandatory physical check-in. Per-service eligibility stays independent. The change is transactional and auditable. |
+| D4 | Room type is a catalog managed in Admin Setup. Fixtures in this programme are synthetic. Do not invent real Kissmet room types, capacities, or prices. Room type, accommodation term, gender policy, room, and bed stay distinct. Applicants choose a preferred room type and term only. Existing rows stay migration-compatible. |
+| D5 | Add `corrections_required`. The resident resubmits on the same application reference. Management names the required information and documents. Review history stays. Resubmission creates a new actionable management task. Unrelated fields cannot be edited. |
+| D6 | Do not use the old resident teal as the default primary. Primary green `#064B36`, dark green `#142526`, gold `#B9A17A` and orange `#F58220` as sparse accents, semantic red `#CE071B`, background `#F5F7F6`. Derived text and border colours exist only where a brand hex fails WCAG AA in that role. The logo artwork is unchanged. |
+| D7 | Persistent `staff_tasks`, separate from `audit_logs`. Super Admin and Manager see all authorized operations. Reception: applications, enquiries, bookings, allocations. Accounts: payments, receipts, refunds. Maintenance: maintenance requests. Internet provisioning failures: Manager and Super Admin. Reconcile with RBAC. Visibility does not grant extra action permissions. Maker/checker stays. Unread is distinct from unresolved. Deduplicate, sync across admins, and deep-link to the exact record. |
+| D8 | A public accommodation enquiry form feeds the Admin activity centre and does not require an account. Review, response, and resolution are tracked. Validate input, rate-limit, and protect against spam, with privacy safeguards. No unapproved live SMS or email. |
+| D9 | Collect accommodation-related gender during profile completion, before application submission, not at initial registration. Gender-restricted allocation stays fail-closed. Provide a staff-assisted route when the standard options do not fit. |
+| D10 | The dashboard defaults to all periods. An academic session or lease period filters only when someone selects it, and the label states that scope. Counts and filters use the complete authorized dataset, not the current page of 25. |
+| Draft vs Submitted | Keep both states. The UI must distinguish starting an application from submitting it, explain incomplete requirements, and link to them. Drafts are excluded from pending-review counts and shown separately where that is useful. |
+
+The subsections below are the investigation those choices were made against.
+
+### D1. Maintenance fee on refunds — recorded; implement in Phase 6
+
+**Recorded choice:** protect the fee (the D1-B direction), calculated from the booking’s agreed maintenance fee rather than by reversing maker/checker. A new column is migration 0026 only if the fee cannot be read from the booking.
 
 Section 14 asks for non-refundable maintenance-fee protection. On `main`:
 
@@ -78,7 +96,9 @@ Section 14 asks for non-refundable maintenance-fee protection. On `main`:
 
 Phases 1–5 do not change refund amounts.
 
-### D2. Applicant self-withdrawal — blocks AUX-28 (Phase 4)
+### D2. Applicant self-withdrawal — recorded; `withdrawn` folds into migration 0024
+
+**Recorded choice:** new `withdrawn` status, applicant withdrawal from `draft`, `submitted`, `under_review`, and `corrections_required` when nothing contractual or financial prevents it, and a permissioned management cancel of `under_review` with reason and audit. No automatic booking cancel, payment delete, or refund.
 
 There is no resident withdraw endpoint. Staff `PATCH /admin/applications/:id/status` may set `cancelled` only from `draft` or `submitted`. `under_review` can only go to `approved` or `rejected`.
 
@@ -89,7 +109,9 @@ There is no resident withdraw endpoint. Staff `PATCH /admin/applications/:id/sta
 - May staff cancel an application that is already `under_review`?
 - Withdrawal must not delete payments, bookings, or refunds. None of those exist before approval today (a booking requires `approved`).
 
-### D3. When someone becomes an active resident — blocks AUX-30 (Phase 5)
+### D3. When someone becomes an active resident — recorded (D3-A, plus the overlap rules below)
+
+**Recorded choice:** promote on qualifying allocation and set `past_resident` when the last active allocation ends. No new check-in step. The `residents.status` column already exists, so P5.5 does not need a migration.
 
 Self-registration inserts `residents.status = 'applicant'` (`resident.service.ts`). No service updates that column to `resident` or `past_resident`. Admin create-resident may set an initial status; there is no later status route for residents.
 
@@ -108,7 +130,9 @@ Consequences on `main`:
 
 Ending an allocation must not delete historical payments, receipts, refunds, or credit notes. It does not do so today.
 
-### D4. What “room type” means — blocks AUX-23 and the selection half of AUX-24 (Phase 5)
+### D4. What “room type” means — recorded (D4-B, synthetic catalog only)
+
+**Recorded choice:** a setup-managed catalog, migration 0025, distinct from term, gender policy, room, and bed. Applicants pick preferred type and term only. Do not seed real Kissmet types, capacities, or prices.
 
 Applications have `lease_kind` and `lease_period_id` only. Rooms have `capacity` and `gender_policy`, not a type code. Residents already cannot choose a room or a bed. My Room labels gender policy as “Room type”.
 
@@ -118,7 +142,9 @@ Applications have `lease_kind` and `lease_period_id` only. Rooms have `capacity`
 - **D4-B:** it means a new catalog (for example shared room vs private room) that is not gender and not the lease term. That is migration 0025 and a public-site selector. It is still not a room or bed id.
 - **D4-C:** it means gender occupancy. That conflicts with fail-closed gender allocation (D9) and with the current label bug. Not recommended unless you explicitly want applicants to choose a gendered room class.
 
-### D5. Corrections loop — blocks AUX-26 (Phase 4)
+### D5. Corrections loop — recorded (D5-A)
+
+**Recorded choice:** `corrections_required` on the same application reference, with history kept and a new management task on resubmission. Shares the applications CHECK rebuild in migration 0024 with D2.
 
 After submit, the resident cannot edit the application. Staff cannot send it back. Rejected identity documents can be re-uploaded, but that does not reopen the application. `submitted` may move to `under_review` or `cancelled` only.
 
@@ -127,7 +153,9 @@ After submit, the resident cannot edit the application. Staff cannot send it bac
 - **D5-A:** add `corrections_required` (migration 0024 rebuilds the `applications` CHECK), with a defined return path to `submitted`, who may request corrections, and whether documents must be re-checked.
 - **D5-B:** no in-place correction. Staff reject; the resident reapply flow (AUX-27) starts a new reference. Smaller, but it is not a correction workflow.
 
-### D6. Shared colour primary — blocks AUX-13 token lock (Phase 1 can draft, not ship a rebrand)
+### D6. Shared colour primary — recorded; shipped in Phase 1
+
+**Recorded choice:** the official green / dark / gold / orange / red / background palette below, not the resident teal proposed as D6-A during Phase 0. Gold and orange are sparse accents and are not body text on light surfaces. Phase 1 locked the tokens after contrast checks.
 
 Shipped values:
 
@@ -140,7 +168,9 @@ Shipped values:
 
 **Confirm D6-A as the Phase 1 default unless you say otherwise:** one operational teal taken from the resident primary (`#056268`), gold used only as a sparse accent, red only for destructive and failed states, admin and resident neutrals reconciled. Do not repaint the portals with the coming-soon gold/red/green set, and do not use the colours in the proposed-screen mock. The logo artwork is unchanged.
 
-### D7. Who sees which action-centre items — blocks AUX-17 seed rules (Phase 2)
+### D7. Who sees which action-centre items — recorded; still Phase 2
+
+**Recorded choice:** `staff_tasks` as its own table. Role visibility matches the matrix below, reconciled with RBAC, and never grants the action permission by itself. Unread and unresolved stay separate. Internet provisioning failures are Manager and Super Admin. Reception includes enquiries once D8 exists.
 
 `audit_logs` stay on the Audit Logs screen for `super_admin` and `manager` (`audit:read`). They will not be copied into the staff activity feed. Task rows will be a new table written by domain transitions.
 
@@ -157,17 +187,23 @@ Shipped values:
 
 Reception must not see refund payout tasks. Maintenance must not see payment amounts. Public enquiries have nowhere to land until D8.
 
-### D8. Public enquiries — blocks the “enquiries” row of AUX-17
+### D8. Public enquiries — recorded; in scope for the activity centre
+
+**Recorded choice:** a public form with no account, tracked through review, response, and resolution, with validation, rate limiting, spam protection, and privacy safeguards. No unapproved live SMS or email. If the enquiry cannot be a `staff_tasks` row alone, its table is migration 0027 rather than a renumber of 0023–0026.
 
 The public site has no form, and there is no enquiry table. **Confirm** whether this programme includes a public enquiry that creates an action-centre task, or whether enquiries stay out of scope until the public site is redesigned on its own.
 
-### D9. Gender at registration — blocks a smooth AUX-24 / AUX-31 allocation path
+### D9. Gender collection — recorded
+
+**Recorded choice:** collect accommodation-related gender during profile completion, before submit, not on the registration form. Fail-closed single-gender allocation stays. The existing audited staff gender-correction route covers cases the standard options do not fit.
 
 Single-gender rooms accept only `female` or `male`. `NULL`, `other`, and `not_specified` are refused (`gender-eligibility.ts`). Registration and profile do not collect gender. An applicant can be approved and then be unblockable for every single-gender room until a staff member with `resident:gender_correct` records a gender (audited, with conflict acknowledgement).
 
 **Confirm:** require `female` or `male` at registration, or keep gender staff-entered. The fail-closed allocation rule itself should stay.
 
-### D10. Dashboard period label — blocks AUX-15 card copy (Phase 2)
+### D10. Dashboard period label — recorded (D10-A)
+
+**Recorded choice:** default copy and queries are all periods. A session or lease-period filter applies only when selected, and the label says so. Counts are global for the authorized set, never the current page of 25.
 
 `GET /admin/dashboard` totals are global. The page header still prints one “Active session” name, which reads as if the counts were for that session. Calendar-year and short-term applications store `academic_session_id` NULL, so a silent filter on the active academic session would drop them. `applicationBookingReport` can take `academicSessionId`; the dashboard does not pass it.
 
@@ -210,6 +246,8 @@ There is no writer that sets `submitted_at` while leaving `status = 'draft'`.
 
 Do not add a client cache, a second status field, or a reconciler that flips Draft to Submitted. Phase 4 (`P4.1`, AUX-25) should make the two steps unmistakable, show draft counts on the dashboard, and keep submit completeness checks on the resident path only.
 
+**Recorded choice:** keep `draft` and `submitted` as intentional states. The UI must separate starting an application from submitting it, explain what is still incomplete, and link to those requirements. Pending-review counts exclude drafts. Show drafts separately where that helps.
+
 If a live staging row still disagrees with this finding, capture before any code change: application id, `status`, `submitted_at`, `updated_at`, and the audit actions `resident.application.created` and `resident.application.submitted` (or `admin.application.submitted`). Those two actions are the proof of which request ran.
 
 ---
@@ -218,18 +256,29 @@ If a live staging row still disagrees with this finding, capture before any code
 
 Each row is one pull request, branched from `main` unless a note says it stacks. Phase 0 is this document. Phases 1–6 are not started here.
 
-Migrations, when required, are the next numbers after 0022. Do not edit 0001–0022. Do not apply migrations to staging or production from these PRs; application stays a reviewed operator step.
+Migrations, when required, are the next numbers after 0022. `main` is still at `0022_refund_records_credit_notes.sql`. Do not edit 0001–0022. Do not apply migrations to staging or production from these PRs; application stays a reviewed operator step.
+
+Reserved after the confirmed decisions, still not created by Phase 1:
+
+| Number | Use |
+|---|---|
+| 0023 | `staff_tasks` (D7). Public enquiries land here if a task row is enough |
+| 0024 | Application CHECK rebuild: `corrections_required`, `withdrawn`, and cancel actor/reason metadata (D2, D5) |
+| 0025 | Room-type catalog (D4). Synthetic fixtures only |
+| 0026 | Only if the D1 refund rule cannot be read from `bookings.maintenance_fee_minor` |
+| 0027 | Public enquiry storage only if it does not fit 0023 |
+
+Phase 1 was approved as one pull request for tokens, the shared component source, and the admin and resident shells (including the AUX-22 group names and a collapsible sidebar). It does not include P2.2 URL state, route-level permission blocks, or any Phase 2–6 behaviour.
 
 | PR | Phase | IDs | Delivers | Migration |
 |---|---|---|---|---|
 | P0 | 0 | — | This tracker | none |
-| P1.1 | 1 | AUX-13 | Token file used by admin and resident CSS variables. Logo unchanged. Default palette is D6-A until D6 is answered; ship only the confirmed values | none |
-| P1.2 | 1 | AUX-14 | Admin primitives: button, field, select, search, status, empty/loading/error, pagination, confirm, modal shell with a sticky footer. Adopt on Application Details only as the proving page | none |
-| P1.3 | 1 | AUX-14 | Resident primitives on the same tokens. No new shared package unless a later decision asks for one; tokens are one documented source copied into both apps | none |
-| P2.1 | 2 | AUX-22 | Sidebar groups per §8, collapsible desktop groups, mobile drawer kept. Router still relies on each page for permission errors; add route-level blocks only where a page currently renders data the role must not see | none |
+| P1 | 1 | AUX-13, AUX-14, AUX-22 shell | One PR: confirmed D6 tokens, unmodified logo ident, shared components under `admin-frontend/src/design-system` imported by both portals, collapsible admin groups, resident shell on the same tokens. Not the Application Details layout (that stays P3.1) | none |
+| P1.1–P1.3 | 1 | AUX-13, AUX-14 | Combined into P1 after the Phase 1 scope was approved as a single pull request | none |
+| P2.1 | 2 | AUX-22 | Group names and the collapsible shell shipped in P1. This PR still adds route-level blocks only where a page currently renders data the role must not see | none |
 | P2.2 | 2 | AUX-16, AUX-22 | Server-side status (and session/period) filters on the list endpoints that cards will open. Persist filter, search, and offset in the URL. `pagination.total` on those lists. Remove client-side filtering of a single page | none |
 | P2.3 | 2 | AUX-15, AUX-16 | Dashboard counts that SQL can already express, each labeled with its period (D10). Cards link to the filtered URL from P2.2. Retire “On Page” totals. Add: drafts, payments awaiting verification (count, not only sum), refunds in `requested`, confirmed bookings with no active allocation, approved applications with no booking, internet `sync_status = failed`. Do not invent a corrections count before D5 | none |
-| P2.4 | 2 | AUX-17 | `staff_tasks` (name flexible) written by existing transitions. Dedupe key. Completion derived from the subject’s real status. Permission rules from D7. No insert from generic audit logging. Public enquiries only if D8 says yes | **0023** |
+| P2.4 | 2 | AUX-17 | `staff_tasks` written by existing transitions. Dedupe key. Completion derived from the subject’s real status. Permission rules from D7. No insert from generic audit logging. Public enquiries are in scope (D8); use 0027 only if they need their own table | **0023** |
 | P2.5 | 2 | AUX-18 | Dashboard panel: Action required, All activity, Completed. Unread vs unresolved. Pagination. Deep link to the record route or modal. Bell shows unread count for that role | none |
 | P3.1 | 3 | AUX-21 | Application Details layout from the reference: identity header, status badge, applicant and accommodation columns, documents with the existing download, review and agreement columns, sticky Archive / Close / Create Agreement. Actions still call the current endpoints | none |
 | P3.2 | 3 | AUX-21 | Same modal shell for booking and payment detail. A dedicated page only where the action centre must link to a URL that survives refresh | none |
@@ -238,18 +287,18 @@ Migrations, when required, are the next numbers after 0022. Do not edit 0001–0
 | P3.5 | 3 | AUX-20 | Nested rows for payments (receipts, refunds), maintenance, and internet accounts | none |
 | P3.6 | 3 | AUX-19 | Read-only stage strip fed by the backend transition and by blockers the API already returns (incomplete application, gender, payment threshold). Primary button performs the existing explicit action. No auto-confirm, auto-allocate, auto-approve, or auto-refund | none |
 | P4.1 | 4 | AUX-25 | Draft vs submit copy, disabled reason, dashboard draft count. No change to the two HTTP calls | none |
-| P4.2 | 4 | AUX-26, AUX-27 | Depends on D5 and the cancel-metadata half of D2. Status rebuild and/or cancel actor, time, and resident-facing explanation. Resubmit or reapply per the decision. New application number on reapply. Do not cascade-delete money or bookings | **0024** |
+| P4.2 | 4 | AUX-26, AUX-27 | D5 and D2 are recorded. Status rebuild for `corrections_required` and `withdrawn`, cancel actor, time, and resident-facing explanation. Resubmit keeps the reference. Reapply uses a new number. Do not cascade-delete money or bookings | **0024** |
 | P4.3 | 4 | AUX-27 | Resident history for rejected and cancelled rows; Start application when the API would accept a new period application. Reuse profile and unrejected documents | none |
-| P4.4 | 4 | AUX-28 | Resident withdrawal endpoint and UI. **Do not open until D2 is answered.** If D2 reuses `cancelled`, this PR has no migration | none, unless D2 adds `withdrawn` (then fold into 0024 before it ships) |
-| P5.1 | 5 | AUX-23 | Public page: real Apply Now into the resident register/login, carrying the D4 selection. Coming-soon shell can stay until copy exists. **Blocked on D4** | **0025 only for D4-B** |
-| P5.2 | 5 | AUX-24 | Registration and profile copy. No room or bed picker. Gender field only if D9 requires it | none |
+| P4.4 | 4 | AUX-28 | Resident withdrawal endpoint and UI for the recorded `withdrawn` rules. Fold the status into 0024 before that migration ships; this PR has no migration of its own if 0024 already contains `withdrawn` | none if 0024 already shipped the status |
+| P5.1 | 5 | AUX-23 | Public page: real Apply Now into the resident register/login, carrying the preferred room type and term. Coming-soon shell can stay until copy exists. Catalog fixtures are synthetic | **0025** |
+| P5.2 | 5 | AUX-24 | Registration and profile copy. No room or bed picker. Gender is collected on profile completion, before submit, per D9 | none |
 | P5.3 | 5 | AUX-29 | `GET /resident/me/portal-access` (name flexible) computed from application, booking, and allocation. Server routes that already 403/400 stay the enforcement; the payload is not a second permission system | none |
 | P5.4 | 5 | AUX-29 | Resident nav and announcement queries follow that payload. Applicant does not get maintenance or internet actions. Approved applicant gets booking and payments when a booking exists or the application is approved. Active resident modules follow D3 | none |
-| P5.5 | 5 | AUX-30 | **Blocked on D3.** If D3-A, set `residents.status` in the allocation and allocation-end transactions and fix the dashboard definition in the same PR. If D3-B, change the dashboard metric only. If D3-C, stop and split check-in into its own plan | none (column exists) |
-| P6.1 | 6 | AUX-31 | Confirm D1 in tests. D1-A: a regression test that a full refund of a payment is still allowed when the booking has a maintenance fee, plus a short note in `PAYMENTS_RECEIPTS.md`. D1-B: change `refundable` and the trigger behaviour only with a reviewed migration if a column is added. Do not do both | **0026 only for D1-B if a column is required** |
+| P5.5 | 5 | AUX-30 | D3-A is recorded. Set `residents.status` in the allocation and allocation-end transactions, including renewals, future dates, cancellations, and overlaps, and fix the dashboard definition in the same PR. No check-in step | none (column exists) |
+| P6.1 | 6 | AUX-31 | D1 is recorded as fee protection. Change `refundable` and the tests so the balance is verified payments minus the protected fee, finalized refunds, and pending commitments. Keep maker/checker. Do not keep the old full-refund behaviour | **0026 only if a column is required** |
 | P6.2 | 6 | §16 | Screen inventory and capture-tool update. See [Capture gaps](#screen-inventory-and-capture-gaps) | none |
 
-Suggested merge order: P0, then P1.1 → P1.2 → P1.3, then P2.1 and P2.2 (P2.3 depends on P2.2), then P2.4 → P2.5, then P3.x, then P4.1 (can be earlier; it does not need the new modal), then P4.2 → P4.3 → P4.4, then P5, then P6. P6.1 can be done as soon as D1 is answered; it does not depend on the redesign.
+Suggested merge order: P0 (merged), then P1, then P2.1 and P2.2 (P2.3 depends on P2.2), then P2.4 → P2.5, then P3.x, then P4.1 (can be earlier; it does not need the new modal), then P4.2 → P4.3 → P4.4, then P5, then P6. P6.1 can proceed now that D1 is recorded; it does not depend on the redesign.
 
 Out of scope for every phase unless a decision adds it: Cloudflare, D1 remote apply, R2, the Pi connector, MikroTik, production bootstrap, and merging this tracker’s PR.
 
@@ -445,8 +494,8 @@ Admin and resident: Vitest + Testing Library, colocated `*.test.tsx`. No Playwri
 
 | ID | Already true on `main` | Build next | Do not redo |
 |---|---|---|---|
-| AUX-13 | Two teal systems and a separate marketing palette | P1.1 after D6 | A new logo |
-| AUX-14 | Status badge, stat card, data table, empty/loading/error, confirm shell | P1.2, P1.3 | A component library package, unless later requested |
+| AUX-13 | Two teal systems and a separate marketing palette | P1 (open) uses the confirmed D6 palette | A recoloured logo |
+| AUX-14 | Status badge, stat card, data table, empty/loading/error, confirm shell | P1 (open) adds the shared primitives. Page adoption of the new modal layout is still P3 | A second copy of the primitives |
 | AUX-15 | Overview, occupancy, finance sums, application counts, maintenance counts, connector card | P2.3 | Page-length counts presented as hostel totals |
 | AUX-16 | Server search and offset | P2.2 then card links in P2.3 | Filtering 25 rows in the browser and calling it the queue |
 | AUX-17 | Audit log, messages, announcements | P2.4, migration 0023, after D7 and D8 | Projecting `audit_logs` into the bell |
@@ -482,17 +531,74 @@ Current tool: `resident-frontend/scripts/ui-qa-screenshots.mjs`.
 
 ---
 
+## Phase 1 component inventory
+
+Single source: `admin-frontend/src/design-system`. The resident app imports it. There is no second copy.
+
+| Piece | Module |
+|---|---|
+| Tokens and contrast pairs | `tokens.css`, `tokens.ts`, `contrast.ts` |
+| Component CSS | `components.css` |
+| Logo | `assets/kissmet-logo-ident.png` (byte-identical to the supplied ident, 791×541) |
+| Brand mark | `react/BrandMark.tsx` — height is set, width is automatic |
+| Button | primary, secondary, ghost, danger, icon, loading, disabled |
+| Fields | text, textarea, select, hint, error |
+| Search | `SearchFilterBar` |
+| Status | `StatusBadge` tones success, warning, danger, info, neutral |
+| Summary card | static, link, and button |
+| Table | `DataTable` one-level expand, `aria-expanded`, Enter/Space, arrow keys, stacked under 640px |
+| Pagination | previous / next, disabled at the ends |
+| Modal | sticky header and footer, focus trap, Escape, confirm variant |
+| Drawer | left or right, focus trap, Escape |
+| Workflow | `WorkflowSteps` |
+| Activity | `ActivityItem` with separate unread and unresolved flags |
+| States | empty, spinner, skeleton, error |
+| Notices | `Banner`, `Toast` |
+| Navigation | `NavShell` collapsible groups and icon rail |
+
+Admin shell groups: Overview, Residents & Admissions, Accommodation, Finance, Operations, Communications, Administration & Configuration. Existing role arrays on each item are unchanged. Resident primary and More navigation, including the bottom bar, are unchanged. Existing `ConfirmDialog` now uses the modal shell but hides the extra close control so page actions named Close stay unique. `design-preview.html` is a local Vite page and is not part of the production Rollup input.
+
+### Contrast (WCAG AA)
+
+Approved pairs are asserted in `contrast.test.ts`. Measured ratios, rounded:
+
+| Pair | Ratio | Bar |
+|---|---|---|
+| `#064B36` on white / white on `#064B36` | 10.16 | 4.5 text |
+| White on primary hover `#043828` | 13.11 | 4.5 |
+| `#142526` on white / on `#F5F7F6` | 15.88 / 14.76 | 4.5 |
+| Secondary `#3E524C` on white / `#F5F7F6` / muted `#E7EEEB` | 8.35 / 7.76 / 7.09 | 4.5 |
+| `#CE071B` on white / on `#FDECEE` | 5.72 / 5.02 | 4.5 |
+| White on danger hover `#A30616` | 8.09 | 4.5 |
+| `#064B36` on success surface `#E5F3EC` | 8.88 | 4.5 |
+| Warning text `#9A4A00` on white / on `#FFF4E6` | 6.26 / 5.77 | 4.5 |
+| Info `#0C4A6E` on white / on `#E7F2F8` | 9.46 / 8.31 | 4.5 |
+| `#142526` on orange `#F58220` | 6.12 | 4.5 |
+| Gold `#B9A17A` on `#142526` | 6.38 | 4.5 |
+| Gold on `#064B36` | 4.08 | 3.0 large or non-text only; under 4.5 so not body text |
+| Border `#6A8178` on white / on `#F5F7F6` | 4.18 / 3.88 | 3.0 UI |
+| Focus `#064B36` on `#F5F7F6` | 9.44 | 3.0 |
+
+Not used as text or as the only boundary on light surfaces: gold on white 2.49, gold on `#F5F7F6` 2.31, orange on white 2.59, orange on `#F5F7F6` 2.41. Disabled controls use reduced opacity and are not claimed as AA text.
+
+### Accessibility checks in Phase 1
+
+- Global `:focus-visible` ring uses the primary green with a 2px offset so it sits on the page background.
+- Modal and drawer expose `role="dialog"` and `aria-modal="true"`, label themselves from the title, move focus inside on open, cycle Tab, close on Escape, and return focus to the opener. Covered by component tests.
+- Expand controls expose `aria-expanded` and `aria-controls`. Enter, Space, Arrow Up, and Arrow Down are tested.
+- Nav groups use `aria-expanded` and `aria-controls`. Collapsing the admin rail uses `aria-pressed`. Reception still cannot see Payments, Internet Access, or Staff.
+- Preview page is not linked from either portal navigation.
+
 ## PR register
 
 Update this table when a PR opens. One line per PR. Phase 0 is the PR that added this file.
 
 | PR | Branch | Status | Requirement IDs | Migration | Link |
 |---|---|---|---|---|---|
-| P0 | `cursor/staging-review-phase-0-b442` | open (this document) | — | none | https://github.com/Stronga/kissmet-hostel-portal/pull/32 |
-| P1.1 | | not started | AUX-13 | none | |
-| P1.2 | | not started | AUX-14 | none | |
-| P1.3 | | not started | AUX-14 | none | |
-| P2.1 | | not started | AUX-22 | none | |
+| P0 | `cursor/staging-review-phase-0-b442` | merged | — | none | https://github.com/Stronga/kissmet-hostel-portal/pull/32 |
+| P1 | `cursor/phase1-design-foundation-5ab8` | open | AUX-13, AUX-14, AUX-22 shell | none | https://github.com/Stronga/kissmet-hostel-portal/pull/33 |
+| P1.1–P1.3 | — | combined into P1 | AUX-13, AUX-14 | none | |
+| P2.1 | | not started (shell groups already in P1) | AUX-22 route gates | none | |
 | P2.2 | | not started | AUX-16, AUX-22 | none | |
 | P2.3 | | not started | AUX-15, AUX-16 | none | |
 | P2.4 | | not started | AUX-17 | 0023 | |
@@ -504,15 +610,15 @@ Update this table when a PR opens. One line per PR. Phase 0 is the PR that added
 | P3.5 | | not started | AUX-20 | none | |
 | P3.6 | | not started | AUX-19 | none | |
 | P4.1 | | not started | AUX-25 | none | |
-| P4.2 | | blocked on D5 | AUX-26, AUX-27 | 0024 | |
+| P4.2 | | not started (D5 and D2 recorded) | AUX-26, AUX-27 | 0024 | |
 | P4.3 | | not started | AUX-27 | none | |
-| P4.4 | | blocked on D2 | AUX-28 | only if `withdrawn` | |
-| P5.1 | | blocked on D4 | AUX-23 | 0025 only for D4-B | |
+| P4.4 | | not started (D2 recorded; status belongs in 0024) | AUX-28 | none if 0024 has `withdrawn` | |
+| P5.1 | | not started (D4 recorded) | AUX-23 | 0025 | |
 | P5.2 | | not started | AUX-24 | none | |
 | P5.3 | | not started | AUX-29 | none | |
 | P5.4 | | not started | AUX-29 | none | |
-| P5.5 | | blocked on D3 | AUX-30 | none | |
-| P6.1 | | blocked on D1 | AUX-31 | 0026 only for D1-B if needed | |
+| P5.5 | | not started (D3-A recorded) | AUX-30 | none | |
+| P6.1 | | not started (D1 recorded) | AUX-31 | 0026 only if a column is required | |
 | P6.2 | | not started | §16 capture | none | |
 
 ## Tests and acceptance evidence
@@ -522,6 +628,9 @@ Append a row when a PR adds proof. Phase 0 has no runtime change, so there is no
 | PR | ID | Evidence | Date | Result |
 |---|---|---|---|---|
 | P0 | — | Diff is `docs/STAGING_REVIEW_IMPLEMENTATION.md` only. No tests, no migrations, no deploy | 2026-11-27 | recorded |
+| P1 | AUX-13 | `admin-frontend` vitest `src/design-system/contrast.test.ts`: every approved pair meets its AA minimum; gold and orange on white and on `#F5F7F6` stay under 3:1 | 2026-11-27 | passed |
+| P1 | AUX-14, AUX-22 shell | `admin-frontend` vitest: expandable table keyboard, modal and drawer focus trap and Escape, status tones, nav group collapse, pagination, sidebar groups and reception role limits. 32 files, 267 tests | 2026-11-27 | passed |
+| P1 | — | `resident-frontend` vitest 24 files, 193 tests. `tsc --noEmit` / `tsc -p tsconfig.app.json` and `tsc -p tsconfig.node.json` passed in both frontends. `vite build` passed with `VITE_API_BASE_URL=https://api.example.com` (local check only; not a deploy) | 2026-11-27 | passed |
 
 Acceptance notes for later PRs (fill the table, do not treat this list as done):
 
@@ -539,7 +648,25 @@ Append captures here. Do not treat files already under `docs/ui-qa/` as evidence
 
 | Date | PR | Surface | Viewport | File | Notes |
 |---|---|---|---|---|---|
-| | | | | | |
+| 2026-11-27 | P1 before | Admin login | 1440×900 | `/opt/cursor/artifacts/phase1-before/before-admin-login-1440x900.png` | Local Vite, `main` before this branch |
+| 2026-11-27 | P1 before | Admin login | 390×844 | `/opt/cursor/artifacts/phase1-before/before-admin-login-390x844.png` | |
+| 2026-11-27 | P1 before | Admin dashboard | 1440×900 | `/opt/cursor/artifacts/phase1-before/before-admin-dashboard-1440x900.png` | Mocked local API, not staging |
+| 2026-11-27 | P1 before | Admin dashboard | 390×844 | `/opt/cursor/artifacts/phase1-before/before-admin-dashboard-390x844.png` | |
+| 2026-11-27 | P1 before | Resident login | 1440×900 | `/opt/cursor/artifacts/phase1-before/before-resident-login-1440x900.png` | |
+| 2026-11-27 | P1 before | Resident login | 390×844 | `/opt/cursor/artifacts/phase1-before/before-resident-login-390x844.png` | |
+| 2026-11-27 | P1 before | Resident home | 1440×900 | `/opt/cursor/artifacts/phase1-before/before-resident-home-1440x900.png` | Mocked local API |
+| 2026-11-27 | P1 before | Resident home | 390×844 | `/opt/cursor/artifacts/phase1-before/before-resident-home-390x844.png` | Bottom nav still present |
+| 2026-11-27 | P1 after | Admin login | 1440×900 | `/opt/cursor/artifacts/phase1-after/after-admin-login-1440x900.png` | Official ident, primary green |
+| 2026-11-27 | P1 after | Admin login | 390×844 | `/opt/cursor/artifacts/phase1-after/after-admin-login-390x844.png` | |
+| 2026-11-27 | P1 after | Admin dashboard | 1440×900 | `/opt/cursor/artifacts/phase1-after/after-admin-dashboard-1440x900.png` | New groups, collapsible sidebar |
+| 2026-11-27 | P1 after | Admin dashboard | 390×844 | `/opt/cursor/artifacts/phase1-after/after-admin-dashboard-390x844.png` | Menu button kept |
+| 2026-11-27 | P1 after | Resident login | 1440×900 | `/opt/cursor/artifacts/phase1-after/after-resident-login-1440x900.png` | |
+| 2026-11-27 | P1 after | Resident login | 390×844 | `/opt/cursor/artifacts/phase1-after/after-resident-login-390x844.png` | |
+| 2026-11-27 | P1 after | Resident home | 1440×900 | `/opt/cursor/artifacts/phase1-after/after-resident-home-1440x900.png` | Same routes, new mark and primary |
+| 2026-11-27 | P1 after | Resident home | 390×844 | `/opt/cursor/artifacts/phase1-after/after-resident-home-390x844.png` | Bottom nav kept |
+| 2026-11-27 | P1 after | Component preview | 1440×900 | `/opt/cursor/artifacts/phase1-after/after-admin-showcase-1440x900.png` | Local `/design-preview.html`, not a product route |
+| 2026-11-27 | P1 after | Component preview | 390×844 | `/opt/cursor/artifacts/phase1-after/after-admin-showcase-390x844.png` | |
+| 2026-11-27 | P1 after | Sample modal | 1440×900 | `/opt/cursor/artifacts/phase1-after/after-admin-showcase-modal-1440x900.png` | Sticky header and footer, expanded sample row behind it |
 
 ## Known limitations
 
@@ -550,8 +677,8 @@ Append captures here. Do not treat files already under `docs/ui-qa/` as evidence
 | K3 | Dashboard “Pending Applications” ignores drafts | P2.3 |
 | K4 | List status filters do not survive pagination | P2.2 |
 | K5 | Resident UI blocks reapply after reject/cancel | P4.3 |
-| K6 | Maintenance fee is non-refundable in the obligation model and refundable in full at payment level | D1 then P6.1 |
-| K7 | No check-in, no corrections status, no withdrawal, no room-type catalog, no enquiry, no staff task table | the decision and the PR named above |
+| K6 | Maintenance fee is non-refundable in the obligation model and still refundable in full at payment level until P6.1 | D1 is recorded; P6.1 changes the maths |
+| K7 | No check-in, no corrections status, no withdrawal, no room-type catalog, no enquiry, no staff task table | decisions are recorded; the PRs named above still have to build them |
 | K8 | Capture script does not exercise auth, admin, or modals, and Puppeteer is undeclared | P6.2 |
 | K9 | `www` is a coming-soon page with a third colour palette | P5.1 after D4 and D6 |
 | K10 | Admin route table does not repeat sidebar role gates | P2.1 where a page would otherwise show forbidden data |
@@ -559,3 +686,7 @@ Append captures here. Do not treat files already under `docs/ui-qa/` as evidence
 ## Phase 0 non-actions
 
 This phase did not implement Phases 1–6, did not add a migration, did not call Wrangler against a remote D1, did not deploy a Worker or Pages project, and did not change Cloudflare, the Pi connector, or MikroTik.
+
+## Phase 1 non-actions
+
+Phase 1 did not add a migration, did not change refund maths, application status, resident status, room types, enquiries, or `staff_tasks`, did not deploy, and did not change Cloudflare, the Pi connector, or MikroTik. The pull request was not merged from this work.

@@ -13,6 +13,7 @@ export default {
         success: "var(--color-success)",
         warning: "var(--color-warning)",
         danger: "var(--color-danger)",
+        info: "var(--color-info)",
         "text-primary": "var(--color-text-primary)",
         "text-secondary": "var(--color-text-secondary)"
       },

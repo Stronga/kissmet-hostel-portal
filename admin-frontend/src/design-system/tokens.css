@@ -1,0 +1,115 @@
+/**
+ * Kissmet design tokens (D6).
+ * One source for the admin and resident portals.
+ * Brand hex values are the confirmed identity colours.
+ * Derived values exist only where the brand hex fails WCAG AA in that role.
+ * The logo artwork is not recoloured here.
+ */
+:root {
+  --km-brand-green: #064b36;
+  --km-brand-dark: #142526;
+  --km-brand-gold: #b9a17a;
+  --km-brand-orange: #f58220;
+  --km-brand-red: #ce071b;
+  --km-brand-background: #f5f7f6;
+
+  --km-color-background: var(--km-brand-background);
+  --km-color-surface: #ffffff;
+  --km-color-surface-muted: #e7eeeb;
+  --km-color-border: #6a8178;
+  --km-color-border-subtle: #d3ddd8;
+
+  --km-color-text: var(--km-brand-dark);
+  --km-color-text-secondary: #3e524c;
+  --km-color-text-inverse: #ffffff;
+
+  --km-color-primary: var(--km-brand-green);
+  --km-color-primary-hover: #043828;
+  --km-color-on-primary: #ffffff;
+  --km-color-primary-subtle: #e5f3ec;
+
+  /* Gold and orange fail AA as small text or meaningful borders on light surfaces.
+     Gold text is for dark brand surfaces. Orange is a fill with dark text. */
+  --km-color-gold: var(--km-brand-gold);
+  --km-color-on-gold: var(--km-brand-dark);
+  --km-color-orange: var(--km-brand-orange);
+  --km-color-on-orange: var(--km-brand-dark);
+
+  --km-color-success: var(--km-brand-green);
+  --km-color-success-bg: #e5f3ec;
+  --km-color-success-border: #6a8178;
+
+  --km-color-warning: #9a4a00;
+  --km-color-warning-bg: #fff4e6;
+  --km-color-warning-border: #9a4a00;
+
+  --km-color-danger: var(--km-brand-red);
+  --km-color-danger-hover: #a30616;
+  --km-color-danger-bg: #fdecee;
+  --km-color-danger-border: #ce071b;
+  --km-color-on-danger: #ffffff;
+
+  --km-color-info: #0c4a6e;
+  --km-color-info-bg: #e7f2f8;
+  --km-color-info-border: #0c4a6e;
+
+  --km-color-neutral-bg: #e7eeeb;
+  --km-color-neutral-text: #3e524c;
+
+  --km-focus-ring: var(--km-brand-green);
+
+  --km-font-sans: Inter, "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --km-font-size-xs: 0.75rem;
+  --km-font-size-sm: 0.875rem;
+  --km-font-size-md: 1rem;
+  --km-font-size-lg: 1.125rem;
+  --km-font-size-xl: 1.25rem;
+  --km-font-size-2xl: 1.5rem;
+  --km-line-height-tight: 1.25;
+  --km-line-height-body: 1.5;
+  --km-font-weight-medium: 500;
+  --km-font-weight-semibold: 600;
+  --km-font-weight-bold: 700;
+
+  --km-space-1: 0.25rem;
+  --km-space-2: 0.5rem;
+  --km-space-3: 0.75rem;
+  --km-space-4: 1rem;
+  --km-space-5: 1.25rem;
+  --km-space-6: 1.5rem;
+  --km-space-8: 2rem;
+  --km-space-10: 2.5rem;
+  --km-space-12: 3rem;
+
+  --km-radius-sm: 6px;
+  --km-radius-md: 10px;
+  --km-radius-lg: 14px;
+  --km-radius-full: 999px;
+
+  --km-shadow-sm: 0 1px 2px rgba(20, 37, 38, 0.06);
+  --km-shadow-md: 0 8px 24px rgba(20, 37, 38, 0.1);
+  --km-shadow-lg: 0 18px 48px rgba(20, 37, 38, 0.18);
+
+  --km-z-sticky: 20;
+  --km-z-dropdown: 30;
+  --km-z-drawer: 40;
+  --km-z-modal: 50;
+  --km-z-toast: 60;
+
+  /* Names already used by both Tailwind themes. */
+  --color-background: var(--km-color-background);
+  --color-surface: var(--km-color-surface);
+  --color-border: var(--km-color-border);
+  --color-primary: var(--km-color-primary);
+  --color-accent: var(--km-color-gold);
+  --color-muted: var(--km-color-surface-muted);
+  --color-success: var(--km-color-success);
+  --color-warning: var(--km-color-warning);
+  --color-danger: var(--km-color-danger);
+  --color-info: var(--km-color-info);
+  --color-text-primary: var(--km-color-text);
+  --color-text-secondary: var(--km-color-text-secondary);
+  --radius: var(--km-radius-md);
+  --shadow: var(--km-shadow-sm);
+  --spacing: var(--km-space-4);
+}
