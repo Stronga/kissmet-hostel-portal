@@ -488,7 +488,7 @@ Update this table when a PR opens. One line per PR. Phase 0 is the PR that added
 
 | PR | Branch | Status | Requirement IDs | Migration | Link |
 |---|---|---|---|---|---|
-| P0 | `cursor/staging-review-phase-0-b442` | open (this document) | — | none | Phase 0 pull request |
+| P0 | `cursor/staging-review-phase-0-b442` | open (this document) | — | none | https://github.com/Stronga/kissmet-hostel-portal/pull/32 |
 | P1.1 | | not started | AUX-13 | none | |
 | P1.2 | | not started | AUX-14 | none | |
 | P1.3 | | not started | AUX-14 | none | |
