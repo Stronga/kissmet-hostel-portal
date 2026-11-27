@@ -62,6 +62,7 @@ templates/
 !resident-frontend/src/assets/kissmet-logo.png
 !resident-frontend/src/assets/kissmet-sidebar-logo.png
 !resident-frontend/src/assets/hostel-dashboard.png
+!admin-frontend/src/design-system/assets/kissmet-logo-ident.png
 
 # MikroTik connector local secrets
 mikrotik-connector/.env
