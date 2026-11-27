@@ -1,24 +1,79 @@
 import { apiRequest } from "./client";
-import type { ApplicationBookingReport, DashboardOverview, FinancialReport, MaintenanceReport, OccupancyReport } from "../types/api";
+import type { DataEnvelope } from "../types/api";
 
-type ApiEnvelope<T> = { ok: true; data: T };
-
-export async function getDashboardOverview() {
-  return (await apiRequest<ApiEnvelope<DashboardOverview>>("/admin/dashboard/overview")).data;
+export interface CommandScope {
+  mode: "all" | "academic_session" | "lease_period";
+  label: string;
+  academicSessionId: number | null;
+  leasePeriodId: number | null;
 }
 
-export async function getOccupancyReport() {
-  return (await apiRequest<ApiEnvelope<OccupancyReport>>("/admin/dashboard/occupancy")).data;
+export interface CommandCentre {
+  scope: CommandScope;
+  actionable: {
+    applicationsAwaitingReview?: number;
+    draftApplications?: number;
+    applicationsRequiringAttention?: number;
+    agreementsAwaitingPreparation?: number;
+    paymentsAwaitingVerification?: number;
+    refundsAwaitingApproval?: number;
+    bookingsAwaitingAllocation?: number;
+    urgentMaintenance?: number;
+    internetProvisioningFailures?: number;
+    operationalIssues?: number;
+  };
+  summary: {
+    totalResidents?: number;
+    activeResidents?: number;
+    applicants?: number;
+    occupiedBeds?: number;
+    availableBeds?: number;
+    occupancyPercentage?: number;
+  };
+  finance: {
+    expectedBookingRevenue: number;
+    verifiedPayments: number;
+    outstandingBookingBalances: number;
+    paymentsAwaitingVerificationCount: number;
+    paymentsAwaitingVerificationTotal: number;
+  } | null;
+  periods: {
+    academicSessions: Array<{ id: number; name: string }>;
+    leasePeriods: Array<{ id: number; name: string; kind: string }>;
+  };
 }
 
-export async function getFinancialReport() {
-  return (await apiRequest<ApiEnvelope<FinancialReport>>("/admin/dashboard/finance")).data;
+export interface OccupancyBed {
+  id: number;
+  bedCode: string;
+  label: string;
+  status: string;
+  occupant: { allocationId: number; residentCode: string; name: string } | null;
 }
 
-export async function getApplicationBookingReport() {
-  return (await apiRequest<ApiEnvelope<ApplicationBookingReport>>("/admin/dashboard/applications")).data;
+export interface OccupancyRoomRow {
+  id: number;
+  roomCode: string;
+  roomName: string | null;
+  capacity: number;
+  genderPolicy: string;
+  status: string;
+  occupiedBeds: number;
+  beds: OccupancyBed[];
 }
 
-export async function getMaintenanceReport() {
-  return (await apiRequest<ApiEnvelope<MaintenanceReport>>("/admin/dashboard/maintenance")).data;
+export async function getCommandCentre(params: { academicSessionId?: string; leasePeriodId?: string } = {}) {
+  const query = new URLSearchParams();
+  if (params.academicSessionId) query.set("academicSessionId", params.academicSessionId);
+  if (params.leasePeriodId) query.set("leasePeriodId", params.leasePeriodId);
+  const text = query.toString();
+  return (await apiRequest<DataEnvelope<CommandCentre>>(`/admin/dashboard/command-centre${text ? `?${text}` : ""}`)).data;
+}
+
+export async function getOccupancyRooms(params: { academicSessionId?: string; leasePeriodId?: string } = {}) {
+  const query = new URLSearchParams();
+  if (params.academicSessionId) query.set("academicSessionId", params.academicSessionId);
+  if (params.leasePeriodId) query.set("leasePeriodId", params.leasePeriodId);
+  const text = query.toString();
+  return (await apiRequest<DataEnvelope<{ rooms: OccupancyRoomRow[] }>>(`/admin/dashboard/occupancy/rooms${text ? `?${text}` : ""}`)).data;
 }

@@ -65,8 +65,10 @@ routes.get("/internet-access", requirePermission("internet:read"), async (c) => 
   const search = url.searchParams.get("search") ?? undefined;
   const status = url.searchParams.get("status") ?? undefined;
   const syncStatus = url.searchParams.get("sync_status") ?? undefined;
-  const result = await service(c).list(p.limit, p.offset, { search, status, syncStatus }) as { results?: unknown[] };
-  return c.json(listOk((result.results ?? []) as unknown[], p));
+  const filters = { search, status, syncStatus };
+  const result = await service(c).list(p.limit, p.offset, filters) as { results?: unknown[] };
+  const total = await service(c).count(filters);
+  return c.json({ ...listOk((result.results ?? []) as unknown[], p), pagination: { ...p, total } });
 });
 
 routes.get("/internet-access/:id", requirePermission("internet:read"), async (c) => {
@@ -89,7 +91,13 @@ routes.get("/internet-access/:id/sessions", requirePermission("internet:read"), 
 
 routes.post("/internet-access/residents/:residentId/provision", requirePermission("internet:manage"), async (c) => {
   try {
-    return c.json(ok(await service(c).provision(c.get("authUser"), Number(c.req.param("residentId")))), 201);
+    const created = await service(c).provision(c.get("authUser"), Number(c.req.param("residentId"))) as { id?: number };
+    if (created?.id) {
+      const { AdminRepository } = await import("../repositories/admin.repository");
+      const { StaffTaskService } = await import("../services/staff-tasks.service");
+      await new StaffTaskService(new AdminRepository(c.env.DB)).syncSubject("internet", Number(created.id));
+    }
+    return c.json(ok(created), 201);
   } catch (e) {
     const h = handle(e);
     return c.json(h.body, h.status);
@@ -134,7 +142,12 @@ routes.post("/internet-access/:id/disconnect", requirePermission("internet:manag
 
 routes.post("/internet-access/:id/retry-sync", requirePermission("internet:manage"), async (c) => {
   try {
-    return c.json(ok(await service(c).retrySync(c.get("authUser"), Number(c.req.param("id")))));
+    const id = Number(c.req.param("id"));
+    const updated = await service(c).retrySync(c.get("authUser"), id);
+    const { AdminRepository } = await import("../repositories/admin.repository");
+    const { StaffTaskService } = await import("../services/staff-tasks.service");
+    await new StaffTaskService(new AdminRepository(c.env.DB)).syncSubject("internet", id);
+    return c.json(ok(updated));
   } catch (e) {
     const h = handle(e);
     return c.json(h.body, h.status);

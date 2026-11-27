@@ -1,5 +1,6 @@
 import { Plus, Search } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { bookingPaymentSummary, createBooking, extendBooking, getBooking, getBookingAgreement, listAvailability, listBookings, listRoomRates, listRooms, renewBooking, setBookingPaymentPolicy, updateBookingStatus } from "../../api/bookings";
 import { listLeasePeriods } from "../../api/setup";
 import { getApplication, getResident, listAcademicSessions, listApplications } from "../../api/applications";
@@ -40,10 +41,14 @@ export function BookingsPage() {
   const [approvedApplications, setApprovedApplications] = useState<Application[]>([]);
   const [availability, setAvailability] = useState<AvailabilityBed[]>([]);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
-  const [search, setSearch] = useState("");
-  const [submittedSearch, setSubmittedSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<BookingStatus | "all">("all");
-  const [sessionFilter, setSessionFilter] = useState("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get("search") ?? "");
+  const [submittedSearch, setSubmittedSearch] = useState(searchParams.get("search") ?? "");
+  const [statusFilter, setStatusFilter] = useState<BookingStatus | "all">((searchParams.get("status") ?? "all") as BookingStatus | "all");
+  const [queue] = useState(searchParams.get("queue") ?? "");
+  const [sessionFilter, setSessionFilter] = useState(searchParams.get("academicSessionId") ?? "all");
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,8 +74,8 @@ export function BookingsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [{ bookings: rows }, institutionRows, sessionRows, roomRows, rateRows, appRows, leasePeriodRows] = await Promise.all([
-        listBookings({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined }),
+      const [{ bookings: rows, counts: nextCounts }, institutionRows, sessionRows, roomRows, rateRows, appRows, leasePeriodRows] = await Promise.all([
+        listBookings({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined, status: statusFilter, queue: queue || undefined, academicSessionId: sessionFilter }),
         listInstitutions(),
         listAcademicSessions(),
         listRooms(),
@@ -85,6 +90,7 @@ export function BookingsPage() {
       const residentIds = Array.from(new Set([...rows.map((booking) => booking.resident_id), ...allApps.map((application) => application.resident_id)]));
       const residentEntries = await Promise.all(residentIds.map(async (id) => [id, await getResident(id)] as const));
       setBookings(rows);
+      setCounts(nextCounts ?? null);
       setApplicationsById(new Map(applicationEntries));
       setApprovedApplications(appRows.applications.filter((application) => application.status === "approved"));
       setResidentsById(new Map(residentEntries));
@@ -100,15 +106,15 @@ export function BookingsPage() {
     }
   }
 
-  useEffect(() => { void load(0, ""); }, []);
+  useEffect(() => { void load(0, submittedSearch); }, [statusFilter, sessionFilter]);
 
-  const visibleBookings = useMemo(() => bookings.filter((booking) => (statusFilter === "all" || booking.status === statusFilter) && (sessionFilter === "all" || booking.academic_session_id === Number(sessionFilter))), [bookings, sessionFilter, statusFilter]);
-  const summaryCounts = useMemo(() => ({
-    pending: bookings.filter((booking) => booking.status === "pending").length,
-    confirmed: bookings.filter((booking) => booking.status === "confirmed").length,
-    completed: bookings.filter((booking) => booking.status === "completed").length,
-    attention: bookings.filter((booking) => Boolean(booking.payment_attention_required)).length
-  }), [bookings]);
+  useEffect(() => {
+    const recordId = Number(searchParams.get("record") ?? 0);
+    if (!Number.isInteger(recordId) || recordId <= 0) return;
+    let alive = true;
+    getBooking(recordId).then((booking) => { if (alive) void openDetail(booking); }).catch(() => { if (alive) setRecordError("This record is no longer available."); });
+    return () => { alive = false; };
+  }, [searchParams]);
 
   async function submitSearch(event: FormEvent) {
     event.preventDefault();
@@ -216,18 +222,19 @@ export function BookingsPage() {
         <PageHeader title="Bookings" eyebrow="Admin" description="Manage booking, payment-confirmation and placement readiness." />
         {canWrite ? <button type="button" onClick={() => setCreateOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90"><Plus className="h-4 w-4" /> Create Booking</button> : null}
       </div>
-      <div className="grid gap-3 sm:grid-cols-4"><StatCard label="Pending On Page" value={summaryCounts.pending} /><StatCard label="Confirmed On Page" value={summaryCounts.confirmed} tone="success" /><StatCard label="Completed On Page" value={summaryCounts.completed} /><StatCard label="Payment Attention" value={summaryCounts.attention} tone="warning" /></div>
+      <div className="grid gap-3 sm:grid-cols-4"><StatCard label="Pending" value={counts?.pending ?? "—"} /><StatCard label="Confirmed" value={counts?.confirmed ?? "—"} tone="success" /><StatCard label="Completed" value={counts?.completed ?? "—"} /><StatCard label="Awaiting allocation" value={counts?.awaitingAllocation ?? "—"} tone="warning" /></div>
       <section className="rounded-token border border-border bg-surface p-4">
         <form onSubmit={(event) => void submitSearch(event)} className="flex flex-col gap-3 xl:flex-row xl:items-end">
           <div className="flex-1"><label htmlFor="booking-search" className="block text-sm font-medium">Search bookings</label><div className="mt-1 flex rounded-md border border-border bg-white"><Search className="ml-3 mt-2.5 h-4 w-4 text-text-secondary" /><input id="booking-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Booking number or status" className="min-w-0 flex-1 rounded-md px-3 py-2 text-sm outline-none" /></div></div>
-          <div><label htmlFor="booking-status" className="block text-sm font-medium">Status</label><select id="booking-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as BookingStatus | "all")} className="mt-1 rounded-md border border-border bg-white px-3 py-2 text-sm">{statuses.map((status) => <option key={status} value={status}>{status === "all" ? "All statuses" : formatStatus(status)}</option>)}</select></div>
-          <div><label htmlFor="booking-session" className="block text-sm font-medium">Academic session</label><select id="booking-session" value={sessionFilter} onChange={(event) => setSessionFilter(event.target.value)} className="mt-1 rounded-md border border-border bg-white px-3 py-2 text-sm"><option value="all">All sessions</option>{sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}</select></div>
+          <div><label htmlFor="booking-status" className="block text-sm font-medium">Status</label><select id="booking-status" value={statusFilter} onChange={(event) => { const next = event.target.value as BookingStatus | "all"; setStatusFilter(next); const copy = new URLSearchParams(searchParams); if (next === "all") copy.delete("status"); else copy.set("status", next); setSearchParams(copy); }} className="mt-1 rounded-md border border-border bg-white px-3 py-2 text-sm">{statuses.map((status) => <option key={status} value={status}>{status === "all" ? "All statuses" : formatStatus(status)}</option>)}</select></div>
+          <div><label htmlFor="booking-session" className="block text-sm font-medium">Academic session</label><select id="booking-session" value={sessionFilter} onChange={(event) => { setSessionFilter(event.target.value); const copy = new URLSearchParams(searchParams); if (event.target.value === "all") copy.delete("academicSessionId"); else copy.set("academicSessionId", event.target.value); setSearchParams(copy); }} className="mt-1 rounded-md border border-border bg-white px-3 py-2 text-sm"><option value="all">All sessions</option>{sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}</select></div>
           <button type="submit" className="rounded-md border border-border bg-muted px-4 py-2 text-sm font-semibold">Search</button>
         </form>
-        <p className="mt-2 text-xs text-text-secondary">Server search covers booking number and status. Status and session filters apply to the current result page.</p>
+        <p className="mt-2 text-xs text-text-secondary">Status, queue, and session filters run on the server across the full authorized set.{queue ? ` Queue: ${queue.replaceAll("_", " ")}.` : ""}</p>
       </section>
       {error ? <ErrorState message={error} /> : null}
-      {loading ? <LoadingState label="Loading bookings..." /> : visibleBookings.length ? <BookingTable bookings={visibleBookings} residentsById={residentsById} applicationsById={applicationsById} institutions={institutions} sessions={sessions} rooms={rooms} onView={(booking) => void openDetail(booking)} /> : <EmptyState title={submittedSearch || statusFilter !== "all" || sessionFilter !== "all" ? "No matching bookings" : "No bookings"} message="Bookings will appear after approved applications are converted into bookings." />}
+      {recordError ? <ErrorState title="Record unavailable" message={recordError} /> : null}
+      {loading ? <LoadingState label="Loading bookings..." /> : bookings.length ? <BookingTable bookings={bookings} residentsById={residentsById} applicationsById={applicationsById} institutions={institutions} sessions={sessions} rooms={rooms} onView={(booking) => void openDetail(booking)} /> : <EmptyState title={submittedSearch || statusFilter !== "all" || sessionFilter !== "all" || queue ? "No matching bookings" : "No bookings"} message="Bookings will appear after approved applications are converted into bookings." />}
       <div className="flex items-center justify-between"><button type="button" disabled={offset === 0 || loading} onClick={() => { const next = Math.max(0, offset - pageSize); setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Previous</button><p className="text-sm text-text-secondary">Showing {offset + 1}-{offset + bookings.length}</p><button type="button" disabled={bookings.length < pageSize || loading} onClick={() => { const next = offset + pageSize; setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Next</button></div>
       <ConfirmDialog open={Boolean(selected)} title="Booking Details" onClose={() => { setSelected(null); setDecisionStatus(null); setTransitionError(null); }}>{selected ? <BookingDetail booking={selected} application={selectedApplication} resident={selectedResident} institution={selectedInstitution} session={selectedSession} room={selectedRoom} rate={selectedRate} leasePeriods={leasePeriods} financial={financial} summary={summary} summaryError={summaryError} canWrite={canWrite} canConfirm={canConfirm} canManagePaymentPolicy={canManagePaymentPolicy} canManageLifecycle={canManageLifecycle} pending={saving} onAction={setDecisionStatus} onEditPaymentPolicy={() => { setPolicyError(null); setPolicyOpen(true); }} onRenew={() => { setRenewError(null); setRenewOpen(true); }} onExtend={() => { setExtendError(null); setExtendOpen(true); }} /> : null}</ConfirmDialog>
       <ConfirmDialog open={Boolean(decisionStatus)} title={decisionStatus === "confirmed" ? "Confirm this booking?" : `${formatStatus(decisionStatus)} booking`} description={decisionStatus === "confirmed" ? "Payment requirements must be satisfied. Confirming the booking does not allocate a bed automatically." : undefined} onClose={() => { if (!saving) setDecisionStatus(null); }}>

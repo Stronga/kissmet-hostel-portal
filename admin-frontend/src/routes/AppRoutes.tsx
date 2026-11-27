@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
 import { LoadingState } from "../components/common/LoadingState";
 import { LoginPage } from "../pages/Login/LoginPage";
+import { RequirePermission } from "../components/auth/RequirePermission";
 import { ProtectedRoute } from "./ProtectedRoute";
 // Eager (not lazy): the forced password-change screen must render even if a page chunk fails to load.
 import { ChangePasswordPage } from "../pages/Account/ChangePasswordPage";
@@ -41,18 +42,18 @@ export function AppRoutes() {
             <Route path="/bookings" element={<BookingsPage />} />
             <Route path="/rooms" element={<RoomsPage />} />
             <Route path="/allocations" element={<AllocationsPage />} />
-            <Route path="/payments" element={<PaymentsPage />} />
-            <Route path="/receipts" element={<ReceiptsPage />} />
-            <Route path="/refunds" element={<RefundsPage />} />
-            <Route path="/internet-access" element={<InternetAccessPage />} />
+            <Route path="/payments" element={<RequirePermission permission="payment:read"><PaymentsPage /></RequirePermission>} />
+            <Route path="/receipts" element={<RequirePermission permission="receipt:read"><ReceiptsPage /></RequirePermission>} />
+            <Route path="/refunds" element={<RequirePermission permission="refund:read"><RefundsPage /></RequirePermission>} />
+            <Route path="/internet-access" element={<RequirePermission permission="internet:read"><InternetAccessPage /></RequirePermission>} />
             <Route path="/maintenance" element={<MaintenancePage />} />
-            <Route path="/announcements" element={<AnnouncementsPage />} />
-            <Route path="/messages" element={<MessagesPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/staff" element={<StaffPage />} />
-            <Route path="/setup" element={<SetupPage />} />
-            <Route path="/audit-logs" element={<AuditLogsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/announcements" element={<RequirePermission permission="announcement:read"><AnnouncementsPage /></RequirePermission>} />
+            <Route path="/messages" element={<RequirePermission permission="message:read"><MessagesPage /></RequirePermission>} />
+            <Route path="/reports" element={<RequirePermission permission="report:read"><ReportsPage /></RequirePermission>} />
+            <Route path="/staff" element={<RequirePermission permission="staff:read"><StaffPage /></RequirePermission>} />
+            <Route path="/setup" element={<RequirePermission permission="admin:write"><SetupPage /></RequirePermission>} />
+            <Route path="/audit-logs" element={<RequirePermission permission="audit:read"><AuditLogsPage /></RequirePermission>} />
+            <Route path="/settings" element={<RequirePermission permission="settings:read"><SettingsPage /></RequirePermission>} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

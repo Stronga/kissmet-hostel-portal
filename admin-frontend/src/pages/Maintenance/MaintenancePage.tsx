@@ -1,5 +1,6 @@
 import { Plus, Search } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { getMaintenance, getMaintenanceReport, listMaintenance, createMaintenance, assignMaintenance, startMaintenance, resolveMaintenance, closeMaintenance, cancelMaintenance, listStaff } from "../../api/maintenance";
 import { listInstitutions, listResidents } from "../../api/residents";
 import { listRoomBeds, listRooms } from "../../api/rooms";
@@ -44,10 +45,12 @@ export function MaintenancePage() {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [staffById, setStaffById] = useState<Map<number, Staff>>(new Map());
   const [selected, setSelected] = useState<MaintenanceRequest | null>(null);
-  const [search, setSearch] = useState("");
-  const [submittedSearch, setSubmittedSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<MaintenanceStatus | "all">("all");
-  const [priorityFilter, setPriorityFilter] = useState<MaintenancePriority | "all">("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get("search") ?? "");
+  const [submittedSearch, setSubmittedSearch] = useState(searchParams.get("search") ?? "");
+  const [statusFilter, setStatusFilter] = useState<MaintenanceStatus | "all">((searchParams.get("status") ?? "all") as MaintenanceStatus | "all");
+  const [priorityFilter, setPriorityFilter] = useState<MaintenancePriority | "all">((searchParams.get("priority") ?? "all") as MaintenancePriority | "all");
+  const [recordError, setRecordError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +65,7 @@ export function MaintenancePage() {
     setError(null);
     try {
       const [{ requests: requestRows }, reportData, { residents: residentRows }, institutionRows, roomRows, staffRows] = await Promise.all([
-        listMaintenance({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined }),
+        listMaintenance({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined, status: statusFilter, priority: priorityFilter }),
         getMaintenanceReport(),
         listResidents({ limit: 100, offset: 0 }),
         listInstitutions(),
@@ -88,9 +91,15 @@ export function MaintenancePage() {
     }
   }
 
-  useEffect(() => { void load(0, ""); }, []);
+  useEffect(() => { void load(0, submittedSearch); }, [statusFilter, priorityFilter]);
 
-  const visibleRequests = useMemo(() => requests.filter((request) => (statusFilter === "all" || request.status === statusFilter) && (priorityFilter === "all" || request.priority === priorityFilter)), [priorityFilter, requests, statusFilter]);
+  useEffect(() => {
+    const recordId = Number(searchParams.get("record") ?? 0);
+    if (!Number.isInteger(recordId) || recordId <= 0) return;
+    let alive = true;
+    getMaintenance(recordId).then((request) => { if (alive) setSelected(request); }).catch(() => { if (alive) setRecordError("This record is no longer available."); });
+    return () => { alive = false; };
+  }, [searchParams]);
 
   async function submitSearch(event: FormEvent) {
     event.preventDefault();
@@ -139,14 +148,15 @@ export function MaintenancePage() {
       <section className="rounded-token border border-border bg-surface p-4">
         <form onSubmit={(event) => void submitSearch(event)} className="flex flex-col gap-3 xl:flex-row xl:items-end">
           <div className="flex-1"><label htmlFor="maintenance-search" className="block text-sm font-medium">Search maintenance</label><div className="mt-1 flex rounded-md border border-border bg-white"><Search className="ml-3 mt-2.5 h-4 w-4 text-text-secondary" /><input id="maintenance-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Request number, issue, or status" className="min-w-0 flex-1 rounded-md px-3 py-2 text-sm outline-none" /></div></div>
-          <label className="text-sm font-medium">Status<select aria-label="Maintenance status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as MaintenanceStatus | "all")} className="mt-1 rounded-md border border-border bg-white px-3 py-2">{statuses.map((status) => <option key={status} value={status}>{status === "all" ? "All statuses" : formatStatus(status)}</option>)}</select></label>
-          <label className="text-sm font-medium">Priority<select aria-label="Maintenance priority filter" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as MaintenancePriority | "all")} className="mt-1 rounded-md border border-border bg-white px-3 py-2">{priorities.map((priority) => <option key={priority} value={priority}>{priority === "all" ? "All priorities" : formatStatus(priority)}</option>)}</select></label>
+          <label className="text-sm font-medium">Status<select aria-label="Maintenance status filter" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as MaintenanceStatus | "all"); const copy = new URLSearchParams(searchParams); if (event.target.value === "all") copy.delete("status"); else copy.set("status", event.target.value); setSearchParams(copy); }} className="mt-1 rounded-md border border-border bg-white px-3 py-2">{statuses.map((status) => <option key={status} value={status}>{status === "all" ? "All statuses" : formatStatus(status)}</option>)}</select></label>
+          <label className="text-sm font-medium">Priority<select aria-label="Maintenance priority filter" value={priorityFilter} onChange={(event) => { setPriorityFilter(event.target.value as MaintenancePriority | "all"); const copy = new URLSearchParams(searchParams); if (event.target.value === "all") copy.delete("priority"); else copy.set("priority", event.target.value); setSearchParams(copy); }} className="mt-1 rounded-md border border-border bg-white px-3 py-2">{priorities.map((priority) => <option key={priority} value={priority}>{priority === "all" ? "All priorities" : formatStatus(priority)}</option>)}</select></label>
           <button type="submit" className="rounded-md border border-border bg-muted px-4 py-2 text-sm font-semibold">Search</button>
         </form>
-        <p className="mt-2 text-xs text-text-secondary">Server search covers request number, title, and status. Resident, room, assigned staff, and priority filters are based on loaded page lookups.</p>
+        <p className="mt-2 text-xs text-text-secondary">Status and priority filters run on the server. Summary counts come from the maintenance report for the full set.</p>
       </section>
       {error ? <ErrorState message={error} /> : null}
-      {loading ? <LoadingState label="Loading maintenance requests..." /> : visibleRequests.length ? <MaintenanceTable requests={visibleRequests} residentsById={residentsById} roomsById={roomsById} bedsById={bedsById} staffById={staffById} onView={(request) => void openDetail(request)} /> : <EmptyState title={submittedSearch || statusFilter !== "all" || priorityFilter !== "all" ? "No matching maintenance requests" : "No maintenance requests"} message="Maintenance requests will appear after staff or residents report issues." />}
+      {recordError ? <ErrorState title="Record unavailable" message={recordError} /> : null}
+      {loading ? <LoadingState label="Loading maintenance requests..." /> : requests.length ? <MaintenanceTable requests={requests} residentsById={residentsById} roomsById={roomsById} bedsById={bedsById} staffById={staffById} onView={(request) => void openDetail(request)} /> : <EmptyState title={submittedSearch || statusFilter !== "all" || priorityFilter !== "all" ? "No matching maintenance requests" : "No maintenance requests"} message="Maintenance requests will appear after staff or residents report issues." />}
       <div className="flex items-center justify-between"><button type="button" disabled={offset === 0 || loading} onClick={() => { const next = Math.max(0, offset - pageSize); setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Previous</button><p className="text-sm text-text-secondary">Showing {offset + 1}-{offset + requests.length}</p><button type="button" disabled={requests.length < pageSize || loading} onClick={() => { const next = offset + pageSize; setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Next</button></div>
       <ConfirmDialog open={Boolean(selected)} title="Maintenance Details" onClose={() => { setSelected(null); setAssignOpen(false); setAction(null); }}>{selected ? <MaintenanceDetail request={selected} resident={selectedResident} institution={selectedInstitution} room={selectedRoom} bed={selectedBed} assignedStaff={selectedStaff} permissions={permissions} saving={saving} onAssign={() => setAssignOpen(true)} onStart={() => setAction("start")} onResolve={() => setAction("resolve")} onClose={() => setAction("close")} onCancel={() => setAction("cancel")} /> : null}</ConfirmDialog>
       <CreateMaintenanceDialog open={createOpen} residents={residents} rooms={rooms} beds={beds} saving={saving} error={mutationError} onClose={() => { if (!saving) { setCreateOpen(false); setMutationError(null); } }} onCreate={(input) => void mutate(() => createMaintenance(input), (request) => { setCreateOpen(false); void openDetail(request); })} />

@@ -170,6 +170,34 @@ export class InternetAccessService {
     );
   }
 
+  async count(filters: ListInternetFilters | string = {}) {
+    const normalized: ListInternetFilters =
+      typeof filters === "string" ? { search: filters } : (filters ?? {});
+    const clauses: string[] = ["1=1"];
+    const binds: unknown[] = [];
+    if (normalized.search?.trim()) {
+      const like = `%${normalized.search.trim()}%`;
+      clauses.push("(r.resident_code LIKE ? OR r.first_name LIKE ? OR r.last_name LIKE ? OR ia.router_username LIKE ?)");
+      binds.push(like, like, like, like);
+    }
+    if (normalized.status && normalized.status !== "all") {
+      clauses.push("ia.status = ?");
+      binds.push(normalized.status);
+    }
+    if (normalized.syncStatus && normalized.syncStatus !== "all") {
+      clauses.push("ia.sync_status = ?");
+      binds.push(normalized.syncStatus);
+    }
+    const row = await this.repo.first<{ total: number }>(
+      `SELECT COUNT(*) AS total
+       FROM resident_internet_accounts ia
+       JOIN residents r ON r.id = ia.resident_id
+       WHERE ${clauses.join(" AND ")}`,
+      ...binds
+    );
+    return Number(row?.total ?? 0);
+  }
+
   async summary(): Promise<InternetSummary> {
     const row = await this.repo.first<InternetSummary>(
       `SELECT

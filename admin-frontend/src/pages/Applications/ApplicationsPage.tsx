@@ -1,5 +1,6 @@
 import { Search } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ApplicationDetail } from "./ApplicationDetail";
 import { ApplicationTable } from "./ApplicationTable";
 import { CreateAgreementDialog } from "./CreateAgreementDialog";
@@ -32,11 +33,17 @@ export function ApplicationsPage() {
   const [sessions, setSessions] = useState<AcademicSession[]>([]);
   const [documents, setDocuments] = useState<IdentityDocument[]>([]);
   const [restrictedResidentIds, setRestrictedResidentIds] = useState<number[]>([]);
-  const [search, setSearch] = useState("");
-  const [submittedSearch, setSubmittedSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
-  const [sessionFilter, setSessionFilter] = useState("all");
-  const [offset, setOffset] = useState(0);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusFilter = (searchParams.get("status") ?? "all") as ApplicationStatus | "all";
+  const queue = searchParams.get("queue") ?? "";
+  const sessionFilter = searchParams.get("academicSessionId") ?? "all";
+  const periodFilter = searchParams.get("leasePeriodId") ?? "";
+  const submittedSearch = searchParams.get("search") ?? "";
+  const offset = Number(searchParams.get("offset") ?? 0) || 0;
+  const recordId = Number(searchParams.get("record") ?? 0);
+  const [search, setSearch] = useState(submittedSearch);
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Application | null>(null);
@@ -55,12 +62,21 @@ export function ApplicationsPage() {
   const [, setSelectedLeasePeriodId] = useState<number | null>(null);
   const [, setSelectedRoomId] = useState<number | null>(null);
 
-  async function load(nextOffset = offset, nextSearch = submittedSearch) {
+  function writeQuery(next: Record<string, string | null>) {
+    const copy = new URLSearchParams(searchParams);
+    for (const [key, value] of Object.entries(next)) {
+      if (!value || value === "all") copy.delete(key);
+      else copy.set(key, value);
+    }
+    setSearchParams(copy);
+  }
+
+  async function load(nextOffset = offset, nextSearch = submittedSearch, nextStatus = statusFilter, nextSession = sessionFilter) {
     setLoading(true);
     setError(null);
     try {
-      const [{ applications: rows }, institutionRows, sessionRows, documentList, leasePeriodRows, roomRows] = await Promise.all([
-        listApplications({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined }),
+      const [{ applications: rows, counts: nextCounts }, institutionRows, sessionRows, documentList, leasePeriodRows, roomRows] = await Promise.all([
+        listApplications({ limit: pageSize, offset: nextOffset, search: nextSearch || undefined, status: nextStatus, queue: queue || undefined, academicSessionId: nextSession, leasePeriodId: periodFilter || undefined }),
         listInstitutions(),
         listAcademicSessions(),
         listIdentityDocuments(),
@@ -71,6 +87,7 @@ export function ApplicationsPage() {
         Array.from(new Set(rows.map((application) => application.resident_id))).map(async (id) => [id, await getResident(id)] as const)
       );
       setApplications(rows);
+      setCounts(nextCounts ?? null);
       setResidentsById(new Map(residentEntries));
       setInstitutions(institutionRows);
       setSessions(sessionRows);
@@ -86,27 +103,26 @@ export function ApplicationsPage() {
   }
 
   useEffect(() => {
-    void load(0, "");
-  }, []);
+    void load();
+  }, [statusFilter, queue, sessionFilter, periodFilter, submittedSearch, offset]);
 
-  const visibleApplications = useMemo(() => applications.filter((application) => {
-    const statusMatch = statusFilter === "all" || application.status === statusFilter;
-    const sessionMatch = sessionFilter === "all" || application.academic_session_id === Number(sessionFilter);
-    return statusMatch && sessionMatch;
-  }), [applications, sessionFilter, statusFilter]);
-
-  const summary = useMemo(() => ({
-    totalOnPage: applications.length,
-    submittedOnPage: applications.filter((application) => application.status === "submitted").length,
-    reviewOnPage: applications.filter((application) => application.status === "under_review").length,
-    approvedOnPage: applications.filter((application) => application.status === "approved").length
-  }), [applications]);
+  useEffect(() => {
+    if (!Number.isInteger(recordId) || recordId <= 0) return;
+    let alive = true;
+    setRecordError(null);
+    setDetailLoading(true);
+    getApplication(recordId).then((application) => {
+      if (!alive) return;
+      setSelected(application);
+    }).catch(() => {
+      if (alive) setRecordError("This record is no longer available.");
+    }).finally(() => { if (alive) setDetailLoading(false); });
+    return () => { alive = false; };
+  }, [recordId]);
 
   async function submitSearch(event: FormEvent) {
     event.preventDefault();
-    setOffset(0);
-    setSubmittedSearch(search.trim());
-    await load(0, search.trim());
+    writeQuery({ search: search.trim() || null, offset: null });
   }
 
   async function openDetail(application: Application) {
@@ -152,10 +168,10 @@ export function ApplicationsPage() {
       <PageHeader title="Applications" eyebrow="Admin" description="Review and manage hostel applications." />
 
       <div className="grid gap-3 sm:grid-cols-4">
-        <StatCard label="Applications On Page" value={summary.totalOnPage} />
-        <StatCard label="Submitted" value={summary.submittedOnPage} />
-        <StatCard label="Under Review" value={summary.reviewOnPage} />
-        <StatCard label="Approved" value={summary.approvedOnPage} tone="success" />
+        <StatCard label="Matching records" value={counts?.total ?? applications.length} helper="Full authorized set for this scope" />
+        <StatCard label="Awaiting review" value={counts?.awaiting_review ?? "—"} />
+        <StatCard label="Drafts" value={counts?.drafts ?? "—"} helper="Not included in awaiting review" />
+        <StatCard label="Approved" value={counts?.approved ?? "—"} tone="success" />
       </div>
 
       <section className="rounded-token border border-border bg-surface p-4">
@@ -169,37 +185,37 @@ export function ApplicationsPage() {
           </div>
           <div>
             <label htmlFor="application-status" className="block text-sm font-medium text-text-primary">Status</label>
-            <select id="application-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ApplicationStatus | "all")} className="mt-1 rounded-md border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+            <select id="application-status" value={statusFilter} onChange={(event) => writeQuery({ status: event.target.value, queue: null, offset: null })} className="mt-1 rounded-md border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
               {statuses.map((status) => <option key={status} value={status}>{status === "all" ? "All statuses" : formatStatus(status)}</option>)}
             </select>
           </div>
           <div>
             <label htmlFor="application-session" className="block text-sm font-medium text-text-primary">Academic session</label>
-            <select id="application-session" value={sessionFilter} onChange={(event) => setSessionFilter(event.target.value)} className="mt-1 rounded-md border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
+            <select id="application-session" value={sessionFilter} onChange={(event) => writeQuery({ academicSessionId: event.target.value, offset: null })} className="mt-1 rounded-md border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20">
               <option value="all">All sessions</option>
               {sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}
             </select>
           </div>
           <button type="submit" className="rounded-md border border-border bg-muted px-4 py-2 text-sm font-semibold text-text-primary hover:bg-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">Search</button>
         </form>
-        <p className="mt-2 text-xs text-text-secondary">Server search covers application number and status. Status and session filters apply to the current result page.</p>
+        <p className="mt-2 text-xs text-text-secondary">Status, queue, session, and search are applied on the server for the full authorized set. {queue ? `Queue: ${queue.replaceAll("_", " ")}.` : ""}</p>
       </section>
 
       {error ? <ErrorState message={error} /> : null}
-      {loading ? <LoadingState label="Loading applications..." /> : visibleApplications.length ? (
-        <ApplicationTable applications={visibleApplications} residentsById={residentsById} institutions={institutions} sessions={sessions} onView={(application) => void openDetail(application)} />
+      {loading ? <LoadingState label="Loading applications..." /> : applications.length ? (
+        <ApplicationTable applications={applications} residentsById={residentsById} institutions={institutions} sessions={sessions} onView={(application) => void openDetail(application)} />
       ) : (
         <EmptyState title={submittedSearch || statusFilter !== "all" || sessionFilter !== "all" ? "No matching applications" : "No applications"} message={submittedSearch || statusFilter !== "all" || sessionFilter !== "all" ? "No applications match the current search or filters." : "Applications will appear here after residents submit them."} />
       )}
 
       <div className="flex items-center justify-between">
-        <button type="button" disabled={offset === 0 || loading} onClick={() => { const next = Math.max(0, offset - pageSize); setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Previous</button>
-        <p className="text-sm text-text-secondary">Showing {offset + 1}-{offset + applications.length}</p>
-        <button type="button" disabled={applications.length < pageSize || loading} onClick={() => { const next = offset + pageSize; setOffset(next); void load(next, submittedSearch); }} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Next</button>
+        <button type="button" disabled={offset === 0 || loading} onClick={() => writeQuery({ offset: String(Math.max(0, offset - pageSize)) })} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Previous</button>
+        <p className="text-sm text-text-secondary">Showing {applications.length ? offset + 1 : 0}-{offset + applications.length}</p>
+        <button type="button" disabled={applications.length < pageSize || loading} onClick={() => writeQuery({ offset: String(offset + pageSize) })} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-50">Next</button>
       </div>
 
-      <ConfirmDialog open={Boolean(selected) || detailLoading} title="Application Details" onClose={() => { setSelected(null); setDecisionStatus(null); setTransitionError(null); setAgreementOpen(false); }}>
-        {detailLoading || !selected ? <LoadingState label="Loading application..." /> : (
+      <ConfirmDialog open={Boolean(selected) || detailLoading || Boolean(recordError)} title="Application Details" onClose={() => { setSelected(null); setRecordError(null); setDecisionStatus(null); setTransitionError(null); setAgreementOpen(false); writeQuery({ record: null }); }}>
+        {recordError ? <ErrorState title="Record unavailable" message={recordError} /> : detailLoading || !selected ? <LoadingState label="Loading application..." /> : (
           <ApplicationDetail
             application={selected}
             resident={selectedResident}

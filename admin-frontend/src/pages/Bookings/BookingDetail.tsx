@@ -1,3 +1,4 @@
+import { GuidedWorkflow } from "../../components/workflow/GuidedWorkflow";
 import { BookingActions } from "./BookingActions";
 import { BookingFinancialSummary } from "./BookingFinancialSummary";
 import { BookingPaymentSummary } from "./BookingPaymentSummary";
@@ -64,6 +65,7 @@ export function BookingDetail({
 
   return (
     <div className="space-y-3">
+      <GuidedWorkflow subjectType="booking" subjectId={booking.id} />
       <Section title="Booking" rows={[
         ["Booking number", booking.booking_number],
         ["Status", formatStatus(booking.status)],

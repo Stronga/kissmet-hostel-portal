@@ -13,7 +13,12 @@ export async function paymentRefunds(paymentId: number) {
 export async function listRefunds(status?: RefundStatus | "all") {
   const query = new URLSearchParams({ limit: "100", offset: "0" });
   if (status && status !== "all") query.set("status", status);
-  return (await apiRequest<DataEnvelope<Refund[]>>(`/admin/refunds?${query.toString()}`)).data;
+  const response = await apiRequest<DataEnvelope<Refund[]> & { pagination?: { total?: number } }>(`/admin/refunds?${query.toString()}`);
+  return { refunds: response.data, total: response.pagination?.total };
+}
+
+export async function getRefund(id: number) {
+  return (await apiRequest<DataEnvelope<Refund>>(`/admin/refunds/${id}`)).data;
 }
 
 export async function approveRefund(id: number, note?: string) {

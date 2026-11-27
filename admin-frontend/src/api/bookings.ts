@@ -1,11 +1,15 @@
 import { apiRequest } from "./client";
 import type { AvailabilityBed, Booking, BookingAgreementResponse, BookingPaymentSummary, BookingStatus, DataEnvelope, ListEnvelope, RateCard, Room, RoomRate } from "../types/api";
 
-export async function listBookings(params: { limit: number; offset: number; search?: string }) {
+export async function listBookings(params: { limit: number; offset: number; search?: string; status?: string; queue?: string; academicSessionId?: string; leasePeriodId?: string }) {
   const query = new URLSearchParams({ limit: String(params.limit), offset: String(params.offset) });
   if (params.search) query.set("search", params.search);
-  const response = await apiRequest<ListEnvelope<Booking>>(`/admin/bookings?${query.toString()}`);
-  return { bookings: response.data, pagination: response.pagination };
+  if (params.status && params.status !== "all") query.set("status", params.status);
+  if (params.queue) query.set("queue", params.queue);
+  if (params.academicSessionId && params.academicSessionId !== "all") query.set("academicSessionId", params.academicSessionId);
+  if (params.leasePeriodId) query.set("leasePeriodId", params.leasePeriodId);
+  const response = await apiRequest<ListEnvelope<Booking> & { counts?: Record<string, number> }>(`/admin/bookings?${query.toString()}`);
+  return { bookings: response.data, pagination: response.pagination, counts: response.counts };
 }
 
 export async function getBooking(id: number) {

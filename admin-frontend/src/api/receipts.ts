@@ -1,13 +1,14 @@
 import { apiRequest } from "./client";
 import type { DataEnvelope, ListEnvelope, Receipt, ReceiptDetailData } from "../types/api";
 
-export async function listReceipts(params: { limit?: number; offset?: number; search?: string } = {}) {
+export async function listReceipts(params: { limit?: number; offset?: number; search?: string; status?: string } = {}) {
   const searchParams = new URLSearchParams();
   searchParams.set("limit", String(params.limit ?? 25));
   searchParams.set("offset", String(params.offset ?? 0));
   if (params.search) searchParams.set("search", params.search);
-  const response = await apiRequest<ListEnvelope<Receipt>>(`/admin/receipts?${searchParams.toString()}`);
-  return { receipts: response.data, pagination: response.pagination };
+  if (params.status && params.status !== "all") searchParams.set("status", params.status);
+  const response = await apiRequest<ListEnvelope<Receipt> & { counts?: { issued: number; voided: number; total: number } }>(`/admin/receipts?${searchParams.toString()}`);
+  return { receipts: response.data, pagination: response.pagination, counts: response.counts };
 }
 
 export async function getReceipt(id: number) {

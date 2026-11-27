@@ -1,11 +1,16 @@
 import { apiRequest } from "./client";
 import type { Booking, BookingPaymentSummary, DataEnvelope, ListEnvelope, Pagination, Payment, PaymentMethod, PaymentStatus } from "../types/api";
 
-export async function listPayments(params: { limit?: number; offset?: number; search?: string } = {}): Promise<{ payments: Payment[]; pagination: Pagination }> {
+export async function listPayments(params: { limit?: number; offset?: number; search?: string; status?: string; queue?: string; method?: string; academicSessionId?: string; leasePeriodId?: string } = {}): Promise<{ payments: Payment[]; pagination: Pagination; counts?: Record<string, number> }> {
   const query = new URLSearchParams({ limit: String(params.limit ?? 25), offset: String(params.offset ?? 0) });
   if (params.search) query.set("search", params.search);
-  const response = await apiRequest<ListEnvelope<Payment>>(`/admin/payments?${query.toString()}`);
-  return { payments: response.data, pagination: response.pagination };
+  if (params.status && params.status !== "all") query.set("status", params.status);
+  if (params.queue) query.set("queue", params.queue);
+  if (params.method && params.method !== "all") query.set("method", params.method);
+  if (params.academicSessionId) query.set("academicSessionId", params.academicSessionId);
+  if (params.leasePeriodId) query.set("leasePeriodId", params.leasePeriodId);
+  const response = await apiRequest<ListEnvelope<Payment> & { counts?: Record<string, number> }>(`/admin/payments?${query.toString()}`);
+  return { payments: response.data, pagination: response.pagination, counts: response.counts };
 }
 
 export async function getPayment(id: number) {

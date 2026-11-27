@@ -98,6 +98,28 @@ describe("ApplicationsPage", () => {
     expect(screen.queryByText("2026-08-20T10:00:00.000Z")).not.toBeInTheDocument();
   });
 
+  it("opens the exact application from the record query and shows workflow guidance", async () => {
+    localStorage.setItem("kissmet_admin_token", "token");
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/auth/me")) return json({ user: manager });
+      if (url.includes("/admin/applications?")) return envelope([submittedApplication]);
+      if (url.includes("/admin/institutions")) return envelope([institution]);
+      if (url.includes("/admin/academic-sessions")) return envelope([session]);
+      if (url.endsWith("/admin/documents")) return json({ ok: true, data: { documents: [documentRow], restrictedResidentIds: [] } });
+      if (url.endsWith("/admin/residents/7")) return json({ ok: true, data: resident });
+      if (url.endsWith("/admin/applications/11")) return json({ ok: true, data: submittedApplication });
+      if (url.includes("/admin/lease-periods")) return envelope(leasePeriods);
+      if (url.includes("/admin/rooms?")) return envelope(rooms);
+      if (url.includes("/admin/workflows/application/11")) return json({ ok: true, data: { subjectType: "application", subjectId: 11, available: true, status: "submitted", steps: [{ id: "submitted", label: "Submitted", state: "current", detail: null }], nextAction: { label: "Start review", permission: "application:write", responsibleRole: "Reception or Manager", blockedReason: null }, responsibleRole: "Reception or Manager", blockers: [] } });
+      return new Response(null, { status: 404 });
+    });
+    render(<MemoryRouter initialEntries={["/applications?queue=awaiting_review&record=11"]}><AuthProvider><ApplicationsPage /></AuthProvider></MemoryRouter>);
+    expect(await screen.findByText("Application Details")).toBeInTheDocument();
+    expect(await screen.findByText("Start review")).toBeInTheDocument();
+    expect(screen.getAllByText("KSM-APP-0011").length).toBeGreaterThan(0);
+  });
+
   it("opens application detail with document metadata only", async () => {
     renderWithFetch();
     await openOnlyViewButton();

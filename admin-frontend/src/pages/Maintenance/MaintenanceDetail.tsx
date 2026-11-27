@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { GuidedWorkflow } from "../../components/workflow/GuidedWorkflow";
 import { StatusBadge } from "../../components/common/StatusBadge";
 import type { Bed, Institution, MaintenanceRequest, Resident, Room, Staff } from "../../types/api";
 import { formatDateTime, formatStatus } from "../../utils/format";
@@ -8,6 +9,7 @@ import { MaintenanceActions } from "./MaintenanceActions";
 export function MaintenanceDetail({ request, resident, institution, room, bed, assignedStaff, permissions, saving, onAssign, onStart, onResolve, onClose, onCancel }: { request: MaintenanceRequest; resident?: Resident; institution?: Institution; room?: Room; bed?: Bed; assignedStaff?: Staff; permissions: { assign: boolean; update: boolean; resolve: boolean; close: boolean }; saving: boolean; onAssign: () => void; onStart: () => void; onResolve: () => void; onClose: () => void; onCancel: () => void }) {
   return (
     <div className="space-y-3">
+      <GuidedWorkflow subjectType="maintenance" subjectId={request.id} />
       <Section title="Request" rows={[["Request number", request.request_number], ["Status", <StatusBadge status={request.status} />], ["Priority", formatStatus(request.priority)], ["Category", formatStatus(request.category)], ["Issue", request.title], ["Description", request.description || "Not available"], ["Created date", formatDateTime(request.opened_at ?? request.created_at)], ["Resolved date", formatDateTime(request.resolved_at)], ["Closed date", formatDateTime(request.closed_at)]]} />
       <Section title="Resident" rows={[["Resident code", resident?.resident_code ?? "Not linked"], ["Full name", residentName(resident)], ["Student ID", resident?.student_id ?? "Not available"], ["Institution", institution?.name ?? "Not available"]]} />
       <Section title="Placement" rows={[["Academic session", "Not stored on maintenance request"], ["Room", request.room_id ? roomLabel(room) : "Not linked"], ["Bed", request.bed_id ? bedLabel(bed) : "Not linked"], ["Allocation context", "Not stored on maintenance request"]]} />
